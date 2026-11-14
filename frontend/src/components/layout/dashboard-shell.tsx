@@ -1,0 +1,280 @@
+'use client';
+
+import {
+  Briefcase,
+  CalendarDays,
+  ClipboardList,
+  ExternalLink,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Scissors,
+  Settings,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { logoutSession } from '@/lib/api/auth.api';
+import { ru } from '@/lib/i18n/ru';
+import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth.store';
+import type { Role } from '@/types/api';
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  roles: Role[];
+}
+
+const NAV_ITEMS: NavItem[] = [
+  {
+    href: '/dashboard',
+    label: ru.nav.overview,
+    icon: LayoutDashboard,
+    roles: ['OWNER'],
+  },
+  {
+    href: '/dashboard/schedule',
+    label: ru.nav.schedule,
+    icon: CalendarDays,
+    roles: ['OWNER', 'MASTER'],
+  },
+  {
+    href: '/dashboard/appointments',
+    label: ru.nav.appointments,
+    icon: ClipboardList,
+    roles: ['OWNER', 'MASTER'],
+  },
+  {
+    href: '/dashboard/services',
+    label: ru.nav.services,
+    icon: Briefcase,
+    roles: ['OWNER'],
+  },
+  {
+    href: '/dashboard/staff',
+    label: ru.nav.staff,
+    icon: Users,
+    roles: ['OWNER'],
+  },
+  {
+    href: '/dashboard/settings',
+    label: ru.nav.settings,
+    icon: Settings,
+    roles: ['OWNER'],
+  },
+];
+
+export function DashboardShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const company = useAuthStore((s) => s.company);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const visibleNavItems = NAV_ITEMS.filter((item) =>
+    user ? item.roles.includes(user.role) : false,
+  );
+
+  function isActivePath(href: string): boolean {
+    if (href === '/dashboard') {
+      return pathname === '/dashboard';
+    }
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    try {
+      await logoutSession();
+      toast.success(ru.auth.logoutSuccess);
+      router.replace('/login');
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen bg-muted/20">
+      {/* Desktop Sidebar */}
+      <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar md:flex">
+        <div className="flex h-16 items-center gap-2.5 border-b px-5">
+          <Link
+            href={user?.role === 'MASTER' ? '/dashboard/schedule' : '/dashboard'}
+            className="flex items-center gap-2.5 font-semibold"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Scissors className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="text-lg font-bold tracking-tight">{ru.brand.name}</span>
+          </Link>
+        </div>
+
+        <nav className="flex-1 space-y-1 p-3" aria-label="Основная навигация">
+          {visibleNavItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActivePath(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  active
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {company && (
+          <div className="border-t p-3">
+            <Link
+              href={`/b/${company.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-h-11 items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <span className="truncate">{ru.nav.publicPageLink}</span>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            </Link>
+          </div>
+        )}
+      </aside>
+
+      {/* Mobile Sheet Navigation */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden" role="dialog" aria-modal="true">
+          <div
+            className="fixed inset-0 bg-black/50 transition-opacity"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="relative z-10 flex w-72 max-w-[85vw] flex-col bg-sidebar shadow-xl">
+            <div className="flex h-16 items-center justify-between border-b px-4">
+              <div className="flex items-center gap-2.5 font-semibold">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Scissors className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="text-lg font-bold">{ru.brand.name}</span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="min-h-11 min-w-11"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label={ru.nav.closeMenu}
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </Button>
+            </div>
+
+            <nav className="flex-1 space-y-1 p-3" aria-label="Мобильная навигация">
+              {visibleNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActivePath(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={cn(
+                      'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                        : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {company && (
+              <div className="border-t p-3">
+                <Link
+                  href={`/b/${company.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex min-h-11 items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <span className="truncate">{ru.nav.publicPageLink}</span>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Column */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-background/95 px-4 backdrop-blur sm:px-6">
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="min-h-11 min-w-11 md:hidden"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label={ru.nav.openMenu}
+            >
+              <Menu className="h-5 w-5" aria-hidden="true" />
+            </Button>
+            {company && (
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold sm:text-base">{company.name}</span>
+                <Badge variant="outline" className="hidden sm:inline-flex">
+                  {company.timezone}
+                </Badge>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {user && (
+              <div className="flex items-center gap-2 text-right">
+                <div className="hidden sm:block">
+                  <p className="text-sm font-medium leading-none">{user.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{ru.roles[user.role]}</p>
+                </div>
+                <Badge variant="secondary" className="sm:hidden">
+                  {ru.roles[user.role]}
+                </Badge>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="min-h-11 gap-2 px-3"
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">{ru.auth.logout}</span>
+            </Button>
+          </div>
+        </header>
+
+        <main className="flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
+      </div>
+    </div>
+  );
+}

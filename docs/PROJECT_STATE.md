@@ -7,7 +7,7 @@
 - [x] **Phase 3**: Services, Staff & Working Hours (Backend)
 - [x] **Phase 4**: Appointments & Double-Booking Protection (Backend)
 - [x] **Phase 5**: Availability Engine & Public Booking API (Backend)
-- [ ] **Phase 6**: Frontend Foundation & Auth UI
+- [x] **Phase 6**: Frontend Foundation & Auth UI
 - [ ] **Phase 7**: Dashboard: Services, Staff, Settings
 - [ ] **Phase 8**: Dashboard: Schedule & Appointments
 - [ ] **Phase 9**: Public Booking Page (Client Flow)
@@ -37,7 +37,11 @@
   - `next`: 16.4.6
   - `react` / `react-dom`: 19.3.1
   - `tailwindcss` / `@tailwindcss/turbopack`: 4.3.5
-  - `shadcn`: 4.23.0 (`button`, `input`, `label`, `card`, `sonner`)
+  - `shadcn`: 4.23.0 (`button`, `input`, `label`, `card`, `sonner`, `badge`, `skeleton`)
+  - `zustand`: 5.1.0
+  - `axios`: 1.21.1
+  - `react-hook-form`: 7.92.0 / `@hookform/resolvers`: 7.0.6 / `zod`: 4.6.7
+  - `luxon`: 3.7.2 / `libphonenumber-js`: 1.13.16 / `lucide-react`: 1.73.0
 - **Infrastructure**:
   - PostgreSQL: `postgres:17-alpine` via `docker-compose.yml` (`zapis` and `zapis_test`)
 
