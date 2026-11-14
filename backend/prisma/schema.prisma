@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  MASTER
+}
+
+enum BusinessType {
+  BEAUTY_SALON
+  BARBERSHOP
+  AUTO_SERVICE
+  OTHER
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  ONLINE
+  STAFF
+}
+
+model Company {
+  id                   String        @id @default(uuid()) @db.Uuid
+  name                 String
+  slug                 String        @unique
+  businessType         BusinessType  @default(OTHER)
+  phone                String?
+  address              String?
+  timezone             String        @default("Asia/Bishkek")
+  currency             String        @default("KGS")
+  slotIntervalMin      Int           @default(30)
+  minLeadTimeMin       Int           @default(60)
+  maxAdvanceDays       Int           @default(60)
+  publicBookingEnabled Boolean       @default(true)
+  createdAt            DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime      @updatedAt @db.Timestamptz(3)
+  deletedAt            DateTime?     @db.Timestamptz(3)
+  users                User[]
+  services             Service[]
+  appointments         Appointment[]
+}
+
+model User {
+  id           String          @id @default(uuid()) @db.Uuid
+  companyId    String          @db.Uuid
+  role         Role
+  name         String
+  email        String?         @unique
+  passwordHash String?
+  phone        String?
+  tokenVersion Int             @default(0)
+  isActive     Boolean         @default(true)
+  isBookable   Boolean         @default(true)
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime?       @db.Timestamptz(3)
+  company      Company         @relation(fields: [companyId], references: [id])
+  services     MasterService[]
+  workingHours WorkingHours[]
+  appointments Appointment[]
+
+  @@index([companyId, deletedAt])
+}
+
+model Service {
+  id           String          @id @default(uuid()) @db.Uuid
+  companyId    String          @db.Uuid
+  name         String
+  description  String?
+  durationMin  Int
+  price        Decimal         @db.Decimal(10, 2)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime?       @db.Timestamptz(3)
+  company      Company         @relation(fields: [companyId], references: [id])
+  masters      MasterService[]
+  appointments Appointment[]
+
+  @@index([companyId, deletedAt])
+}
+
+model MasterService {
+  userId    String  @db.Uuid
+  serviceId String  @db.Uuid
+  user      User    @relation(fields: [userId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  @@id([userId, serviceId])
+  @@index([serviceId])
+}
+
+model WorkingHours {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @db.Uuid
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  user      User   @relation(fields: [userId], references: [id])
+
+  @@unique([userId, dayOfWeek])
+}
+
+model Appointment {
+  id           String            @id @default(uuid()) @db.Uuid
+  companyId    String            @db.Uuid
+  masterId     String            @db.Uuid
+  serviceId    String            @db.Uuid
+  clientName   String
+  clientPhone  String
+  clientNote   String?
+  internalNote String?
+  startAt      DateTime          @db.Timestamptz(3)
+  endAt        DateTime          @db.Timestamptz(3)
+  price        Decimal           @db.Decimal(10, 2)
+  status       AppointmentStatus @default(SCHEDULED)
+  source       AppointmentSource
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime?         @db.Timestamptz(3)
+  company      Company           @relation(fields: [companyId], references: [id])
+  master       User              @relation(fields: [masterId], references: [id])
+  service      Service           @relation(fields: [serviceId], references: [id])
+
+  @@index([companyId, startAt])
+  @@index([masterId, startAt, endAt])
+  @@index([companyId, clientPhone])
+}

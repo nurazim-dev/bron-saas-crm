@@ -2,7 +2,7 @@
 
 ## Phase Checklist
 - [x] **Phase 0**: Foundation & Tooling
-- [ ] **Phase 1**: Database & Prisma
+- [x] **Phase 1**: Database & Prisma
 - [ ] **Phase 2**: Auth, Company & RBAC (Backend)
 - [ ] **Phase 3**: Services, Staff & Working Hours (Backend)
 - [ ] **Phase 4**: Appointments & Double-Booking Protection (Backend)
@@ -13,12 +13,15 @@
 - [ ] **Phase 9**: Public Booking Page (Client Flow)
 - [ ] **Phase 10**: Hardening, E2E & Release Readiness
 
-## Installed Versions (Phase 0)
+## Installed Versions (Phase 1)
 - **Node.js**: v24.22.0 (`.nvmrc`: `24`)
 - **npm**: 11.19.1
 - **TypeScript**: 6.0.3
 - **Backend**:
   - `express`: 5.3.0
+  - `prisma` / `@prisma/client` / `@prisma/adapter-pg`: 7.10.1 (`pg`: 8.23.1)
+  - `argon2`: 0.45.2 (native `argon2id` verified)
+  - `luxon`: 3.7.2
   - `zod`: 4.6.7
   - `pino`: 10.4.0 / `pino-http`: 11.0.0 / `pino-pretty`: 13.2.0
   - `helmet`: 8.3.0
@@ -31,9 +34,8 @@
   - `react` / `react-dom`: 19.3.1
   - `tailwindcss` / `@tailwindcss/turbopack`: 4.3.5
   - `shadcn`: 4.23.0 (`button`, `input`, `label`, `card`, `sonner`)
-  - `lucide-react`: installed via shadcn
 - **Infrastructure**:
-  - PostgreSQL: `postgres:17-alpine` via `docker-compose.yml` (creates `zapis` and `zapis_test`)
+  - PostgreSQL: `postgres:17-alpine` via `docker-compose.yml` (`zapis` and `zapis_test`)
 
 ## Ports & URLs
 - **Frontend (Next.js)**: `http://localhost:3000`
@@ -43,21 +45,27 @@
 ## How to Run
 ```bash
 npm install
-npm run db:up        # Starts PostgreSQL container (requires Docker daemon running)
+npm run db:up        # Starts PostgreSQL container (zapis & zapis_test)
+npm run db:migrate   # Applies Prisma migrations to dev DB
+npm run db:seed      # Seeds Demo Barbershop data into dev DB
+npm run db:reset     # Resets local dev DB (localhost-only guard) + runs migrations + seeds
 npm run dev          # Starts backend (:4000) and frontend (:3000)
 npm run typecheck    # Runs tsc across backend and frontend
 npm run lint         # Runs ESLint (--max-warnings 0) and Prettier check
-npm run test         # Runs Vitest suite in backend
+npm run test         # Runs Vitest suite in backend against zapis_test
 npm run build        # Production build for backend and frontend
 ```
+
+## Demo Seed Credentials (Development Only)
+- **Company**: `Demo Barbershop` (slug: `demo-barbershop`, timezone: `Asia/Bishkek`, currency: `KGS`)
+- **Owner**: `owner@demo.zapis.kg` / `Demo12345!`
+- **Master (with login)**: `master@demo.zapis.kg` / `Demo12345!`
+- **Master (without login)**: Нурлан Осмонов (`email: null`)
 
 ## Environment Variables
 - `backend/.env` (from `backend/.env.example`): `NODE_ENV`, `PORT`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `CORS_ORIGINS`, `TRUST_PROXY`, `LOG_LEVEL`
 - `backend/.env.test`: same keys, targeting `zapis_test` and `LOG_LEVEL=silent`
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
-## Seed Credentials
-- To be added in Phase 1 (`owner@demo.zapis.kg` / `master@demo.zapis.kg` / `Demo12345!`).
-
 ## Known Issues / Risks
-- Docker Desktop daemon must be running before starting **Phase 1** (`npm run db:up`).
+- None.

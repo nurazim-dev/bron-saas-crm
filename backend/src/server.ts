@@ -3,6 +3,7 @@ import './config/utc.js';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
+import { disconnectPrisma } from './lib/prisma.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -35,8 +36,15 @@ function shutdown(signal: NodeJS.Signals): void {
       logger.error({ err }, 'Error while closing HTTP server');
       process.exit(1);
     }
-    logger.info('Shutdown complete');
-    process.exit(0);
+    disconnectPrisma()
+      .then(() => {
+        logger.info('Shutdown complete');
+        process.exit(0);
+      })
+      .catch((dbErr: unknown) => {
+        logger.error({ err: dbErr }, 'Error while disconnecting Prisma');
+        process.exit(1);
+      });
   });
   server.closeIdleConnections();
 }

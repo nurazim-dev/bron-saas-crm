@@ -1,11 +1,12 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
+import { getHealth } from '../../src/modules/health/health.service.js';
 
 describe('GET /api/v1/health', () => {
   const app = createApp();
 
-  it('returns 200 with status ok', async () => {
+  it('returns 200 with status ok and database up when PostgreSQL is reachable', async () => {
     const res = await request(app).get('/api/v1/health');
 
     expect(res.status).toBe(200);
@@ -13,10 +14,18 @@ describe('GET /api/v1/health', () => {
     expect(res.body).toEqual({
       data: {
         status: 'ok',
+        database: 'up',
         uptimeSec: expect.any(Number) as number,
         timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) as string,
       },
     });
+  });
+
+  it('returns degraded status and database down when the DB probe fails', async () => {
+    const health = await getHealth(() => Promise.reject(new Error('DB connection refused')));
+
+    expect(health.status).toBe('degraded');
+    expect(health.database).toBe('down');
   });
 
   it('generates an X-Request-Id when none is provided', async () => {

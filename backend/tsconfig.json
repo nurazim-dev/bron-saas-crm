@@ -23,5 +23,6 @@
     "sourceMap": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "vitest.config.ts"]
+  "include": ["src", "tests", "prisma", "scripts", "prisma.config.ts", "vitest.config.ts"],
+  "exclude": ["dist", "node_modules", "src/generated"]
 }

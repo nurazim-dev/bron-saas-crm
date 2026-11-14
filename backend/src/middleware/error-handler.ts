@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, Response } from 'express';
 import { ZodError } from 'zod';
+import { Prisma } from '../generated/prisma/client.js';
 import type { ErrorCode, ErrorDetail, ErrorResponseBody } from '../lib/errors.js';
 import { AppError } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
@@ -25,6 +26,37 @@ function zodDetails(error: ZodError): ErrorDetail[] {
     path: issue.path.map(String).join('.'),
     message: issue.message,
   }));
+}
+
+function extractSqlState(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const record = err as Record<string, unknown>;
+  if (typeof record.code === 'string' && record.code === '23P01') {
+    return '23P01';
+  }
+  if (typeof record.meta === 'object' && record.meta !== null) {
+    const meta = record.meta as Record<string, unknown>;
+    if (typeof meta.code === 'string') return meta.code;
+    if (typeof meta.driverAdapterError === 'object' && meta.driverAdapterError !== null) {
+      const driverErr = meta.driverAdapterError as Record<string, unknown>;
+      if (typeof driverErr.cause === 'object' && driverErr.cause !== null) {
+        const cause = driverErr.cause as Record<string, unknown>;
+        if (typeof cause.originalCode === 'string') return cause.originalCode;
+        if (typeof cause.code === 'string') return cause.code;
+      }
+    }
+  }
+  if (
+    typeof record.message === 'string' &&
+    record.message.includes('Appointment_no_overlapping_active_slots')
+  ) {
+    return '23P01';
+  }
+  return undefined;
+}
+
+export function isExclusionConstraintError(err: unknown): boolean {
+  return extractSqlState(err) === '23P01';
 }
 
 export function sendError(
@@ -60,6 +92,28 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
   if (err instanceof ZodError) {
     sendError(res, req.requestId, 400, 'VALIDATION_ERROR', 'Invalid request', zodDetails(err));
     return;
+  }
+
+  if (isExclusionConstraintError(err)) {
+    sendError(
+      res,
+      req.requestId,
+      409,
+      'SLOT_ALREADY_BOOKED',
+      'Selected time slot is already booked',
+    );
+    return;
+  }
+
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002') {
+      sendError(res, req.requestId, 409, 'CONFLICT', 'Resource already exists');
+      return;
+    }
+    if (err.code === 'P2025') {
+      sendError(res, req.requestId, 404, 'NOT_FOUND', 'Resource not found');
+      return;
+    }
   }
 
   if (isBodyParserError(err)) {

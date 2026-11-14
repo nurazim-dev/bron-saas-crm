@@ -9,6 +9,7 @@ out/
 coverage/
 *.tsbuildinfo
 next-env.d.ts
+backend/src/generated/
 
 # env files (only .env.example is committed)
 .env

@@ -1,6 +1,8 @@
 dist
 coverage
 node_modules
+src/generated
+prisma/migrations
 logs
 *.log
 *.tsbuildinfo
