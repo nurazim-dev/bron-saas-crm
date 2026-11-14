@@ -1,11 +1,13 @@
 import {
   AppointmentStatus,
+  AuditActor,
   Prisma,
   Role,
   type MasterService,
   type User,
   type WorkingHours,
 } from '../../generated/prisma/client.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../../lib/password.js';
@@ -120,6 +122,7 @@ export async function getStaffByIdForActor(
 export async function createStaffForCompany(
   companyId: string,
   input: CreateStaffBody,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
 ): Promise<StaffDto> {
   const normalizedPhone =
     input.phone !== undefined && input.phone !== null && input.phone.length > 0
@@ -163,6 +166,16 @@ export async function createStaffForCompany(
           where: { id: existingByEmail.id },
           include: staffInclude,
         });
+        await audit(prisma, {
+          actorType: AuditActor.USER,
+          actorId: auditMeta?.actorId ?? null,
+          companyId,
+          action: 'staff.create',
+          entityType: 'User',
+          entityId: restored.id,
+          metadata: { restored: true, role: restored.role, name: restored.name },
+          context: auditMeta?.context,
+        });
         return serializeStaff(restored);
       }
 
@@ -184,6 +197,16 @@ export async function createStaffForCompany(
       },
       include: staffInclude,
     });
+    await audit(prisma, {
+      actorType: AuditActor.USER,
+      actorId: auditMeta?.actorId ?? null,
+      companyId,
+      action: 'staff.create',
+      entityType: 'User',
+      entityId: created.id,
+      metadata: { restored: false, role: created.role, name: created.name },
+      context: auditMeta?.context,
+    });
     return serializeStaff(created);
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -197,6 +220,7 @@ export async function updateStaffForCompany(
   companyId: string,
   staffId: string,
   input: UpdateStaffBody,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
 ): Promise<StaffDto> {
   const existing = await prisma.user.findFirst({
     where: { id: staffId, companyId },
@@ -282,6 +306,22 @@ export async function updateStaffForCompany(
       },
       include: staffInclude,
     });
+    const isDeactivation = input.isActive === false && existing.isActive;
+    await audit(prisma, {
+      actorType: AuditActor.USER,
+      actorId: auditMeta?.actorId ?? null,
+      companyId,
+      action: isDeactivation ? 'staff.deactivate' : 'staff.update',
+      entityType: 'User',
+      entityId: updated.id,
+      metadata: {
+        updatedFields: Object.keys(input).filter(
+          (k) => input[k as keyof UpdateStaffBody] !== undefined,
+        ),
+        isActive: updated.isActive,
+      },
+      context: auditMeta?.context,
+    });
     return serializeStaff(updated);
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -291,7 +331,11 @@ export async function updateStaffForCompany(
   }
 }
 
-export async function deleteStaffForCompany(companyId: string, staffId: string): Promise<void> {
+export async function deleteStaffForCompany(
+  companyId: string,
+  staffId: string,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
+): Promise<void> {
   const existing = await prisma.user.findFirst({
     where: { id: staffId, companyId },
   });
@@ -340,6 +384,17 @@ export async function deleteStaffForCompany(companyId: string, staffId: string):
       },
     }),
   ]);
+
+  await audit(prisma, {
+    actorType: AuditActor.USER,
+    actorId: auditMeta?.actorId ?? null,
+    companyId,
+    action: 'staff.delete',
+    entityType: 'User',
+    entityId: staffId,
+    metadata: { name: existing.name },
+    context: auditMeta?.context,
+  });
 }
 
 export async function replaceStaffServicesForCompany(

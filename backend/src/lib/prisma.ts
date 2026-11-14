@@ -227,6 +227,31 @@ export const prismaUnfiltered: PrismaClient = baseClient;
  */
 export const prisma = applySoftDeleteExtension(baseClient);
 
+export async function withAdvisoryLock<T>(
+  lockKey: number,
+  fn: () => Promise<T>,
+): Promise<{ acquired: boolean; result?: T }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{ acquired: boolean }>(
+      'SELECT pg_try_advisory_lock($1) AS acquired',
+      [lockKey],
+    );
+    const acquired = res.rows[0]?.acquired === true;
+    if (!acquired) {
+      return { acquired: false };
+    }
+    try {
+      const result = await fn();
+      return { acquired: true, result };
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [lockKey]).catch(() => undefined);
+    }
+  } finally {
+    client.release();
+  }
+}
+
 export async function disconnectPrisma(): Promise<void> {
   await baseClient.$disconnect();
   await pool.end();

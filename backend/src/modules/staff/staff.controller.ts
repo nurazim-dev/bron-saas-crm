@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { extractAuditContext } from '../../lib/audit.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody, getValidatedParams } from '../../middleware/validate.js';
 import type {
@@ -34,7 +35,10 @@ export const getStaffController: RequestHandler = async (req, res) => {
 export const createStaffController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const body = getValidatedBody<CreateStaffBody>(req);
-  const staff = await createStaffForCompany(actor.companyId, body);
+  const staff = await createStaffForCompany(actor.companyId, body, {
+    actorId: actor.userId,
+    context: extractAuditContext(req),
+  });
   res.status(201).json({ data: staff });
 };
 
@@ -42,14 +46,20 @@ export const updateStaffController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const { id } = getValidatedParams<StaffIdParams>(req);
   const body = getValidatedBody<UpdateStaffBody>(req);
-  const staff = await updateStaffForCompany(actor.companyId, id, body);
+  const staff = await updateStaffForCompany(actor.companyId, id, body, {
+    actorId: actor.userId,
+    context: extractAuditContext(req),
+  });
   res.status(200).json({ data: staff });
 };
 
 export const deleteStaffController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const { id } = getValidatedParams<StaffIdParams>(req);
-  await deleteStaffForCompany(actor.companyId, id);
+  await deleteStaffForCompany(actor.companyId, id, {
+    actorId: actor.userId,
+    context: extractAuditContext(req),
+  });
   res.status(204).send();
 };
 

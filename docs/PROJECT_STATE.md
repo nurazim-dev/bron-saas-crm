@@ -13,7 +13,7 @@
 - [x] **Phase 9**: Public Booking Page (Client Flow)
 - [x] **Phase 10**: Hardening, E2E & Release Readiness
 - [x] **Phase 11**: Audit, Baseline & Niche Narrowing (v2 Foundation, `lib/clock.ts`, BR-12 Any-Master Concurrency, `BusinessType = BARBERSHOP | BEAUTY_SALON`)
-- [ ] **Phase 12**: Notification Infrastructure (Outbox, Worker, Email, In-App, Audit Log)
+- [x] **Phase 12**: Notification Infrastructure (Outbox, Worker, Email, In-App, Audit Log)
 - [ ] **Phase 13**: Password Recovery (Email + Owner-Generated Reset Links)
 - [ ] **Phase 14**: Billing Core (Plans, Subscriptions, Trial, Grace, Locked, Manual Payments)
 - [ ] **Phase 15**: Admin Panel Backend (`PlatformAdmin`, 2FA TOTP, Companies, Payments, Impersonation)
@@ -46,6 +46,7 @@
   - `pino`: 10.4.0 / `pino-http`: 11.0.0 / `pino-pretty`: 13.2.0
   - `helmet`: 8.3.0
   - `cors`: 2.8.6
+  - `nodemailer`: 10.5.0 (`@types/nodemailer`: 8.0.2)
   - `tsx`: 4.23.15
   - `vitest`: 5.1.0 / `supertest`: 7.3.2
   - `eslint`: 9.39.5 / `typescript-eslint`: 8.72.2 / `prettier`: 3.10.1
@@ -62,6 +63,7 @@
   - `@playwright/test`: 1.65.1 (Chromium E2E suite)
 - **Infrastructure & CI**:
   - PostgreSQL: `postgres:17-alpine` via `docker-compose.yml` (`zapis` and `zapis_test`)
+  - Mailpit: `axllent/mailpit:latest` via `docker-compose.yml` (SMTP `:1025`, Web UI & API `:8025`)
   - Containers: `backend/Dockerfile`, `frontend/Dockerfile` (multi-stage `node:24-alpine`, non-root `node` user)
   - CI: `.github/workflows/ci.yml`
 
@@ -69,15 +71,17 @@
 - **Frontend (Next.js)**: `http://localhost:3000`
 - **Backend (Express)**: `http://localhost:4000` (API base: `/api/v1`, proxied via Next.js `/api/:path*`)
 - **PostgreSQL**: `localhost:5432` (`zapis` dev DB, `zapis_test` test DB)
+- **Mailpit UI / HTTP API**: `http://localhost:8025` (SMTP on `localhost:1025`)
 
 ## How to Run
 ```bash
 npm install
-npm run db:up        # Starts PostgreSQL container (zapis & zapis_test)
+npm run db:up        # Starts PostgreSQL and Mailpit containers
 npm run db:migrate   # Applies Prisma migrations to dev DB
 npm run db:seed      # Seeds Demo Barbershop data into dev DB
 npm run db:reset     # Resets local dev DB (localhost-only guard) + runs migrations + seeds
 npm run dev          # Starts backend (:4000) and frontend (:3000)
+npm run worker       # Starts standalone background outbox worker
 npm run typecheck    # Runs tsc across backend and frontend
 npm run lint         # Runs ESLint (--max-warnings 0) and Prettier check
 npm run test         # Runs Vitest suite in backend against zapis_test
@@ -92,9 +96,9 @@ npm run test:e2e     # Runs Playwright Chromium E2E suite
 - **Master (without login)**: Нурлан Осмонов (`email: null`)
 
 ## Environment Variables
-- `backend/.env` (from `backend/.env.example`): `NODE_ENV`, `PORT`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `CORS_ORIGINS`, `TRUST_PROXY`, `LOG_LEVEL`, optional rate-limit overrides (`RATE_LIMIT_*`)
+- `backend/.env` (from `backend/.env.example`): `NODE_ENV`, `PORT`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `CORS_ORIGINS`, `TRUST_PROXY`, `LOG_LEVEL`, `APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `CLIENT_MESSAGE_PROVIDER`, `WORKER_ENABLED`, `WORKER_INTERVAL_MS`, optional rate-limit overrides (`RATE_LIMIT_*`)
 - `backend/.env.test`: same keys, targeting `zapis_test` and `LOG_LEVEL=silent`
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
 ## Known Issues / Risks
-- None. Phases 0–11 are complete and verified. Ready for Phase 12.
+- None. Phases 0–12 are complete and verified. Ready for Phase 13.

@@ -1,4 +1,11 @@
-import { Prisma, Role, type Company, type User } from '../../generated/prisma/client.js';
+import {
+  AuditActor,
+  Prisma,
+  Role,
+  type Company,
+  type User,
+} from '../../generated/prisma/client.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/jwt.js';
 import { hashPassword, verifyDummyPassword, verifyPassword } from '../../lib/password.js';
@@ -197,6 +204,7 @@ export async function changeUserPassword(
   userId: string,
   companyId: string,
   input: ChangePasswordBody,
+  auditContext?: AuditRequestContext,
 ): Promise<AuthSessionResult> {
   const user = await prisma.user.findFirst({
     where: { id: userId, companyId },
@@ -220,6 +228,16 @@ export async function changeUserPassword(
       passwordHash: newPasswordHash,
       tokenVersion: { increment: 1 },
     },
+  });
+
+  await audit(prisma, {
+    actorType: AuditActor.USER,
+    actorId: user.id,
+    companyId,
+    action: 'auth.password_change',
+    entityType: 'User',
+    entityId: user.id,
+    context: auditContext,
   });
 
   return issueSessionTokens(updatedUser, user.company);

@@ -24,10 +24,10 @@ Base path: `/api/v1`
 ## 1. Health
 
 ### `GET /api/v1/health`
-Checks HTTP server and PostgreSQL connectivity (`SELECT 1`).
+Checks HTTP server, PostgreSQL connectivity (`SELECT 1`), and background worker heartbeat freshness (`WorkerHeartbeat`).
 - **Auth**: None
 - **Responses**:
-  - `200 OK`: `{ "data": { "status": "ok", "database": "up", "uptimeSec": 12, "timestamp": "2026-11-14T09:00:00.000Z" } }`
+  - `200 OK`: `{ "data": { "status": "ok" | "degraded", "database": "up", "worker": { "status": "up" | "stale" | "disabled", "lastBeatAt": "2026-11-14T09:00:00.000Z" | null }, "uptimeSec": 12, "timestamp": "2026-11-14T09:00:00.000Z" } }`
   - `503 Service Unavailable`: `{ "data": { "status": "degraded", "database": "down", ... } }`
 
 ---
@@ -523,5 +523,41 @@ Creates a client online booking (`source = "ONLINE"`). Enforces **BR-3**, **BR-4
   - `409 CONFLICT`: Phone number already has 3 upcoming scheduled appointments in this company.
   - `422 SLOT_NOT_AVAILABLE`: Off-grid, outside working hours, day off, past/lead-time violation, or beyond `maxAdvanceDays`.
   - `429 RATE_LIMITED`: IP rate limit exceeded.
+
+---
+
+## 8. In-App Notifications (`/api/v1/notifications`)
+
+Scoped strictly to the authenticated user (`companyId` + `userId` from verified JWT). Cross-tenant or cross-user IDs return `404 NOT_FOUND`.
+
+### `GET /api/v1/notifications`
+Lists notifications for the current user, ordered by `createdAt DESC`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Query Parameters**:
+  - `page` (optional, default `1`): integer `>= 1`
+  - `limit` (optional, default `20`): integer `1..100`
+  - `unreadOnly` (optional): `"true" | "false"`
+- **Responses**:
+  - `200 OK`: `{ "data": [InAppNotificationDto, ...], "meta": { "page": 1, "limit": 20, "total": 4 } }`
+
+### `GET /api/v1/notifications/unread-count`
+Returns the unread notification count for the current user.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Responses**:
+  - `200 OK`: `{ "data": { "unreadCount": 2 } }`
+
+### `POST /api/v1/notifications/:id/read`
+Marks a single notification as read (`readAt = now()`). Idempotent if already read.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Responses**:
+  - `200 OK`: `{ "data": InAppNotificationDto }`
+  - `404 NOT_FOUND`: Notification does not exist or belongs to another user/company.
+
+### `POST /api/v1/notifications/read-all`
+Marks all unread notifications for the current user as read.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Responses**:
+  - `200 OK`: `{ "data": { "updatedCount": 3 } }`
+
 
 

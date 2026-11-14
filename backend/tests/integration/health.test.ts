@@ -1,10 +1,18 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
+import { FakeClock, resetClock, setClock } from '../../src/lib/clock.js';
+import { prisma } from '../../src/lib/prisma.js';
 import { getHealth } from '../../src/modules/health/health.service.js';
+import { WORKER_HEARTBEAT_NAME } from '../../src/worker/runner.js';
 
 describe('GET /api/v1/health', () => {
   const app = createApp();
+
+  afterEach(async () => {
+    resetClock();
+    await prisma.workerHeartbeat.deleteMany();
+  });
 
   it('returns 200 with status ok and database up when PostgreSQL is reachable', async () => {
     const res = await request(app).get('/api/v1/health');
@@ -15,8 +23,66 @@ describe('GET /api/v1/health', () => {
       data: {
         status: 'ok',
         database: 'up',
+        worker: {
+          status: 'disabled',
+          lastBeatAt: null,
+        },
         uptimeSec: expect.any(Number) as number,
         timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) as string,
+      },
+    });
+  });
+
+  it('returns 200 with status degraded when worker heartbeat is stale (> 2 min)', async () => {
+    const clock = new FakeClock(new Date('2026-11-14T12:00:00.000Z'));
+    setClock(clock);
+
+    await prisma.workerHeartbeat.create({
+      data: {
+        name: WORKER_HEARTBEAT_NAME,
+        beatAt: new Date('2026-11-14T11:57:00.000Z'), // 3 minutes old
+      },
+    });
+
+    const res = await request(app).get('/api/v1/health');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      data: {
+        status: 'degraded',
+        database: 'up',
+        worker: {
+          status: 'stale',
+          lastBeatAt: '2026-11-14T11:57:00.000Z',
+        },
+        uptimeSec: expect.any(Number) as number,
+        timestamp: '2026-11-14T12:00:00.000Z',
+      },
+    });
+  });
+
+  it('returns 200 with worker up when worker heartbeat is fresh', async () => {
+    const clock = new FakeClock(new Date('2026-11-14T12:00:00.000Z'));
+    setClock(clock);
+
+    await prisma.workerHeartbeat.create({
+      data: {
+        name: WORKER_HEARTBEAT_NAME,
+        beatAt: new Date('2026-11-14T11:59:30.000Z'), // 30s old
+      },
+    });
+
+    const res = await request(app).get('/api/v1/health');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      data: {
+        status: 'ok',
+        database: 'up',
+        worker: {
+          status: 'up',
+          lastBeatAt: '2026-11-14T11:59:30.000Z',
+        },
+        uptimeSec: expect.any(Number) as number,
+        timestamp: '2026-11-14T12:00:00.000Z',
       },
     });
   });

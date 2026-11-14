@@ -1,5 +1,6 @@
 import type { CookieOptions, RequestHandler, Response } from 'express';
 import { env } from '../../config/env.js';
+import { extractAuditContext } from '../../lib/audit.js';
 import { parseDurationToMs, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH } from '../../lib/jwt.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody } from '../../middleware/validate.js';
@@ -89,7 +90,12 @@ export const meController: RequestHandler = async (req, res) => {
 export const changePasswordController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const body = getValidatedBody<ChangePasswordBody>(req);
-  const result = await changeUserPassword(actor.userId, actor.companyId, body);
+  const result = await changeUserPassword(
+    actor.userId,
+    actor.companyId,
+    body,
+    extractAuditContext(req),
+  );
   setRefreshCookie(res, result.refreshToken);
   res.status(200).json({
     data: {

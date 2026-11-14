@@ -34,6 +34,18 @@ const corsOriginsSchema = z
   )
   .pipe(z.array(z.url()));
 
+const booleanStringSchema = (defaultVal: boolean) =>
+  z
+    .string()
+    .trim()
+    .default(defaultVal ? 'true' : 'false')
+    .transform((value, ctx): boolean => {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      ctx.addIssue({ code: 'custom', message: 'must be "true" or "false"' });
+      return z.NEVER;
+    });
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
@@ -45,6 +57,20 @@ const envSchema = z.object({
   CORS_ORIGINS: corsOriginsSchema,
   TRUST_PROXY: trustProxySchema,
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  APP_URL: z.url().default('http://localhost:3000'),
+  SMTP_HOST: z.string().trim().min(1).default('localhost'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  SMTP_SECURE: booleanStringSchema(false),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+  MAIL_FROM: z.string().trim().min(3).default('Zapis.kg <noreply@zapis.kg>'),
+  TELEGRAM_MODE: z.enum(['off', 'polling', 'webhook']).default('off'),
+  TELEGRAM_BOT_TOKEN: z.string().default(''),
+  TELEGRAM_BOT_USERNAME: z.string().default(''),
+  TELEGRAM_WEBHOOK_SECRET: z.string().default(''),
+  CLIENT_MESSAGE_PROVIDER: z.string().trim().min(1).default('off'),
+  WORKER_ENABLED: booleanStringSchema(false),
+  WORKER_INTERVAL_MS: z.coerce.number().int().min(500).max(300_000).default(5000),
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().min(1).default(300),
   RATE_LIMIT_GLOBAL_WINDOW_MS: z.coerce
     .number()

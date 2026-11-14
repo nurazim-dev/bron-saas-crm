@@ -1,4 +1,11 @@
-import { AppointmentStatus, Prisma, Role, type Service } from '../../generated/prisma/client.js';
+import {
+  AppointmentStatus,
+  AuditActor,
+  Prisma,
+  Role,
+  type Service,
+} from '../../generated/prisma/client.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
@@ -115,7 +122,11 @@ export async function updateServiceForCompany(
   return serializeService(updated);
 }
 
-export async function deleteServiceForCompany(companyId: string, serviceId: string): Promise<void> {
+export async function deleteServiceForCompany(
+  companyId: string,
+  serviceId: string,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
+): Promise<void> {
   const existing = await prisma.service.findFirst({
     where: { id: serviceId, companyId },
   });
@@ -149,4 +160,14 @@ export async function deleteServiceForCompany(companyId: string, serviceId: stri
 
   await prisma.masterService.deleteMany({ where: { serviceId } });
   await prisma.service.delete({ where: { id: serviceId } });
+  await audit(prisma, {
+    actorType: AuditActor.USER,
+    actorId: auditMeta?.actorId ?? null,
+    companyId,
+    action: 'service.delete',
+    entityType: 'Service',
+    entityId: serviceId,
+    metadata: { name: existing.name },
+    context: auditMeta?.context,
+  });
 }

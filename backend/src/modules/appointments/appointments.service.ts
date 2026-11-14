@@ -1,10 +1,12 @@
 import {
   AppointmentSource,
   AppointmentStatus,
+  AuditActor,
   Prisma,
   Role,
   type Appointment,
 } from '../../generated/prisma/client.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { addDurationMsUtc, addMinutesUtc } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
@@ -545,6 +547,7 @@ export async function changeAppointmentStatusForActor(
 export async function deleteAppointmentForCompany(
   companyId: string,
   appointmentId: string,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
 ): Promise<void> {
   const existing = await prisma.appointment.findFirst({
     where: { id: appointmentId, companyId },
@@ -556,5 +559,20 @@ export async function deleteAppointmentForCompany(
 
   await prisma.appointment.delete({
     where: { id: existing.id },
+  });
+
+  await audit(prisma, {
+    actorType: AuditActor.USER,
+    actorId: auditMeta?.actorId ?? null,
+    companyId,
+    action: 'appointment.delete',
+    entityType: 'Appointment',
+    entityId: existing.id,
+    metadata: {
+      masterId: existing.masterId,
+      status: existing.status,
+      startAt: existing.startAt.toISOString(),
+    },
+    context: auditMeta?.context,
   });
 }

@@ -1,4 +1,10 @@
-import { Prisma, type BusinessType, type Company } from '../../generated/prisma/client.js';
+import {
+  AuditActor,
+  Prisma,
+  type BusinessType,
+  type Company,
+} from '../../generated/prisma/client.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
@@ -53,6 +59,7 @@ export async function getCompanyById(companyId: string): Promise<CompanyDto> {
 export async function updateCompanyById(
   companyId: string,
   input: UpdateCompanyBody,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
 ): Promise<CompanyDto> {
   const existing = await prisma.company.findUnique({
     where: { id: companyId },
@@ -103,6 +110,18 @@ export async function updateCompanyById(
     const updated = await prisma.company.update({
       where: { id: companyId },
       data: updateData,
+    });
+    await audit(prisma, {
+      actorType: AuditActor.USER,
+      actorId: auditMeta?.actorId ?? null,
+      companyId,
+      action: 'company.update',
+      entityType: 'Company',
+      entityId: companyId,
+      metadata: {
+        updatedFields: Object.keys(updateData),
+      },
+      context: auditMeta?.context,
     });
     return serializeCompany(updated);
   } catch (err) {

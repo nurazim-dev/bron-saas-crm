@@ -12,6 +12,10 @@ const REDACTED_PATHS = [
   '*.token',
   '*.accessToken',
   '*.refreshToken',
+  '*.manageToken',
+  '*.mfaToken',
+  '*.recoveryCode',
+  '*.totp',
 ];
 
 export const logger = pino({

@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { extractAuditContext } from '../../lib/audit.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody, getValidatedParams } from '../../middleware/validate.js';
 import type { CreateServiceBody, ServiceIdParams, UpdateServiceBody } from './services.schemas.js';
@@ -41,6 +42,9 @@ export const updateServiceController: RequestHandler = async (req, res) => {
 export const deleteServiceController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const { id } = getValidatedParams<ServiceIdParams>(req);
-  await deleteServiceForCompany(actor.companyId, id);
+  await deleteServiceForCompany(actor.companyId, id, {
+    actorId: actor.userId,
+    context: extractAuditContext(req),
+  });
   res.status(204).send();
 };

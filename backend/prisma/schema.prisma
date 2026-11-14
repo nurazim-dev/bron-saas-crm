@@ -29,6 +29,33 @@ enum AppointmentSource {
   STAFF
 }
 
+enum Locale {
+  RU
+  KY
+}
+
+enum NotificationChannel {
+  EMAIL
+  TELEGRAM
+  SMS
+  WHATSAPP
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+  SKIPPED
+}
+
+enum AuditActor {
+  ADMIN
+  USER
+  SYSTEM
+}
+
 model Company {
   id                   String        @id @default(uuid()) @db.Uuid
   name                 String
@@ -48,6 +75,7 @@ model Company {
   users                User[]
   services             Service[]
   appointments         Appointment[]
+  inAppNotifications   InAppNotification[]
 }
 
 model User {
@@ -65,9 +93,10 @@ model User {
   updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
   deletedAt    DateTime?       @db.Timestamptz(3)
   company      Company         @relation(fields: [companyId], references: [id])
-  services     MasterService[]
-  workingHours WorkingHours[]
-  appointments Appointment[]
+  services           MasterService[]
+  workingHours       WorkingHours[]
+  appointments       Appointment[]
+  inAppNotifications InAppNotification[]
 
   @@index([companyId, deletedAt])
 }
@@ -135,4 +164,69 @@ model Appointment {
   @@index([companyId, startAt])
   @@index([masterId, startAt, endAt])
   @@index([companyId, clientPhone])
+}
+
+model OutboxMessage {
+  id            String              @id @default(uuid()) @db.Uuid
+  companyId     String?             @db.Uuid
+  channel       NotificationChannel
+  kind          String
+  recipient     String
+  toUserId      String?             @db.Uuid
+  appointmentId String?             @db.Uuid
+  locale        Locale              @default(RU)
+  payload       Json
+  dedupeKey     String              @unique
+  status        OutboxStatus        @default(PENDING)
+  attempts      Int                 @default(0)
+  maxAttempts   Int                 @default(5)
+  scheduledFor  DateTime            @db.Timestamptz(3)
+  lockedAt      DateTime?           @db.Timestamptz(3)
+  sentAt        DateTime?           @db.Timestamptz(3)
+  lastError     String?
+  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
+
+  @@index([status, scheduledFor])
+  @@index([companyId, createdAt])
+}
+
+model InAppNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  userId    String    @db.Uuid
+  kind      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  company   Company   @relation(fields: [companyId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt, createdAt])
+  @@index([companyId, userId, createdAt])
+}
+
+model AuditLog {
+  id         String     @id @default(uuid()) @db.Uuid
+  actorType  AuditActor
+  actorId    String?    @db.Uuid
+  companyId  String?    @db.Uuid
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([companyId, createdAt])
+  @@index([actorType, actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model WorkerHeartbeat {
+  name   String   @id
+  beatAt DateTime @db.Timestamptz(3)
 }
