@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import type { ApiSuccessEnvelope, StaffDto, WorkingHoursDto } from '@/types/api';
+import type { ApiSuccessEnvelope, Role, StaffDto, WorkingHoursDto } from '@/types/api';
 
 export interface CreateStaffPayload {
   name: string;
@@ -27,6 +27,17 @@ export async function listStaff(): Promise<StaffDto[]> {
 export async function getStaff(id: string): Promise<StaffDto> {
   const res = await apiClient.get<ApiSuccessEnvelope<StaffDto>>(`/staff/${id}`);
   return res.data.data;
+}
+
+/**
+ * Fetches all company staff for OWNER (`GET /staff`), or only own staff record for MASTER (`GET /staff/:id`).
+ */
+export async function listVisibleStaffForRole(userId: string, role: Role): Promise<StaffDto[]> {
+  if (role === 'MASTER') {
+    const self = await getStaff(userId);
+    return [self];
+  }
+  return listStaff();
 }
 
 export async function createStaff(payload: CreateStaffPayload): Promise<StaffDto> {

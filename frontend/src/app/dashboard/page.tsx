@@ -1,142 +1,450 @@
 'use client';
 
 import {
-  Briefcase,
-  CalendarDays,
+  Calendar,
+  CheckCircle2,
   ClipboardList,
+  Clock,
   Copy,
   ExternalLink,
+  Plus,
   Settings,
+  Sparkles,
   Users,
+  Wallet,
+  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import {
+  AppointmentDetailsModal,
+  AppointmentFormDialog,
+  AppointmentStatusBadge,
+} from '@/components/appointments/appointment-dialogs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ru } from '@/lib/i18n/ru';
+import { Skeleton } from '@/components/ui/skeleton';
+import { listAppointments } from '@/lib/api/appointments.api';
+import { listServices } from '@/lib/api/services.api';
+import { listVisibleStaffForRole } from '@/lib/api/staff.api';
+import {
+  addDaysToLocalDateInTz,
+  formatDateInCompanyTz,
+  formatTimeInCompanyTz,
+  getLocalDateRangeUtc,
+  getLocalDayUtcRange,
+  getTodayLocalDateInTz,
+} from '@/lib/datetime';
+import { formatDurationMin, formatPriceKgs, ru } from '@/lib/i18n/ru';
+import { formatPhoneDisplay } from '@/lib/phone';
 import { useAuthStore } from '@/stores/auth.store';
+import type { AppointmentDto, ServiceDto, StaffDto } from '@/types/api';
 
 export default function DashboardOverviewPage() {
   const user = useAuthStore((s) => s.user);
   const company = useAuthStore((s) => s.company);
+  const timezone = company?.timezone ?? 'Asia/Bishkek';
 
-  const isOwner = user?.role === 'OWNER';
-  const publicPath = company ? `/b/${company.slug}` : '/b/demo-barbershop';
+  const [todayAppointments, setTodayAppointments] = useState<AppointmentDto[]>([]);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentDto[]>([]);
+  const [staffList, setStaffList] = useState<StaffDto[]>([]);
+  const [services, setServices] = useState<ServiceDto[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<AppointmentDto | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const userId = user.id;
+    const userRole = user.role;
+    let cancelled = false;
+
+    async function loadOverview() {
+      try {
+        const todayLocal = getTodayLocalDateInTz(timezone);
+        const todayRange = getLocalDayUtcRange(todayLocal, timezone);
+        const next30Range = getLocalDateRangeUtc(
+          todayLocal,
+          addDaysToLocalDateInTz(todayLocal, 30, timezone),
+          timezone,
+        );
+
+        const [todayRes, upcomingRes, staffData, servicesData] = await Promise.all([
+          listAppointments({
+            from: todayRange.fromUtc,
+            to: todayRange.toUtc,
+            limit: 200,
+          }),
+          listAppointments({
+            from: new Date().toISOString(),
+            to: next30Range.toUtc,
+            status: 'SCHEDULED',
+            limit: 5,
+          }),
+          listVisibleStaffForRole(userId, userRole),
+          listServices(),
+        ]);
+
+        if (!cancelled) {
+          setTodayAppointments(todayRes.data);
+          setUpcomingAppointments(upcomingRes.data.slice(0, 5));
+          setStaffList(staffData);
+          setServices(servicesData);
+        }
+      } catch {
+        // Keep clean fallback
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadOverview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey, timezone, user]);
+
+  const todayStats = useMemo(() => {
+    let scheduled = 0;
+    let completed = 0;
+    let cancelledOrNoShow = 0;
+    let revenue = 0;
+
+    for (const appt of todayAppointments) {
+      if (appt.status === 'SCHEDULED') {
+        scheduled++;
+        revenue += Number(appt.price) || 0;
+      } else if (appt.status === 'COMPLETED') {
+        completed++;
+        revenue += Number(appt.price) || 0;
+      } else {
+        cancelledOrNoShow++;
+      }
+    }
+
+    return { scheduled, completed, cancelledOrNoShow, revenue };
+  }, [todayAppointments]);
+
+  if (!user || !company) {
+    return null;
+  }
+
+  const isOwner = user.role === 'OWNER';
+  const publicUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/b/${company.slug}`
+      : `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/b/${company.slug}`;
 
   async function handleCopyPublicLink() {
-    if (!company || typeof window === 'undefined') return;
-    const url = `${window.location.origin}/b/${company.slug}`;
-    await navigator.clipboard.writeText(url);
-    toast.success(ru.dashboard.linkCopied);
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      toast.success(ru.dashboard.linkCopied);
+    } catch {
+      toast.info(publicUrl);
+    }
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          {ru.dashboard.welcomeTitle}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground sm:text-base">
-          {isOwner ? ru.dashboard.welcomeSubtitleOwner : ru.dashboard.welcomeSubtitleMaster}
-        </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {ru.dashboard.welcomeTitle}, {user.name}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isOwner ? ru.dashboard.welcomeSubtitleOwner : ru.dashboard.welcomeSubtitleMaster}
+          </p>
+        </div>
+        <Button
+          onClick={() => {
+            setEditingAppointment(null);
+            setIsFormOpen(true);
+          }}
+          className="min-h-11 gap-2 self-start sm:self-auto"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {ru.overviewPage.createNewAppointment}
+        </Button>
       </div>
 
-      {company && (
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">{ru.dashboard.publicLinkLabel}</CardTitle>
-              <CardDescription>{ru.businessTypes[company.businessType]}</CardDescription>
+      {/* Today's Stats KPI Cards */}
+      {isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="shadow-2xs">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardDescription className="text-xs font-medium">
+                {ru.overviewPage.scheduledToday}
+              </CardDescription>
+              <Clock className="h-4 w-4 text-emerald-600" aria-hidden="true" />
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2.5 font-mono text-sm">
-                <span className="truncate">{publicPath}</span>
-                <Badge variant={company.publicBookingEnabled ? 'default' : 'secondary'}>
-                  {company.publicBookingEnabled
-                    ? ru.dashboard.bookingEnabled
-                    : ru.dashboard.bookingDisabled}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  onClick={handleCopyPublicLink}
-                  className="min-h-11 gap-2 px-4"
-                >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  <span>{ru.dashboard.copyLink}</span>
-                </Button>
-                <Button asChild variant="outline" className="min-h-11 gap-2 px-4">
-                  <Link href={publicPath} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                    <span>{ru.dashboard.openPublicPage}</span>
-                  </Link>
-                </Button>
-              </div>
+            <CardContent>
+              <p className="text-2xl font-bold">{todayStats.scheduled}</p>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">{ru.dashboard.companyInfoTitle}</CardTitle>
-              <CardDescription>{company.name}</CardDescription>
+          <Card className="shadow-2xs">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardDescription className="text-xs font-medium">
+                {ru.overviewPage.completedToday}
+              </CardDescription>
+              <CheckCircle2 className="h-4 w-4 text-sky-600" aria-hidden="true" />
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">{ru.dashboard.timezoneLabel}</p>
-                <p className="mt-1 font-medium">{company.timezone}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">{ru.dashboard.currencyLabel}</p>
-                <p className="mt-1 font-medium">{company.currency}</p>
-              </div>
+            <CardContent>
+              <p className="text-2xl font-bold">{todayStats.completed}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-2xs">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardDescription className="text-xs font-medium">
+                {ru.overviewPage.cancelledOrNoShowToday}
+              </CardDescription>
+              <XCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{todayStats.cancelledOrNoShow}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-2xs">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardDescription className="text-xs font-medium">
+                {ru.overviewPage.expectedRevenueToday}
+              </CardDescription>
+              <Wallet className="h-4 w-4 text-primary" aria-hidden="true" />
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{formatPriceKgs(todayStats.revenue)}</p>
             </CardContent>
           </Card>
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{ru.dashboard.quickActionsTitle}</CardTitle>
+      {/* Next 5 Upcoming Appointments */}
+      <Card className="shadow-2xs">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-lg">{ru.overviewPage.upcomingSectionTitle}</CardTitle>
+            <CardDescription>{ru.overviewPage.upcomingSectionSubtitle}</CardDescription>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/appointments">{ru.overviewPage.viewAllAppointments}</Link>
+          </Button>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Button asChild variant="outline" className="min-h-12 justify-start gap-3 px-4">
-            <Link href="/dashboard/schedule">
-              <CalendarDays className="h-4 w-4 text-primary" aria-hidden="true" />
-              <span>{ru.dashboard.goToSchedule}</span>
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="min-h-12 justify-start gap-3 px-4">
-            <Link href="/dashboard/appointments">
-              <ClipboardList className="h-4 w-4 text-primary" aria-hidden="true" />
-              <span>{ru.dashboard.goToAppointments}</span>
-            </Link>
-          </Button>
-          {isOwner && (
-            <>
-              <Button asChild variant="outline" className="min-h-12 justify-start gap-3 px-4">
-                <Link href="/dashboard/services">
-                  <Briefcase className="h-4 w-4 text-primary" aria-hidden="true" />
-                  <span>{ru.dashboard.goToServices}</span>
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="min-h-12 justify-start gap-3 px-4">
-                <Link href="/dashboard/staff">
-                  <Users className="h-4 w-4 text-primary" aria-hidden="true" />
-                  <span>{ru.dashboard.goToStaff}</span>
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="min-h-12 justify-start gap-3 px-4">
-                <Link href="/dashboard/settings">
-                  <Settings className="h-4 w-4 text-primary" aria-hidden="true" />
-                  <span>{ru.dashboard.goToSettings}</span>
-                </Link>
-              </Button>
-            </>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2.5">
+              <Skeleton className="h-14 w-full rounded-lg" />
+              <Skeleton className="h-14 w-full rounded-lg" />
+            </div>
+          ) : upcomingAppointments.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              {ru.overviewPage.noUpcomingAppointments}
+            </p>
+          ) : (
+            <div className="divide-y rounded-lg border">
+              {upcomingAppointments.map((appt) => {
+                const dateStr = formatDateInCompanyTz(appt.startAt, timezone);
+                const startStr = formatTimeInCompanyTz(appt.startAt, timezone);
+                const endStr = formatTimeInCompanyTz(appt.endAt, timezone);
+
+                return (
+                  <button
+                    key={appt.id}
+                    type="button"
+                    onClick={() => setSelectedAppointment(appt)}
+                    className="flex w-full flex-col justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40 sm:flex-row sm:items-center"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {dateStr}, {startStr}–{endStr} • {appt.clientName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {appt.service.name} ({formatDurationMin(appt.service.durationMin)}) •{' '}
+                        {appt.master.name} • {formatPhoneDisplay(appt.clientPhone)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-sm font-bold">{formatPriceKgs(appt.price)}</span>
+                      <AppointmentStatusBadge status={appt.status} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Public Booking Link Card */}
+      <Card className="border-primary/25 bg-primary/5 shadow-xs">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base font-semibold">
+              {ru.dashboard.publicLinkLabel}
+            </CardTitle>
+            <Badge variant={company.publicBookingEnabled ? 'default' : 'secondary'}>
+              {company.publicBookingEnabled
+                ? ru.dashboard.bookingEnabled
+                : ru.dashboard.bookingDisabled}
+            </Badge>
+          </div>
+          <CardDescription className="font-mono text-xs sm:text-sm">
+            /b/{company.slug}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Button type="button" size="sm" onClick={() => void handleCopyPublicLink()}>
+            <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
+            {ru.dashboard.copyLink}
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/b/${company.slug}`} target="_blank">
+              <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />
+              {ru.dashboard.openPublicPage}
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Quick Actions */}
+      <div>
+        <h2 className="mb-3 text-base font-semibold">{ru.dashboard.quickActionsTitle}</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Link href="/dashboard/schedule" className="group block">
+            <Card className="h-full transition-colors group-hover:border-primary/50">
+              <CardHeader className="flex flex-row items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Calendar className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">{ru.nav.schedule}</CardTitle>
+                  <CardDescription className="text-xs">{ru.dashboard.goToSchedule}</CardDescription>
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          <Link href="/dashboard/appointments" className="group block">
+            <Card className="h-full transition-colors group-hover:border-primary/50">
+              <CardHeader className="flex flex-row items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <ClipboardList className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">{ru.nav.appointments}</CardTitle>
+                  <CardDescription className="text-xs">
+                    {ru.dashboard.goToAppointments}
+                  </CardDescription>
+                </div>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          {isOwner && (
+            <>
+              <Link href="/dashboard/services" className="group block">
+                <Card className="h-full transition-colors group-hover:border-primary/50">
+                  <CardHeader className="flex flex-row items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Sparkles className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">{ru.nav.services}</CardTitle>
+                      <CardDescription className="text-xs">
+                        {ru.dashboard.goToServices}
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
+                </Card>
+              </Link>
+
+              <Link href="/dashboard/staff" className="group block">
+                <Card className="h-full transition-colors group-hover:border-primary/50">
+                  <CardHeader className="flex flex-row items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Users className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">{ru.nav.staff}</CardTitle>
+                      <CardDescription className="text-xs">
+                        {ru.dashboard.goToStaff}
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
+                </Card>
+              </Link>
+
+              <Link href="/dashboard/settings" className="group block">
+                <Card className="h-full transition-colors group-hover:border-primary/50">
+                  <CardHeader className="flex flex-row items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Settings className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">{ru.nav.settings}</CardTitle>
+                      <CardDescription className="text-xs">
+                        {ru.dashboard.goToSettings}
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
+                </Card>
+              </Link>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Appointment Details Modal */}
+      <AppointmentDetailsModal
+        appointment={selectedAppointment}
+        timezone={timezone}
+        callerRole={user.role}
+        onClose={() => setSelectedAppointment(null)}
+        onUpdated={(updated) => {
+          setSelectedAppointment(updated);
+          setReloadKey((k) => k + 1);
+        }}
+        onDeleted={() => {
+          setReloadKey((k) => k + 1);
+        }}
+        onEdit={(appt) => {
+          setSelectedAppointment(null);
+          setEditingAppointment(appt);
+          setIsFormOpen(true);
+        }}
+      />
+
+      {/* Create / Edit Appointment Dialog */}
+      <AppointmentFormDialog
+        open={isFormOpen}
+        editingAppointment={editingAppointment}
+        services={services}
+        staffList={staffList}
+        timezone={timezone}
+        callerRole={user.role}
+        callerUserId={user.id}
+        onClose={() => setIsFormOpen(false)}
+        onSaved={() => {
+          setReloadKey((k) => k + 1);
+        }}
+      />
     </div>
   );
 }

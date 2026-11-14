@@ -9,11 +9,11 @@
 - [x] **Phase 5**: Availability Engine & Public Booking API (Backend)
 - [x] **Phase 6**: Frontend Foundation & Auth UI
 - [x] **Phase 7**: Dashboard: Services, Staff, Settings
-- [ ] **Phase 8**: Dashboard: Schedule & Appointments
+- [x] **Phase 8**: Dashboard: Schedule & Appointments
 - [ ] **Phase 9**: Public Booking Page (Client Flow)
 - [ ] **Phase 10**: Hardening, E2E & Release Readiness
 
-## Installed Versions (Phase 7)
+## Installed Versions (Phase 8)
 - **Node.js**: v24.22.0 (`.nvmrc`: `24`)
 - **npm**: 11.19.1
 - **TypeScript**: 6.0.3

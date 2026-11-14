@@ -20,3 +20,11 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
   if (!parsed) return phone;
   return parsed.formatInternational();
 }
+
+export function getWhatsAppUrl(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const normalized = normalizePhoneE164OrNull(phone) ?? phone;
+  const digits = normalized.replace(/\D/g, '');
+  if (digits.length < 9) return null;
+  return `https://wa.me/${digits}`;
+}
