@@ -111,3 +111,24 @@ export function GuestGuard({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
+
+/**
+ * Protects OWNER-only dashboard pages (/dashboard/services, /dashboard/staff, /dashboard/settings):
+ * redirects MASTER users to /dashboard/schedule.
+ */
+export function OwnerGuard({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+
+  useEffect(() => {
+    if (user && user.role !== 'OWNER') {
+      router.replace('/dashboard/schedule');
+    }
+  }, [router, user]);
+
+  if (!user || user.role !== 'OWNER') {
+    return null;
+  }
+
+  return <>{children}</>;
+}

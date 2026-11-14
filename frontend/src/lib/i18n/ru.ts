@@ -107,8 +107,162 @@ export const ru = {
     bookingEnabled: 'Включена',
     bookingDisabled: 'Выключена',
   },
+  servicesPage: {
+    title: 'Услуги',
+    subtitle: 'Управляйте прайс-листом, длительностью процедур и доступностью для онлайн-записи.',
+    addService: 'Добавить услугу',
+    addFirstService: 'Добавить первую услугу',
+    emptyTitle: 'Услуг пока нет',
+    emptyDescription:
+      'Добавьте услуги с ценой и длительностью, чтобы привязать их к мастерам и открыть запись.',
+    filterAll: 'Все',
+    filterActive: 'Активные',
+    filterInactive: 'Скрытые',
+    statusActive: 'Активна',
+    statusInactive: 'Скрыта',
+    createDialogTitle: 'Новая услуга',
+    editDialogTitle: 'Редактировать услугу',
+    nameLabel: 'Название услуги',
+    namePlaceholder: 'Например: Мужская стрижка',
+    descriptionLabel: 'Описание (необязательно)',
+    descriptionPlaceholder: 'Мытьё головы, стрижка и укладка',
+    durationLabel: 'Длительность (мин)',
+    durationHint: 'От 5 до 480 минут, кратно 5 минутам',
+    priceLabel: 'Цена (сом)',
+    pricePlaceholder: '800',
+    isActiveLabel: 'Доступна для записи',
+    isActiveHint: 'Скрытые услуги не отображаются на публичной странице онлайн-записи',
+    deleteConfirmTitle: 'Удалить услугу?',
+    deleteConfirmText:
+      'Услуга будет удалена из прайс-листа и отвязана от мастеров. История прошлых записей сохранится.',
+    deleteSuccess: 'Услуга удалена',
+    createSuccess: 'Услуга добавлена',
+    updateSuccess: 'Услуга обновлена',
+    deactivateInstead: 'Скрыть услугу вместо удаления',
+  },
+  staffPage: {
+    title: 'Сотрудники и график работы',
+    subtitle: 'Управляйте мастерами, назначенными услугами и еженедельным расписанием смен.',
+    addMaster: 'Добавить мастера',
+    emptyTitle: 'Сотрудники не найдены',
+    badgeHasLogin: 'Есть вход в кабинет',
+    badgeNoLogin: 'Без входа в кабинет',
+    badgeBookable: 'Запись открыта',
+    badgeNotBookable: 'Не принимает запись',
+    badgeActive: 'Активен',
+    badgeInactive: 'Отключён',
+    servicesCountLabel: 'Услуг назначено',
+    workingDaysCountLabel: 'Рабочих дней в неделю',
+    configureServices: 'Услуги мастера',
+    configureHours: 'График работы',
+    createDialogTitle: 'Новый мастер',
+    editDialogTitle: 'Профиль сотрудника',
+    nameLabel: 'Имя сотрудника',
+    namePlaceholder: 'Например: Тимур Касымов',
+    phoneLabel: 'Телефон (необязательно)',
+    phonePlaceholder: '+996 555 200 300',
+    enableLoginLabel: 'Предоставить доступ в личный кабинет по email и паролю',
+    emailLabel: 'Email для входа',
+    emailPlaceholder: 'master@salon.kg',
+    passwordLabel: 'Пароль для входа',
+    newPasswordLabel: 'Новый пароль (оставьте пустым, чтобы не менять)',
+    passwordPlaceholder: 'Минимум 8 символов',
+    isBookableLabel: 'Принимает записи клиентов (отображать в расписании и онлайн-записи)',
+    isActiveLabel: 'Аккаунт активен',
+    servicesModalTitle: 'Назначение услуг сотруднику',
+    servicesModalSubtitle: 'Выберите услуги, которые выполняет этот специалист.',
+    selectAllServices: 'Выбрать все',
+    clearAllServices: 'Снять выбор',
+    noServicesInCompany: 'Сначала создайте услуги в разделе «Услуги».',
+    hoursModalTitle: 'Еженедельный график работы',
+    hoursModalSubtitle:
+      'Укажите рабочие дни и часы смен в часовом поясе компании. В выходные дни запись недоступна.',
+    dayOff: 'Выходной',
+    workingDay: 'Рабочий день',
+    startTimeLabel: 'С',
+    endTimeLabel: 'До',
+    copyToWeekdays: 'Скопировать Пн на Пн–Пт',
+    copyToAllDays: 'Скопировать Пн на все дни',
+    deleteConfirmTitle: 'Удалить мастера?',
+    deleteConfirmText:
+      'Профиль мастера будет удалён, а доступ в кабинет закрыт. Прошлые записи сохранятся в истории.',
+    createSuccess: 'Мастер добавлен',
+    updateSuccess: 'Профиль сотрудника обновлён',
+    deleteSuccess: 'Сотрудник удалён',
+    servicesSaved: 'Список услуг сотрудника сохранён',
+    hoursSaved: 'График работы сохранён',
+    weekdays: {
+      1: 'Понедельник',
+      2: 'Вторник',
+      3: 'Среда',
+      4: 'Четверг',
+      5: 'Пятница',
+      6: 'Суббота',
+      7: 'Воскресенье',
+    } as Record<number, string>,
+    weekdaysShort: {
+      1: 'Пн',
+      2: 'Вт',
+      3: 'Ср',
+      4: 'Чт',
+      5: 'Пт',
+      6: 'Сб',
+      7: 'Вс',
+    } as Record<number, string>,
+  },
+  settingsPage: {
+    title: 'Настройки компании',
+    subtitle:
+      'Профиль бизнеса, параметры онлайн-записи, публичная ссылка с QR-кодом и безопасность.',
+    publicBookingCardTitle: 'Публичная страница и QR-код для клиентов',
+    publicBookingCardDescription:
+      'Отправьте ссылку клиентам в WhatsApp, добавьте в профиль Instagram/2ГИС или распечатайте QR-код для ресепшена.',
+    bookingEnabledToggle: 'Принимать онлайн-записи через публичную страницу',
+    downloadQrSvg: 'Скачать QR-код (SVG)',
+    profileCardTitle: 'Основная информация',
+    companyNameLabel: 'Название компании',
+    businessTypeLabel: 'Категория бизнеса',
+    phoneLabel: 'Контактный телефон компании',
+    addressLabel: 'Адрес (город, улица, ориентир)',
+    addressPlaceholder: 'г. Бишкек, ул. Киевская 114',
+    timezoneLabel: 'Часовой пояс',
+    slugCardTitle: 'Адрес публичной страницы (slug)',
+    slugLabel: 'Короткий адрес ссылки',
+    slugWarning:
+      'Внимание: при изменении короткого адреса старая ссылка и ранее распечатанные QR-коды перестанут работать.',
+    bookingRulesCardTitle: 'Правила расчёта свободного времени',
+    slotStepLabel: 'Шаг сетки времени для записи',
+    slotStep15: '15 минут',
+    slotStep30: '30 минут',
+    slotStep60: '60 минут (1 час)',
+    minLeadTimeLabel: 'Минимальный запас времени до визита (мин)',
+    minLeadTimeHint:
+      'Например, 60 мин — клиент не сможет записаться менее чем за час до начала приёма.',
+    maxAdvanceDaysLabel: 'На сколько дней вперёд открыта запись',
+    maxAdvanceDaysHint: 'От 1 до 365 дней (рекомендуется 30 дней).',
+    saveSettings: 'Сохранить настройки',
+    settingsSaved: 'Настройки компании сохранены',
+    passwordCardTitle: 'Смена пароля',
+    passwordCardDescription: 'При смене пароля все остальные устройства будут разлогинены.',
+    currentPasswordLabel: 'Текущий пароль',
+    newPasswordLabel: 'Новый пароль',
+    confirmPasswordLabel: 'Повторите новый пароль',
+    changePasswordSubmit: 'Обновить пароль',
+    passwordChanged: 'Пароль успешно изменён',
+    passwordMismatch: 'Новые пароли не совпадают',
+    timezones: [
+      { value: 'Asia/Bishkek', label: 'Бишкек (Asia/Bishkek, UTC+6)' },
+      { value: 'Asia/Almaty', label: 'Алматы (Asia/Almaty, UTC+5)' },
+      { value: 'Asia/Tashkent', label: 'Ташкент (Asia/Tashkent, UTC+5)' },
+      { value: 'Asia/Dushanbe', label: 'Душанбе (Asia/Dushanbe, UTC+5)' },
+      { value: 'Europe/Moscow', label: 'Москва (Europe/Moscow, UTC+3)' },
+      { value: 'UTC', label: 'Всемирное координированное время (UTC)' },
+    ],
+  },
   common: {
     loading: 'Загрузка...',
+    saving: 'Сохранение...',
+    deleting: 'Удаление...',
     retry: 'Попробовать снова',
     errorTitle: 'Произошла ошибка',
     errorDescription: 'Не удалось загрузить данные. Проверьте подключение и попробуйте ещё раз.',
@@ -120,6 +274,7 @@ export const ru = {
     cancel: 'Отмена',
     delete: 'Удалить',
     edit: 'Редактировать',
+    close: 'Закрыть',
     som: 'сом',
     minutesShort: 'мин',
   },
@@ -131,6 +286,11 @@ export const ru = {
     nameMin: 'Минимум 2 символа',
     nameMax: 'Максимум 100 символов',
     phoneInvalid: 'Введите корректный номер телефона (например, +996 555 123 456)',
+    durationRange: 'Длительность должна быть от 5 до 480 минут и кратна 5',
+    priceInvalid: 'Введите корректную неотрицательную стоимость',
+    slugInvalid:
+      'Используйте только строчные латинские буквы, цифры и одиночные дефисы (3–60 символов)',
+    timeRangeInvalid: 'Время начала должно быть раньше времени окончания смены',
   },
   errors: {
     VALIDATION_ERROR: 'Проверьте правильность заполнения полей формы.',
@@ -167,4 +327,27 @@ export function mapErrorCodeToRussian(
   }
 
   return ru.errors[code] ?? ru.errors.INTERNAL_ERROR;
+}
+
+/**
+ * Formats a decimal string price (e.g. "1200.00") as "1 200 сом" (or with kopecks if non-zero).
+ */
+export function formatPriceKgs(price: string | number): string {
+  const num = typeof price === 'number' ? price : Number(price);
+  if (!Number.isFinite(num)) {
+    return `${String(price)} ${ru.common.som}`;
+  }
+  const hasFraction = Math.round(num * 100) % 100 !== 0;
+  const formatted = new Intl.NumberFormat('ru-RU', {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(num);
+  return `${formatted} ${ru.common.som}`;
+}
+
+/**
+ * Formats minutes as "45 мин".
+ */
+export function formatDurationMin(durationMin: number): string {
+  return `${String(durationMin)} ${ru.common.minutesShort}`;
 }
