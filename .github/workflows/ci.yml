@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  TZ: UTC
+
+jobs:
+  verify:
+    name: Quality Gate, Integration & E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: zapis
+          POSTGRES_PASSWORD: zapis_dev_password
+          POSTGRES_DB: zapis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U zapis -d zapis"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Initialize test database and extensions
+        run: |
+          PGPASSWORD=zapis_dev_password psql -h localhost -U zapis -d zapis -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+          PGPASSWORD=zapis_dev_password psql -h localhost -U zapis -d zapis -c "CREATE DATABASE zapis_test;"
+          PGPASSWORD=zapis_dev_password psql -h localhost -U zapis -d zapis_test -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Copy environment configurations
+        run: |
+          cp backend/.env.example backend/.env
+          cp backend/.env.example backend/.env.test
+          sed -i 's/zapis?schema=public/zapis_test?schema=public/' backend/.env.test
+          sed -i 's/NODE_ENV="development"/NODE_ENV="test"/' backend/.env.test
+          sed -i 's/LOG_LEVEL="info"/LOG_LEVEL="silent"/' backend/.env.test
+          cp frontend/.env.example frontend/.env
+
+      - name: Apply Prisma migrations and generate client
+        run: |
+          npx prisma migrate deploy --config backend/prisma.config.ts
+          DATABASE_URL="postgresql://zapis:zapis_dev_password@localhost:5432/zapis_test?schema=public" npx prisma migrate deploy --config backend/prisma.config.ts
+          npx prisma generate --config backend/prisma.config.ts
+
+      - name: Seed development database
+        run: npm run db:seed
+
+      - name: Lint and format check
+        run: npm run lint
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run backend integration tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E suite
+        run: npm run test:e2e

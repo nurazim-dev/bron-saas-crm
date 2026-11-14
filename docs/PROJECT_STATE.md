@@ -11,9 +11,9 @@
 - [x] **Phase 7**: Dashboard: Services, Staff, Settings
 - [x] **Phase 8**: Dashboard: Schedule & Appointments
 - [x] **Phase 9**: Public Booking Page (Client Flow)
-- [ ] **Phase 10**: Hardening, E2E & Release Readiness
+- [x] **Phase 10**: Hardening, E2E & Release Readiness
 
-## Installed Versions (Phase 9)
+## Installed Versions (Phase 10 — Release Ready)
 - **Node.js**: v24.22.0 (`.nvmrc`: `24`)
 - **npm**: 11.19.1
 - **TypeScript**: 6.0.3
@@ -41,9 +41,13 @@
   - `zustand`: 5.1.0
   - `axios`: 1.21.1
   - `react-hook-form`: 7.92.0 / `@hookform/resolvers`: 7.0.6 / `zod`: 4.6.7
+  - `qrcode.react`: 4.2.0
   - `luxon`: 3.7.2 / `libphonenumber-js`: 1.13.16 / `lucide-react`: 1.73.0
-- **Infrastructure**:
+  - `@playwright/test`: 1.65.1 (Chromium E2E suite)
+- **Infrastructure & CI**:
   - PostgreSQL: `postgres:17-alpine` via `docker-compose.yml` (`zapis` and `zapis_test`)
+  - Containers: `backend/Dockerfile`, `frontend/Dockerfile` (multi-stage `node:24-alpine`, non-root `node` user)
+  - CI: `.github/workflows/ci.yml`
 
 ## Ports & URLs
 - **Frontend (Next.js)**: `http://localhost:3000`
@@ -62,10 +66,11 @@ npm run typecheck    # Runs tsc across backend and frontend
 npm run lint         # Runs ESLint (--max-warnings 0) and Prettier check
 npm run test         # Runs Vitest suite in backend against zapis_test
 npm run build        # Production build for backend and frontend
+npm run test:e2e     # Runs Playwright Chromium E2E suite
 ```
 
 ## Demo Seed Credentials (Development Only)
-- **Company**: `Demo Barbershop` (slug: `demo-barbershop`, timezone: `Asia/Bishkek`, currency: `KGS`)
+- **Company**: `Barbershop Ala-Too` (slug: `demo-barbershop`, timezone: `Asia/Bishkek`, currency: `KGS`)
 - **Owner**: `owner@demo.zapis.kg` / `Demo12345!`
 - **Master (with login)**: `master@demo.zapis.kg` / `Demo12345!`
 - **Master (without login)**: Нурлан Осмонов (`email: null`)
@@ -76,4 +81,4 @@ npm run build        # Production build for backend and frontend
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
 ## Known Issues / Risks
-- None.
+- None. All 11 phases (Phase 0 through Phase 10) are complete and verified.

@@ -2,37 +2,94 @@
 
 Multi-tenant SaaS CRM and online-booking platform for small service businesses in Kyrgyzstan (beauty salons, barbershops, auto-service stations).
 
+- **Market defaults**: Timezone `Asia/Bishkek` (UTC+6, IANA), Currency `KGS` (`сом`), Phones normalized to E.164 (`+996...`), Russian UI (`frontend/src/lib/i18n/ru.ts`), English codebase & API reference.
+- **Core guarantees**:
+  - **Strict Tenant Isolation**: Every query and mutation is scoped by `companyId` from verified JWT (staff) or resolved company slug (public). Cross-tenant access returns `404 NOT_FOUND`.
+  - **Zero Double-Booking (BR-1)**: Enforced both inside `prisma.$transaction` (`SELECT ... FOR UPDATE` row lock on the master + half-open `[startAt, endAt)` overlap check) and at the PostgreSQL engine level via `EXCLUDE USING gist ("masterId" WITH =, tstzrange("startAt", "endAt", '[)') WITH &&)`.
+  - **UTC Everywhere**: Database (`timestamptz(3)`) and server processes (`TZ=UTC`) operate in UTC; company-local time conversions happen exclusively at the edges (`src/lib/datetime.ts`).
+
+---
+
+## Architecture & Tech Stack
+
+| Layer | Technology |
+| :--- | :--- |
+| **Runtime & Monorepo** | Node.js `>= 22` (`.nvmrc`: `24`), npm workspaces (`backend`, `frontend`) |
+| **Backend API** | Express 5, TypeScript (`strict: true`), Prisma 7 (`@prisma/adapter-pg`), PostgreSQL 17 (`btree_gist`), Zod, Argon2id, JWT (`httpOnly` refresh cookie + in-memory access token), Helmet, Pino |
+| **Frontend Web** | Next.js 16 (App Router), React 19, Tailwind CSS 4, shadcn/ui, Zustand, React Hook Form + Zod, Luxon, `qrcode.react` |
+| **Testing & CI** | Vitest + Supertest (backend integration & concurrency tests against `zapis_test`), Playwright Chromium E2E (`frontend/e2e`), GitHub Actions (`.github/workflows/ci.yml`) |
+
+---
+
 ## Monorepo Structure
 
-- `backend/` — Express 5 + TypeScript + Prisma + PostgreSQL REST API (`/api/v1`)
-- `frontend/` — Next.js (App Router) + React + Tailwind CSS + shadcn/ui web application
-- `docs/` — Living project documentation (`PROJECT_STATE.md`, `DECISIONS.md`, `API.md`)
+- `backend/` — Express 5 + Prisma + PostgreSQL REST API (`/api/v1`)
+  - `prisma/` — Prisma schema, migrations (including GiST exclusion & CHECK constraints), and idempotent demo seed
+  - `src/modules/` — `health`, `auth`, `company`, `services`, `staff`, `appointments`, `availability`, `public`
+  - `tests/` — Unit and integration test suites (`zapis_test` database)
+  - `Dockerfile` — Multi-stage production container image
+- `frontend/` — Next.js App Router web application
+  - `src/app/` — Landing (`/`), Auth (`/login`, `/register`), Staff CRM (`/dashboard/*`), Public Booking (`/b/[slug]`)
+  - `e2e/` — Playwright end-to-end test suite
+  - `Dockerfile` — Multi-stage production container image
+- `docs/` — Living project documentation:
+  - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — Phase checklist, installed versions, ports, and operational summary
+  - [`docs/DECISIONS.md`](docs/DECISIONS.md) — Architectural and technical decision log
+  - [`docs/API.md`](docs/API.md) — Complete REST API v1 specification
 
-## Quick Start
+---
 
-1. Ensure Node.js (`>= 22`) and Docker are installed.
-2. Install dependencies:
+## Quick Start (Under 5 Minutes on a Clean Machine)
+
+1. **Prerequisites**: Node.js `>= 22` and Docker Desktop (or Docker Engine + Compose).
+2. **Install dependencies**:
    ```bash
    npm install
    ```
-3. Copy environment templates if needed (`.env.example` in `backend/` and `frontend/`).
-4. Start PostgreSQL:
+3. **Copy environment files** (if not already present):
+   ```bash
+   cp backend/.env.example backend/.env
+   cp frontend/.env.example frontend/.env
+   ```
+4. **Start PostgreSQL (`zapis` and `zapis_test` with `btree_gist`)**:
    ```bash
    npm run db:up
    ```
-5. Start development servers:
+5. **Apply migrations and seed demo data**:
+   ```bash
+   npm run db:reset
+   ```
+6. **Start backend (`:4000`) and frontend (`:3000`)**:
    ```bash
    npm run dev
    ```
-   - Frontend: `http://localhost:3000`
-   - Backend API: `http://localhost:4000/api/v1/health`
+   - **Web App & Dashboard**: `http://localhost:3000`
+   - **Public Demo Booking Page**: `http://localhost:3000/b/demo-barbershop`
+   - **Backend Healthcheck**: `http://localhost:4000/api/v1/health`
 
-## Scripts
+---
 
-- `npm run dev` — Run backend (`:4000`) and frontend (`:3000`) concurrently
-- `npm run build` — Build both backend and frontend
-- `npm run typecheck` — TypeScript typecheck across workspaces
-- `npm run lint` — ESLint (`--max-warnings 0`) + Prettier check across workspaces
-- `npm run test` — Run backend test suite (Vitest + Supertest)
-- `npm run db:up` / `npm run db:down` — Start/stop local PostgreSQL via Docker Compose
-- `npm run db:migrate` / `npm run db:seed` / `npm run db:reset` — Database lifecycle commands (Phase 1+)
+## Demo Seed Credentials (Development Only)
+
+- **Company**: `Barbershop Ala-Too` (slug: `demo-barbershop`, timezone: `Asia/Bishkek`, currency: `KGS`)
+- **Owner (`OWNER`)**: `owner@demo.zapis.kg` / `Demo12345!`
+- **Master with login (`MASTER`)**: `master@demo.zapis.kg` / `Demo12345!`
+- **Master without login (`MASTER`)**: Нурлан Осмонов (`email: null`)
+
+---
+
+## Available Scripts
+
+| Command | Description |
+| :--- | :--- |
+| `npm run dev` | Start backend (`:4000`) and frontend (`:3000`) concurrently |
+| `npm run build` | Production build for both `backend` and `frontend` |
+| `npm run lint` | ESLint (`--max-warnings 0`) and Prettier check across workspaces |
+| `npm run format` | Format all files with Prettier |
+| `npm run typecheck` | TypeScript (`tsc --noEmit`) across `backend` and `frontend` |
+| `npm run test` | Run backend unit & integration test suite (Vitest + Supertest on `zapis_test`) |
+| `npm run test:e2e` | Run Playwright E2E browser suite against `http://localhost:3000` |
+| `npm run db:up` / `npm run db:down` | Start / stop local PostgreSQL container (`docker compose`) |
+| `npm run db:migrate` | Run Prisma migrations on development database |
+| `npm run db:seed` | Run idempotent demo seed on development database |
+| `npm run db:reset` | Reset local development database (guarded to localhost & non-production) + migrate + seed |

@@ -16,6 +16,7 @@
     "lint": "npm run lint -w backend && npm run lint -w frontend",
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
     "test": "npm run test -w backend",
+    "test:e2e": "npm run test:e2e -w frontend",
     "format": "npm run format -w backend && npm run format -w frontend",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
