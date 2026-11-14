@@ -1,3 +1,4 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import type { Express } from 'express';
 import express from 'express';
@@ -7,7 +8,10 @@ import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFound } from './middleware/not-found.js';
+import { globalRateLimiter } from './middleware/rate-limit.js';
 import { REQUEST_ID_HEADER, requestId } from './middleware/request-id.js';
+import { authRouter } from './modules/auth/auth.routes.js';
+import { companyRouter } from './modules/company/company.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 
 export const API_PREFIX = '/api/v1';
@@ -41,9 +45,13 @@ export function createApp(): Express {
       exposedHeaders: [REQUEST_ID_HEADER],
     }),
   );
+  app.use(cookieParser());
   app.use(express.json({ limit: '100kb' }));
+  app.use(globalRateLimiter);
 
   app.use(`${API_PREFIX}/health`, healthRouter);
+  app.use(`${API_PREFIX}/auth`, authRouter);
+  app.use(`${API_PREFIX}/company`, companyRouter);
 
   app.use(notFound);
   app.use(errorHandler);

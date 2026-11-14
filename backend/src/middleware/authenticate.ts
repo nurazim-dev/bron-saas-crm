@@ -1,0 +1,54 @@
+import type { Request, RequestHandler } from 'express';
+import { AppError } from '../lib/errors.js';
+import { verifyAccessToken } from '../lib/jwt.js';
+import { prisma } from '../lib/prisma.js';
+import type { AuthenticatedActor } from '../types/express.js';
+
+function extractBearerToken(authorizationHeader: string | undefined): string {
+  if (!authorizationHeader) {
+    throw new AppError('UNAUTHENTICATED', 401, 'Missing authorization header');
+  }
+  const parts = authorizationHeader.trim().split(/\s+/);
+  if (parts.length !== 2 || parts[0]?.toLowerCase() !== 'bearer' || !parts[1]) {
+    throw new AppError('UNAUTHENTICATED', 401, 'Invalid authorization header format');
+  }
+  return parts[1];
+}
+
+export const authenticate: RequestHandler = async (req, _res, next) => {
+  const token = extractBearerToken(req.get('Authorization'));
+  const claims = verifyAccessToken(token);
+
+  const user = await prisma.user.findUnique({
+    where: { id: claims.sub },
+    include: { company: true },
+  });
+
+  if (
+    !user ||
+    user.deletedAt !== null ||
+    !user.isActive ||
+    user.companyId !== claims.companyId ||
+    user.role !== claims.role ||
+    user.tokenVersion !== claims.tv ||
+    user.company.deletedAt !== null
+  ) {
+    throw new AppError('UNAUTHENTICATED', 401, 'Invalid or revoked session');
+  }
+
+  req.auth = {
+    userId: user.id,
+    companyId: user.companyId,
+    role: user.role,
+    tokenVersion: user.tokenVersion,
+  };
+
+  next();
+};
+
+export function getAuthActor(req: Request): AuthenticatedActor {
+  if (!req.auth) {
+    throw new AppError('UNAUTHENTICATED', 401, 'Authentication required');
+  }
+  return req.auth;
+}

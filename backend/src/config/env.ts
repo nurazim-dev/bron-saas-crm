@@ -45,6 +45,24 @@ const envSchema = z.object({
   CORS_ORIGINS: corsOriginsSchema,
   TRUST_PROXY: trustProxySchema,
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().min(1).default(300),
+  RATE_LIMIT_GLOBAL_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(15 * 60 * 1000),
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_AUTH_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(60 * 1000),
+  RATE_LIMIT_PUBLIC_BOOKING_MAX: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_PUBLIC_BOOKING_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(60 * 60 * 1000),
 });
 
 export type Env = z.infer<typeof envSchema>;

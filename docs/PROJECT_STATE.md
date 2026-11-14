@@ -3,7 +3,7 @@
 ## Phase Checklist
 - [x] **Phase 0**: Foundation & Tooling
 - [x] **Phase 1**: Database & Prisma
-- [ ] **Phase 2**: Auth, Company & RBAC (Backend)
+- [x] **Phase 2**: Auth, Company & RBAC (Backend)
 - [ ] **Phase 3**: Services, Staff & Working Hours (Backend)
 - [ ] **Phase 4**: Appointments & Double-Booking Protection (Backend)
 - [ ] **Phase 5**: Availability Engine & Public Booking API (Backend)
@@ -13,14 +13,18 @@
 - [ ] **Phase 9**: Public Booking Page (Client Flow)
 - [ ] **Phase 10**: Hardening, E2E & Release Readiness
 
-## Installed Versions (Phase 1)
+## Installed Versions (Phase 2)
 - **Node.js**: v24.22.0 (`.nvmrc`: `24`)
 - **npm**: 11.19.1
 - **TypeScript**: 6.0.3
 - **Backend**:
   - `express`: 5.3.0
   - `prisma` / `@prisma/client` / `@prisma/adapter-pg`: 7.10.1 (`pg`: 8.23.1)
-  - `argon2`: 0.45.2 (native `argon2id` verified)
+  - `argon2`: 0.45.2 (native `argon2id`)
+  - `jsonwebtoken`: 9.0.3
+  - `cookie-parser`: 1.4.7
+  - `express-rate-limit`: 8.7.4
+  - `libphonenumber-js`: 1.13.16
   - `luxon`: 3.7.2
   - `zod`: 4.6.7
   - `pino`: 10.4.0 / `pino-http`: 11.0.0 / `pino-pretty`: 13.2.0
@@ -63,7 +67,7 @@ npm run build        # Production build for backend and frontend
 - **Master (without login)**: Нурлан Осмонов (`email: null`)
 
 ## Environment Variables
-- `backend/.env` (from `backend/.env.example`): `NODE_ENV`, `PORT`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `CORS_ORIGINS`, `TRUST_PROXY`, `LOG_LEVEL`
+- `backend/.env` (from `backend/.env.example`): `NODE_ENV`, `PORT`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `CORS_ORIGINS`, `TRUST_PROXY`, `LOG_LEVEL`, optional rate-limit overrides (`RATE_LIMIT_*`)
 - `backend/.env.test`: same keys, targeting `zapis_test` and `LOG_LEVEL=silent`
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
