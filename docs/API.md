@@ -299,3 +299,89 @@ Replaces the weekly working-hours schedule for a staff member (BR-10). `dayOfWee
   - `200 OK`: `{ "data": StaffDto }`
   - `400 VALIDATION_ERROR`
   - `404 NOT_FOUND`
+
+---
+
+## 6. Appointments (`/api/v1/appointments`)
+
+All appointments carry `startAt` and `endAt` as ISO-8601 UTC instants (`...Z`), `price` as a two-decimal string (`"700.00"`), `service: { id, name, durationMin }`, and `master: { id, name }` (preserved even if the service or master was later soft-deleted).
+
+### `GET /api/v1/appointments`
+Lists non-deleted appointments overlapping the half-open UTC window `[from, to)` (`startAt < to AND endAt > from`), sorted by `startAt ASC`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`; a `MASTER` is always forced to their own `masterId`).
+- **Query Parameters**:
+  - `from` (required): ISO-8601 instant (inclusive).
+  - `to` (required): ISO-8601 instant (exclusive, `from < to`, range `<= 62` days).
+  - `masterId` (optional): UUID filter (ignored for `MASTER` callers).
+  - `status` (optional): `"SCHEDULED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"`.
+  - `page` (optional, default `1`): integer `>= 1`.
+  - `limit` (optional, default `50`): integer `1..200`.
+- **Responses**:
+  - `200 OK`: `{ "data": [AppointmentDto, ...], "meta": { "page": 1, "limit": 50, "total": 12 } }`
+  - `400 VALIDATION_ERROR`: Missing/invalid dates or range exceeds 62 days.
+
+### `POST /api/v1/appointments`
+Creates a staff appointment (`source = "STAFF"`). Enforces **BR-1** (`FOR UPDATE` row lock on master + half-open overlap check + PostgreSQL GiST exclusion constraint), **BR-2** (computes `endAt = startAt + service.durationMin`, normalizes seconds/ms to `0`, snapshots `service.price` unless `price` override is provided), and **BR-8** (normalizes `clientPhone` to E.164). Staff bookings may be placed outside working hours or off-grid, but never overlap an active appointment.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` for any active bookable master in the company; `MASTER` only for self).
+- **Request Body**:
+  ```json
+  {
+    "masterId": "uuid",
+    "serviceId": "uuid",
+    "startAt": "2026-11-20T10:00:00+06:00",
+    "clientName": "Бакыт Асанов",
+    "clientPhone": "0555 77 88 99",
+    "clientNote": "Покороче по бокам",
+    "internalNote": "Постоянный клиент",
+    "price": "700.00"
+  }
+  ```
+- **Responses**:
+  - `201 Created`: `{ "data": AppointmentDto }`
+  - `400 VALIDATION_ERROR`: Invalid fields, inactive/non-bookable master or service, or master not linked to service.
+  - `403 FORBIDDEN`: `MASTER` attempting to create for another master.
+  - `404 NOT_FOUND`: Unknown or cross-tenant `masterId` / `serviceId`.
+  - `409 SLOT_ALREADY_BOOKED`: Another `SCHEDULED` or `COMPLETED` appointment overlaps `[startAt, endAt)`.
+
+### `GET /api/v1/appointments/:id`
+Returns a single appointment by ID (`MASTER` may only read own appointments; cross-tenant or other-master IDs return `404 NOT_FOUND`).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Responses**:
+  - `200 OK`: `{ "data": AppointmentDto }`
+  - `404 NOT_FOUND`
+
+### `PATCH /api/v1/appointments/:id`
+Updates details, reschedules, or changes `serviceId` / `masterId` of an appointment. Allowed **only while `status === "SCHEDULED"`** (BR-6). Re-runs **BR-1** excluding the appointment itself. If `serviceId` changes, recomputes `endAt` and updates `price` snapshot (unless `price` is explicitly provided in the payload).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER` for own appointment)
+- **Request Body**: Any non-empty subset of `{ masterId, serviceId, startAt, clientName, clientPhone, clientNote, internalNote, price }`.
+- **Responses**:
+  - `200 OK`: `{ "data": AppointmentDto }`
+  - `400 VALIDATION_ERROR`
+  - `403 FORBIDDEN`: `MASTER` attempting to reassign `masterId`.
+  - `404 NOT_FOUND`
+  - `409 INVALID_STATUS_TRANSITION`: Appointment is not `SCHEDULED`.
+  - `409 SLOT_ALREADY_BOOKED`: Target slot conflicts with another active appointment.
+
+### `POST /api/v1/appointments/:id/status`
+Transitions an appointment's status according to **BR-6**:
+- `SCHEDULED -> CANCELLED`: allowed for `OWNER` and own `MASTER` (frees the slot).
+- `SCHEDULED -> COMPLETED | NO_SHOW`: allowed for `OWNER` and own `MASTER` **only when `startAt <= now`** (`NO_SHOW` frees the slot; `COMPLETED` keeps blocking it).
+- `CANCELLED -> SCHEDULED`: allowed **only for `OWNER`** (re-runs **BR-1** and returns `409 SLOT_ALREADY_BOOKED` if the slot was taken).
+- Any other transition returns `409 INVALID_STATUS_TRANSITION`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER` for own appointment)
+- **Request Body**: `{ "status": "COMPLETED" | "CANCELLED" | "NO_SHOW" | "SCHEDULED" }`
+- **Responses**:
+  - `200 OK`: `{ "data": AppointmentDto }`
+  - `403 FORBIDDEN`: `MASTER` attempting `CANCELLED -> SCHEDULED`.
+  - `404 NOT_FOUND`
+  - `409 INVALID_STATUS_TRANSITION`
+  - `409 SLOT_ALREADY_BOOKED`
+
+### `DELETE /api/v1/appointments/:id`
+Soft-deletes an erroneous appointment (`deletedAt = now()`, freeing the slot). Normal cancellations should use `POST /api/v1/appointments/:id/status` with `status: "CANCELLED"`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only; `MASTER` receives `403 FORBIDDEN`)
+- **Responses**:
+  - `204 No Content`
+  - `403 FORBIDDEN`
+  - `404 NOT_FOUND`
+
