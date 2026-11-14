@@ -12,6 +12,22 @@
 - [x] **Phase 8**: Dashboard: Schedule & Appointments
 - [x] **Phase 9**: Public Booking Page (Client Flow)
 - [x] **Phase 10**: Hardening, E2E & Release Readiness
+- [x] **Phase 11**: Audit, Baseline & Niche Narrowing (v2 Foundation, `lib/clock.ts`, BR-12 Any-Master Concurrency, `BusinessType = BARBERSHOP | BEAUTY_SALON`)
+- [ ] **Phase 12**: Notification Infrastructure (Outbox, Worker, Email, In-App, Audit Log)
+- [ ] **Phase 13**: Password Recovery (Email + Owner-Generated Reset Links)
+- [ ] **Phase 14**: Billing Core (Plans, Subscriptions, Trial, Grace, Locked, Manual Payments)
+- [ ] **Phase 15**: Admin Panel Backend (`PlatformAdmin`, 2FA TOTP, Companies, Payments, Impersonation)
+- [ ] **Phase 16**: Admin Panel Frontend (`/admin/**`)
+- [ ] **Phase 17**: Client CRM (Auto-Create, Search, Card, Notes, Blacklist, Anonymize)
+- [ ] **Phase 18**: Breaks & Time Off (Lunch Breaks, Vacations, Sick Leave, Staff Booking Warnings)
+- [ ] **Phase 19**: Client Self-Service (`/manage/[token]` View, Cancel, Reschedule)
+- [ ] **Phase 20**: Staff Notifications & Client Reminders (Telegram Bot, Email, WhatsApp Queue)
+- [ ] **Phase 21**: Light Prepayment (Manual Transfer Flow, Hold Expiry, Staff Confirm)
+- [ ] **Phase 22**: Analytics & CSV Export (Owner + Master Scoped)
+- [ ] **Phase 23**: Onboarding Checklist & Service Presets (`BARBERSHOP`, `BEAUTY_SALON`)
+- [ ] **Phase 24**: Kyrgyz Language (`RU`/`KY`), Legal Pages (`/privacy`, `/terms`) & Consent
+- [ ] **Phase 25**: PWA (Manifest, Service Worker, Icons, Install Prompt, 360px Mobile Pass)
+- [ ] **Phase 26**: Hardening, Full v2 E2E Suite, Security/Performance Audit & Final Release
 
 ## Installed Versions (Phase 10 — Release Ready)
 - **Node.js**: v24.22.0 (`.nvmrc`: `24`)
@@ -81,4 +97,4 @@ npm run test:e2e     # Runs Playwright Chromium E2E suite
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
 ## Known Issues / Risks
-- None. All 11 phases (Phase 0 through Phase 10) are complete and verified.
+- None. Phases 0–11 are complete and verified. Ready for Phase 12.

@@ -139,7 +139,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
     it('returns 409 CONFLICT on duplicate email and rolls back atomically so no orphan Company is left behind', async () => {
       await request(app).post('/api/v1/auth/register').send({
         companyName: 'Company One',
-        businessType: 'OTHER',
+        businessType: 'BARBERSHOP',
         ownerName: 'Owner One',
         email: 'dup@zapis.kg',
         password: 'Password123!',
@@ -147,7 +147,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
 
       const dupRes = await request(app).post('/api/v1/auth/register').send({
         companyName: 'Company Two Should Not Exist',
-        businessType: 'OTHER',
+        businessType: 'BEAUTY_SALON',
         ownerName: 'Owner Two',
         email: 'DUP@zapis.kg',
         password: 'Password123!',
@@ -417,10 +417,10 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
   describe('GET /api/v1/company & PATCH /api/v1/company (RBAC & tenant scoping)', () => {
     it('allows both OWNER and MASTER to GET their own company, but only OWNER can PATCH', async () => {
       const regA = await request(app).post('/api/v1/auth/register').send({
-        companyName: 'Auto Service KG',
-        businessType: 'AUTO_SERVICE',
+        companyName: 'Beauty Studio KG',
+        businessType: 'BEAUTY_SALON',
         ownerName: 'Owner A',
-        email: 'ownera@auto.kg',
+        email: 'ownera@salon.kg',
         password: 'Password123!',
       });
       const bodyA = asAuthEnvelope(regA.body);
@@ -433,7 +433,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
           companyId: companyIdA,
           role: Role.MASTER,
           name: 'Master A',
-          email: 'mastera@auto.kg',
+          email: 'mastera@salon.kg',
           passwordHash: await hashPassword('Password123!'),
         },
       });
@@ -467,12 +467,12 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         .patch('/api/v1/company')
         .set('Authorization', `Bearer ${ownerTokenA}`)
         .send({
-          name: 'СТО Тулпар',
-          businessType: BusinessType.AUTO_SERVICE,
+          name: 'Салон Тулпар',
+          businessType: BusinessType.BEAUTY_SALON,
           phone: '0700 11 22 33',
           address: 'г. Бишкек, ул. Горького 10',
           timezone: 'Asia/Bishkek',
-          slug: 'sto-tulpar',
+          slug: 'salon-tulpar',
           slotIntervalMin: 15,
           minLeadTimeMin: 30,
           maxAdvanceDays: 45,
@@ -482,8 +482,8 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
       expect(ownerPatch.status).toBe(200);
       expect(asCompanyEnvelope(ownerPatch.body).data).toMatchObject({
         id: companyIdA,
-        name: 'СТО Тулпар',
-        slug: 'sto-tulpar',
+        name: 'Салон Тулпар',
+        slug: 'salon-tulpar',
         phone: '+996700112233',
         address: 'г. Бишкек, ул. Горького 10',
         slotIntervalMin: 15,

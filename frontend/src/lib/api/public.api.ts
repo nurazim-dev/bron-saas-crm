@@ -19,7 +19,7 @@ const publicHttpClient = axios.create({
 
 export interface CreatePublicAppointmentPayload {
   serviceId: string;
-  masterId: string;
+  masterId?: string | null;
   startAt: string;
   clientName: string;
   clientPhone: string;
@@ -55,7 +55,7 @@ export async function fetchPublicCompanyServer(
 
 export async function getPublicAvailability(
   slug: string,
-  params: { masterId: string; serviceId: string; date: string },
+  params: { masterId?: string; serviceId: string; date: string },
 ): Promise<AvailabilityDto> {
   const res = await publicHttpClient.get<ApiSuccessEnvelope<AvailabilityDto>>(
     `/companies/${encodeURIComponent(slug)}/availability`,

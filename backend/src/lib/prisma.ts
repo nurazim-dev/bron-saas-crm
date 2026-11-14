@@ -2,6 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { env } from '../config/env.js';
 import { Prisma, PrismaClient } from '../generated/prisma/client.js';
+import { now as clockNow } from './clock.js';
 
 export const SOFT_DELETE_MODELS = ['Company', 'User', 'Service', 'Appointment'] as const;
 export type SoftDeleteModelName = (typeof SOFT_DELETE_MODELS)[number];
@@ -173,7 +174,7 @@ function applySoftDeleteExtension(client: PrismaClient) {
           }
           const typedArgs = args as QueryArgs;
           const where = withNotDeletedWhere(typedArgs.where);
-          const now = new Date();
+          const now = clockNow();
           const delegate = (baseClient as unknown as Record<string, Record<string, QueryFn>>)[
             model.charAt(0).toLowerCase() + model.slice(1)
           ];
@@ -195,7 +196,7 @@ function applySoftDeleteExtension(client: PrismaClient) {
           }
           const typedArgs = args as QueryArgs;
           const where = withNotDeletedWhere(typedArgs.where);
-          const now = new Date();
+          const now = clockNow();
           const delegate = (baseClient as unknown as Record<string, Record<string, QueryFn>>)[
             model.charAt(0).toLowerCase() + model.slice(1)
           ];

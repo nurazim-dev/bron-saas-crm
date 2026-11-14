@@ -1,3 +1,4 @@
+import { now as clockNow } from '../../lib/clock.js';
 import { prisma } from '../../lib/prisma.js';
 
 export interface HealthStatus {
@@ -21,6 +22,6 @@ export async function getHealth(
     status: database === 'up' ? 'ok' : 'degraded',
     database,
     uptimeSec: Math.round(process.uptime()),
-    timestamp: new Date().toISOString(),
+    timestamp: clockNow().toISOString(),
   };
 }

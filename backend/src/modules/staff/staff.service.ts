@@ -6,6 +6,7 @@ import {
   type User,
   type WorkingHours,
 } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../../lib/password.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
@@ -303,7 +304,7 @@ export async function deleteStaffForCompany(companyId: string, staffId: string):
     throw new AppError('FORBIDDEN', 403, 'Owner account cannot be deleted');
   }
 
-  const now = new Date();
+  const now = clockNow();
   const upcomingCount = await prisma.appointment.count({
     where: {
       companyId,

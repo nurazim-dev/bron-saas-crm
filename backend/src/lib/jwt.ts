@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import type { Role } from '../generated/prisma/client.js';
+import { now as clockNow } from './clock.js';
 import { AppError } from './errors.js';
 
 export interface AccessTokenClaims {
@@ -50,12 +51,14 @@ export function signAccessToken(payload: {
   role: Role;
   tv: number;
 }): string {
-  const claims: AccessTokenClaims = {
+  const iat = Math.floor(clockNow().getTime() / 1000);
+  const claims: AccessTokenClaims & { iat: number } = {
     sub: payload.sub,
     companyId: payload.companyId,
     role: payload.role,
     tv: payload.tv,
     typ: 'access',
+    iat,
   };
   const options: SignOptions = {
     algorithm: 'HS256',
@@ -70,13 +73,15 @@ export function signRefreshToken(payload: {
   role: Role;
   tv: number;
 }): string {
-  const claims: RefreshTokenClaims = {
+  const iat = Math.floor(clockNow().getTime() / 1000);
+  const claims: RefreshTokenClaims & { iat: number } = {
     sub: payload.sub,
     companyId: payload.companyId,
     role: payload.role,
     tv: payload.tv,
     jti: randomUUID(),
     typ: 'refresh',
+    iat,
   };
   const options: SignOptions = {
     algorithm: 'HS256',
@@ -91,7 +96,10 @@ function isValidRole(value: unknown): value is Role {
 
 export function verifyAccessToken(token: string): AccessTokenClaims {
   try {
-    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      algorithms: ['HS256'],
+      clockTimestamp: Math.floor(clockNow().getTime() / 1000),
+    });
     if (typeof decoded !== 'object' || decoded === null) {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid access token');
     }
@@ -120,7 +128,10 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
 
 export function verifyRefreshToken(token: string): RefreshTokenClaims {
   try {
-    const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET, {
+      algorithms: ['HS256'],
+      clockTimestamp: Math.floor(clockNow().getTime() / 1000),
+    });
     if (typeof decoded !== 'object' || decoded === null) {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid refresh token');
     }

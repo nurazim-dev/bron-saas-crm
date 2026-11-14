@@ -25,7 +25,7 @@ const trimmedNameSchema = (fieldLabel: string) =>
 
 export const registerBodySchema = z.object({
   companyName: trimmedNameSchema('Company name'),
-  businessType: z.enum(BusinessType).optional().default(BusinessType.OTHER),
+  businessType: z.enum(BusinessType).optional().default(BusinessType.BARBERSHOP),
   ownerName: trimmedNameSchema('Owner name'),
   email: emailSchema,
   phone: z

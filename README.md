@@ -1,6 +1,6 @@
 # Zapis.kg
 
-Multi-tenant SaaS CRM and online-booking platform for small service businesses in Kyrgyzstan (beauty salons, barbershops, auto-service stations).
+Multi-tenant SaaS CRM and online-booking platform for barbershops and beauty salons in Kyrgyzstan.
 
 - **Market defaults**: Timezone `Asia/Bishkek` (UTC+6, IANA), Currency `KGS` (`сом`), Phones normalized to E.164 (`+996...`), Russian UI (`frontend/src/lib/i18n/ru.ts`), English codebase & API reference.
 - **Core guarantees**:

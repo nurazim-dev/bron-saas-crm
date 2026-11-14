@@ -26,12 +26,7 @@ import { ru } from '@/lib/i18n/ru';
 import { isValidPhoneInput, normalizePhoneE164OrNull } from '@/lib/phone';
 import type { BusinessType } from '@/types/api';
 
-const BUSINESS_TYPE_VALUES: [BusinessType, ...BusinessType[]] = [
-  'BARBERSHOP',
-  'BEAUTY_SALON',
-  'AUTO_SERVICE',
-  'OTHER',
-];
+const BUSINESS_TYPE_VALUES: [BusinessType, ...BusinessType[]] = ['BARBERSHOP', 'BEAUTY_SALON'];
 
 const registerSchema = z.object({
   companyName: z.string().trim().min(2, ru.validation.nameMin).max(100, ru.validation.nameMax),

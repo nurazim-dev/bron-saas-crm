@@ -1,6 +1,6 @@
 export type Role = 'OWNER' | 'MASTER';
 
-export type BusinessType = 'BEAUTY_SALON' | 'BARBERSHOP' | 'AUTO_SERVICE' | 'OTHER';
+export type BusinessType = 'BARBERSHOP' | 'BEAUTY_SALON';
 
 export type AppointmentStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
@@ -214,6 +214,7 @@ export interface PublicBookedAppointmentDto {
     price: string;
   };
   master: {
+    id?: string;
     name: string;
   };
   company: {

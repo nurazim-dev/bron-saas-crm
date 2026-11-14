@@ -654,4 +654,113 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
       .expect(429);
     expect(asError(eleventhReq.body).error.code).toBe('RATE_LIMITED');
   });
+
+  it('enforces BR-12 any-available-master union availability, deterministic least-loaded ordering, and k-of-N parallel concurrency without deadlocks', async () => {
+    const ctx = await setupPublicBookingFixture('BR12');
+
+    // Configure master2 to also perform service60Id and work 10:00 - 13:00 on targetDayOfWeek
+    // (master1 works 10:00 - 12:00, so 12:00 is available only on master2)
+    await request(app)
+      .put(`/api/v1/staff/${ctx.master2Id}/services`)
+      .set('Authorization', `Bearer ${ctx.ownerToken}`)
+      .send({ serviceIds: [ctx.service60Id] })
+      .expect(200);
+
+    await request(app)
+      .put(`/api/v1/staff/${ctx.master2Id}/working-hours`)
+      .set('Authorization', `Bearer ${ctx.ownerToken}`)
+      .send({
+        days: [{ dayOfWeek: ctx.targetDayOfWeek, startTime: '10:00', endTime: '13:00' }],
+      })
+      .expect(200);
+
+    // 1. Union availability when masterId is "ANY" or omitted includes 10:00, 10:30, 11:00, 11:30, 12:00
+    const unionAvailRes = await request(app)
+      .get(`/api/v1/public/companies/${ctx.slug}/availability`)
+      .query({
+        serviceId: ctx.service60Id,
+        masterId: 'ANY',
+        date: ctx.targetDate,
+      })
+      .expect(200);
+
+    expect(asAvailability(unionAvailRes.body).data.slots.map((s) => s.label)).toEqual([
+      '10:00',
+      '10:30',
+      '11:00',
+      '11:30',
+      '12:00',
+    ]);
+
+    const omittedMasterAvailRes = await request(app)
+      .get(`/api/v1/public/companies/${ctx.slug}/availability`)
+      .query({
+        serviceId: ctx.service60Id,
+        date: ctx.targetDate,
+      })
+      .expect(200);
+    expect(asAvailability(omittedMasterAvailRes.body).data.slots.map((s) => s.label)).toEqual([
+      '10:00',
+      '10:30',
+      '11:00',
+      '11:30',
+      '12:00',
+    ]);
+
+    // 2. Concurrent any-master booking at 10:00: k = 2 free masters, N = 6 parallel requests ->
+    //    exactly 2 x 201 (assigned to master1 and master2) and 4 x 409 SLOT_ALREADY_BOOKED
+    const slot1000Utc = localDateTimeToUtc(ctx.targetDate, '10:00', 'Asia/Bishkek').toISOString();
+    const parallelAnyRequests = Array.from({ length: 6 }, (_, idx) =>
+      request(app)
+        .post(`/api/v1/public/companies/${ctx.slug}/appointments`)
+        .send({
+          serviceId: ctx.service60Id,
+          masterId: 'ANY',
+          startAt: slot1000Utc,
+          clientName: `Any Racer ${String(idx + 1)}`,
+          clientPhone: `055540000${String(idx)}`,
+        }),
+    );
+
+    const raceResults = await Promise.all(parallelAnyRequests);
+    const winners = raceResults.filter((r) => r.status === 201);
+    const losers = raceResults.filter((r) => r.status === 409);
+
+    expect(winners).toHaveLength(2);
+    expect(losers).toHaveLength(4);
+    for (const loser of losers) {
+      expect(asError(loser.body).error.code).toBe('SLOT_ALREADY_BOOKED');
+    }
+
+    const assignedMasterIds = winners
+      .map((w) => asPublicCreate(w.body).data.appointment.master.id)
+      .sort();
+    expect(assignedMasterIds).toEqual([ctx.master1Id, ctx.master2Id].sort());
+
+    // 3. Deterministic least-loaded ordering: cancel master2's 10:00 booking so master1 has 1 appointment
+    //    on targetDate and master2 has 0. Booking 11:00 with masterId omitted must pick master2 (0 < 1).
+    const master2Booking = winners
+      .map((w) => asPublicCreate(w.body).data.appointment)
+      .find((a) => a.master.id === ctx.master2Id);
+    expect(master2Booking).toBeDefined();
+
+    await request(app)
+      .post(`/api/v1/appointments/${master2Booking?.id ?? ''}/status`)
+      .set('Authorization', `Bearer ${ctx.ownerToken}`)
+      .send({ status: 'CANCELLED' })
+      .expect(200);
+
+    const slot1100Utc = localDateTimeToUtc(ctx.targetDate, '11:00', 'Asia/Bishkek').toISOString();
+    const leastLoadedRes = await request(app)
+      .post(`/api/v1/public/companies/${ctx.slug}/appointments`)
+      .send({
+        serviceId: ctx.service60Id,
+        startAt: slot1100Utc,
+        clientName: 'Least Loaded Client',
+        clientPhone: '0555400099',
+      })
+      .expect(201);
+
+    expect(asPublicCreate(leastLoadedRes.body).data.appointment.master.id).toBe(ctx.master2Id);
+  });
 });

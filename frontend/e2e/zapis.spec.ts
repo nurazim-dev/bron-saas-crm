@@ -1,16 +1,17 @@
 import { expect, type Page, test } from '@playwright/test';
 
-async function advanceUntilSlotsAvailable(page: Page): Promise<void> {
+async function advanceUntilSlotsAvailable(page: Page): Promise<number> {
   const slotButtons = page.getByRole('button', { name: /^\d{2}:\d{2}$/ });
   const nextDayBtn = page.getByRole('button', { name: 'Выбрать следующую дату' });
 
   for (let attempt = 0; attempt < 7; attempt++) {
     await expect(slotButtons.first().or(nextDayBtn)).toBeVisible();
     if ((await slotButtons.count()) > 0) {
-      return;
+      return attempt;
     }
     await nextDayBtn.click();
   }
+  return 0;
 }
 
 test.describe('Zapis.kg End-to-End Suite', () => {
@@ -111,7 +112,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await clientPage.getByRole('button', { name: new RegExp(masterName) }).click();
 
     // Step 3: Advance to a date with available slots if needed
-    await advanceUntilSlotsAvailable(clientPage);
+    const daysAdvanced = await advanceUntilSlotsAvailable(clientPage);
     const firstSlotBtn = clientPage.getByRole('button', { name: /^\d{2}:\d{2}$/ }).first();
     await expect(firstSlotBtn).toBeVisible();
     await firstSlotBtn.click();
@@ -131,12 +132,14 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await ownerPage.locator('aside').getByRole('link', { name: 'Расписание' }).click();
     await expect(ownerPage).toHaveURL(/\/dashboard\/schedule$/);
     await expect(ownerPage.getByRole('heading', { name: 'Расписание' })).toBeVisible();
+    const nextDayScheduleBtn = ownerPage.getByRole('button', { name: 'Следующий день' });
+    await expect(nextDayScheduleBtn).toBeVisible();
+
+    for (let i = 0; i < daysAdvanced; i++) {
+      await nextDayScheduleBtn.click();
+    }
 
     const apptLocator = ownerPage.getByRole('button', { name: new RegExp(clientName) });
-    for (let dayStep = 0; dayStep < 3; dayStep++) {
-      if ((await apptLocator.count()) > 0) break;
-      await ownerPage.getByRole('button', { name: 'Следующий день' }).click();
-    }
     await expect(apptLocator).toBeVisible();
 
     // Open appointment details drawer and verify status actions

@@ -1,4 +1,5 @@
 import { DateTime, IANAZone } from 'luxon';
+import { now as clockNow } from './clock.js';
 import { AppError } from './errors.js';
 
 export const LOCAL_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -97,7 +98,7 @@ export function getLocalDayBoundsUtc(
 /**
  * Returns the current local calendar date (`YYYY-MM-DD`) in the given IANA timezone.
  */
-export function getTodayLocalDate(timezone: string, now: Date = new Date()): string {
+export function getTodayLocalDate(timezone: string, now: Date = clockNow()): string {
   assertValidZone(timezone);
   return DateTime.fromJSDate(now, { zone: 'utc' }).setZone(timezone).toFormat('yyyy-MM-dd');
 }
@@ -107,6 +108,27 @@ export function getTodayLocalDate(timezone: string, now: Date = new Date()): str
  */
 export function addDaysToLocalDate(localDate: string, days: number, timezone: string): string {
   return parseLocalDateDT(localDate, timezone).plus({ days }).toFormat('yyyy-MM-dd');
+}
+
+/**
+ * Adds minutes to a UTC `Date` instant and returns a new UTC `Date`.
+ */
+export function addMinutesUtc(instant: Date, minutes: number): Date {
+  return DateTime.fromJSDate(instant, { zone: 'utc' }).plus({ minutes }).toJSDate();
+}
+
+/**
+ * Adds milliseconds to a UTC `Date` instant and returns a new UTC `Date`.
+ */
+export function addDurationMsUtc(instant: Date, durationMs: number): Date {
+  return DateTime.fromMillis(instant.getTime() + durationMs, { zone: 'utc' }).toJSDate();
+}
+
+/**
+ * Converts epoch milliseconds into a UTC `Date` instant.
+ */
+export function epochMsToUtcDate(epochMs: number): Date {
+  return DateTime.fromMillis(epochMs, { zone: 'utc' }).toJSDate();
 }
 
 /**

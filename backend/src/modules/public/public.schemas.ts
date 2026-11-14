@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { parseNormalizedStartAtUtc } from '../../lib/datetime.js';
 import { normalizePhoneE164, sanitizeText } from '../../lib/phone.js';
-import { getAvailabilityQuerySchema } from '../availability/availability.schemas.js';
+import { localDateQuerySchema } from '../availability/availability.schemas.js';
 
 export const companySlugParamsSchema = z.object({
   slug: z
@@ -13,7 +13,16 @@ export const companySlugParamsSchema = z.object({
 
 export type CompanySlugParams = z.infer<typeof companySlugParamsSchema>;
 
-export const getPublicAvailabilityQuerySchema = getAvailabilityQuerySchema;
+const publicMasterIdQuerySchema = z
+  .union([z.literal('ANY'), z.uuid({ message: 'masterId must be a valid UUID or ANY' })])
+  .optional();
+
+export const getPublicAvailabilityQuerySchema = z.object({
+  serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
+  masterId: publicMasterIdQuerySchema,
+  date: localDateQuerySchema,
+});
+
 export type GetPublicAvailabilityQuery = z.infer<typeof getPublicAvailabilityQuerySchema>;
 
 const startAtSchema = z.string().transform((val, ctx): Date => {
@@ -60,10 +69,14 @@ const clientNoteSchema = z
   ])
   .optional();
 
+const publicMasterIdBodySchema = z
+  .union([z.literal('ANY'), z.uuid({ message: 'masterId must be a valid UUID or ANY' }), z.null()])
+  .optional();
+
 export const createPublicAppointmentBodySchema = z
   .object({
     serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
-    masterId: z.uuid({ message: 'masterId must be a valid UUID' }),
+    masterId: publicMasterIdBodySchema,
     startAt: startAtSchema,
     clientName: clientNameSchema,
     clientPhone: clientPhoneSchema,

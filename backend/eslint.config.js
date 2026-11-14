@@ -35,6 +35,32 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/**/*.ts'],
+    ignores: ['src/lib/clock.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Date']",
+          message:
+            'Use now() from lib/clock.ts (or datetime.ts helpers) instead of new Date() outside lib/clock.ts.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message: 'Use now() from lib/clock.ts instead of Date.now() outside lib/clock.ts.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='DateTime'][callee.property.name='now']",
+          message: 'Use now() from lib/clock.ts instead of DateTime.now() outside lib/clock.ts.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='DateTime'][callee.property.name='local']",
+          message: 'Use now() from lib/clock.ts instead of DateTime.local() outside lib/clock.ts.',
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.js'],
     ...tseslint.configs.disableTypeChecked,
   },

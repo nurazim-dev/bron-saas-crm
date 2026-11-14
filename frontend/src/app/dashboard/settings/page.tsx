@@ -28,7 +28,7 @@ import { normalizePhoneE164OrNull } from '@/lib/phone';
 import { useAuthStore } from '@/stores/auth.store';
 import type { BusinessType, CompanyDto } from '@/types/api';
 
-const BUSINESS_TYPES: BusinessType[] = ['BARBERSHOP', 'BEAUTY_SALON', 'AUTO_SERVICE', 'OTHER'];
+const BUSINESS_TYPES: BusinessType[] = ['BARBERSHOP', 'BEAUTY_SALON'];
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function SettingsManagerContent() {

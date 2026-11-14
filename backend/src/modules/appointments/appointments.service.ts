@@ -5,6 +5,8 @@ import {
   Role,
   type Appointment,
 } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
+import { addDurationMsUtc, addMinutesUtc } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
@@ -295,7 +297,7 @@ export async function createStaffAppointmentForActor(
   );
 
   const startAt = input.startAt;
-  const endAt = new Date(startAt.getTime() + service.durationMin * 60_000);
+  const endAt = addMinutesUtc(startAt, service.durationMin);
   const price = input.price !== undefined ? new Prisma.Decimal(input.price) : service.price;
   const clientNote = normalizeOptionalNote(input.clientNote) ?? null;
   const internalNote = normalizeOptionalNote(input.internalNote) ?? null;
@@ -389,16 +391,16 @@ export async function updateAppointmentForActor(
     );
     if (serviceChanged) {
       // BR-2: If serviceId changes on update, recompute endAt and (unless a price is given) the price snapshot
-      nextEndAt = new Date(nextStartAt.getTime() + service.durationMin * 60_000);
+      nextEndAt = addMinutesUtc(nextStartAt, service.durationMin);
       nextPrice = input.price !== undefined ? new Prisma.Decimal(input.price) : service.price;
     } else {
       const currentDurationMs = existing.endAt.getTime() - existing.startAt.getTime();
-      nextEndAt = new Date(nextStartAt.getTime() + currentDurationMs);
+      nextEndAt = addDurationMsUtc(nextStartAt, currentDurationMs);
       nextPrice = input.price !== undefined ? new Prisma.Decimal(input.price) : existing.price;
     }
   } else {
     const currentDurationMs = existing.endAt.getTime() - existing.startAt.getTime();
-    nextEndAt = new Date(nextStartAt.getTime() + currentDurationMs);
+    nextEndAt = addDurationMsUtc(nextStartAt, currentDurationMs);
     nextPrice = input.price !== undefined ? new Prisma.Decimal(input.price) : existing.price;
   }
 
@@ -460,7 +462,7 @@ export async function changeAppointmentStatusForActor(
   }
 
   const nextStatus = input.status;
-  const now = new Date();
+  const now = clockNow();
 
   if (existing.status === AppointmentStatus.SCHEDULED) {
     if (nextStatus === AppointmentStatus.CANCELLED) {

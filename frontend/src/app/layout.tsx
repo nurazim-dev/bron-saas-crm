@@ -11,9 +11,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Zapis.kg — Онлайн-запись и CRM для сферы услуг',
+  title: 'Zapis.kg — Онлайн-запись и CRM для барбершопов и салонов красоты',
   description:
-    'Система онлайн-записи и управления расписанием для салонов красоты, барбершопов и СТО в Кыргызстане.',
+    'Система онлайн-записи и управления расписанием для барбершопов и салонов красоты в Кыргызстане.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

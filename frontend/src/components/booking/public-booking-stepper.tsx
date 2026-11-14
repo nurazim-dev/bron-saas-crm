@@ -124,12 +124,16 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
       return;
     }
 
-    const targetMasters =
-      selectedMasterChoice === 'ANY'
-        ? eligibleMasters
-        : eligibleMasters.filter((m) => m.id === selectedMasterChoice);
+    if (eligibleMasters.length === 0) {
+      return;
+    }
 
-    if (targetMasters.length === 0) {
+    const specificMaster =
+      selectedMasterChoice === 'ANY'
+        ? null
+        : (eligibleMasters.find((m) => m.id === selectedMasterChoice) ?? null);
+
+    if (selectedMasterChoice !== 'ANY' && !specificMaster) {
       return;
     }
 
@@ -138,38 +142,27 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
 
     async function loadSlotsForDate() {
       try {
-        const results = await Promise.all(
-          targetMasters.map(async (m) => {
-            const avail = await getPublicAvailability(company.slug, {
-              masterId: m.id,
-              serviceId,
-              date: selectedDate,
-            });
-            return { master: m, slots: avail.slots };
-          }),
-        );
+        const avail = await getPublicAvailability(company.slug, {
+          masterId: specificMaster ? specificMaster.id : 'ANY',
+          serviceId,
+          date: selectedDate,
+        });
 
         if (cancelled) return;
 
-        // Merge slots by startAt (preserving earliest master match per slot)
-        const byStartAt = new Map<string, ResolvedSlotItem>();
-        for (const res of results) {
-          for (const sl of res.slots) {
-            if (!byStartAt.has(sl.startAt)) {
-              byStartAt.set(sl.startAt, {
-                startAt: sl.startAt,
-                label: sl.label,
-                masterId: res.master.id,
-                masterName: res.master.name,
-              });
-            }
-          }
-        }
+        const resolvedMasterId = specificMaster ? specificMaster.id : 'ANY';
+        const resolvedMasterName = specificMaster
+          ? specificMaster.name
+          : ru.publicBooking.anyMasterTitle;
 
-        const merged = Array.from(byStartAt.values()).sort((a, b) =>
-          a.startAt.localeCompare(b.startAt),
+        setSlots(
+          avail.slots.map((sl) => ({
+            startAt: sl.startAt,
+            label: sl.label,
+            masterId: resolvedMasterId,
+            masterName: resolvedMasterName,
+          })),
         );
-        setSlots(merged);
       } catch {
         if (!cancelled) {
           setSlots([]);

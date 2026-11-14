@@ -1,0 +1,25 @@
+# Zapis.kg — Implemented Feature Inventory & Code Reconciliation
+
+This document reconciles the implemented features of **Zapis.kg** against the actual codebase, including the Phase 11 audit and BR-12 any-available-master upgrade.
+
+---
+
+## 1. Six Core v1 Features (Audited in Phase 11)
+
+| # | Feature | Status | Backend Implementation | Frontend Implementation | Audit Notes |
+|---|---------|--------|------------------------|-------------------------|-------------|
+| 1 | **Any-available-master booking mode (`"Любой свободный мастер"`)** | Verified & Upgraded to **BR-12** in Phase 11 | `backend/src/modules/public/public.schemas.ts`, `backend/src/modules/public/public.service.ts` (`getPublicAvailabilityBySlug`, `createPublicAppointmentBySlug`, `bookSingleMasterInTransaction`) | `frontend/src/components/booking/public-booking-stepper.tsx`, `frontend/src/lib/api/public.api.ts` | In v1 (Phase 9), `"ANY"` was resolved client-side by querying each master's availability and sending the first matching `masterId` on submit. In Phase 11, the backend was upgraded to full **BR-12**: `GET /public/companies/:slug/availability` computes the server-side union of free slots when `masterId` is omitted or `"ANY"`, and `POST /public/companies/:slug/appointments` deterministically orders candidate masters by `(fewest appointments on that local day ASC, id ASC)`, locking one master at a time and falling back across remaining candidates on `SLOT_ALREADY_BOOKED` / `SLOT_NOT_AVAILABLE`. |
+| 2 | **Today's expected revenue on dashboard overview** | Verified | `backend/src/modules/appointments/appointments.service.ts` (`listAppointments` date range in company timezone) | `frontend/src/app/dashboard/page.tsx` (`expectedRevenue` sum over `SCHEDULED` + `COMPLETED` appointments today) | Displays today's total appointments, `SCHEDULED`, `COMPLETED`, `CANCELLED` counts, and expected revenue in KGS (`сом`) for `SCHEDULED` + `COMPLETED` appointments. |
+| 3 | **QR code download as SVG (plus PNG & print)** | Verified | `backend/src/modules/company/company.service.ts` (company slug and public booking toggle) | `frontend/src/app/dashboard/settings/page.tsx` (`QRCodeSVG`, `handleDownloadQrSvg`, `handleDownloadQrPng`, `handlePrintQr`) | Owner can copy `/b/{slug}` link, download vector SVG (`zapis-{slug}-qr.svg`), raster PNG (`zapis-{slug}-qr.png`), or open a print-ready QR poster. |
+| 4 | **5-step mobile-first public booking widget** | Verified | `backend/src/modules/public/public.routes.ts`, `backend/src/modules/public/public.controller.ts`, `backend/src/modules/public/public.service.ts` | `frontend/src/app/b/[slug]/page.tsx`, `frontend/src/components/booking/public-booking-stepper.tsx` | Step 1: Service -> Step 2: Master (`"ANY"` or specific) -> Step 3: Date strip + free slots -> Step 4: Summary + client form -> Step 5: Confirmation screen. |
+| 5 | **Quick call (`tel:`) and WhatsApp (`wa.me`) action buttons** | Verified | `backend/src/lib/phone.ts` (E.164 normalization `+996...`) | `frontend/src/lib/phone.ts` (`getWhatsAppUrl`, `formatPhoneDisplay`), `frontend/src/app/b/[slug]/page.tsx`, `frontend/src/components/booking/public-booking-stepper.tsx`, `frontend/src/components/appointments/appointment-dialogs.tsx` | One-tap `tel:+996...` and `https://wa.me/996...` links on the public salon header, booking confirmation card, and staff appointment detail dialog. |
+| 6 | **Honeypot (`website`) + automatic slot refresh on `409` / `422` conflict** | Verified | `backend/src/modules/public/public.schemas.ts`, `backend/src/modules/public/public.service.ts` (honeypot returns fake `201` with zero DB writes; `409 SLOT_ALREADY_BOOKED` & `422 SLOT_NOT_AVAILABLE`) | `frontend/src/components/booking/public-booking-stepper.tsx` (`websiteHoneypot` hidden input; auto-returns to Step 3 and increments `slotsRefreshKey` on `SLOT_ALREADY_BOOKED` / `SLOT_NOT_AVAILABLE`), `frontend/src/app/dashboard/schedule/page.tsx` | Bots filling `website` receive a synthetic `201` without touching PostgreSQL. Concurrent slot conflicts show a Russian toast, clear the stale slot, and re-fetch live availability. |
+
+---
+
+## 2. Core Platform Capabilities (Phases 0–11)
+
+- **Multi-Tenant Isolation**: All queries and mutations scoped by `companyId` from verified JWT or resolved public slug; cross-tenant object access returns `404 NOT_FOUND`.
+- **Double-Booking Prevention (BR-1 & BR-12)**: Per-master row lock (`SELECT id FROM "User" ... FOR UPDATE`) + half-open `[startAt, endAt)` overlap check + PostgreSQL `EXCLUDE USING gist` constraint (`Appointment_no_overlapping_active_slots`).
+- **Time & Clock Discipline (BR-6 / v2 Non-Negotiable #6)**: UTC everywhere in PostgreSQL (`timestamptz(3)`) and Node (`TZ=UTC`), local timezone conversion strictly in `src/lib/datetime.ts`, and centralized `now()` / `FakeClock` in `backend/src/lib/clock.ts` enforced via ESLint `no-restricted-syntax`.
+- **Niche Focus (v2 Non-Negotiable #11)**: Dedicated exclusively to barbershops (`BARBERSHOP`) and beauty salons (`BEAUTY_SALON`) in Kyrgyzstan.

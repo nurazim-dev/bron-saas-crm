@@ -1,4 +1,5 @@
 import { AppointmentStatus, Prisma, Role, type Service } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import type { CreateServiceBody, UpdateServiceBody } from './services.schemas.js';
@@ -122,7 +123,7 @@ export async function deleteServiceForCompany(companyId: string, serviceId: stri
     throw new AppError('NOT_FOUND', 404, 'Service not found');
   }
 
-  const now = new Date();
+  const now = clockNow();
   const upcomingCount = await prisma.appointment.count({
     where: {
       companyId,

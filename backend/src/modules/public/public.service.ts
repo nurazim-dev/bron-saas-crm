@@ -7,6 +7,8 @@ import {
   type Service,
   type User,
 } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
+import { addMinutesUtc, getLocalDayBoundsUtc, utcToLocalParts } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
@@ -19,6 +21,7 @@ import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
   type AvailabilityResultDto,
+  type AvailableSlotDto,
   type DbClient,
 } from '../availability/availability.service.js';
 import type { CreatePublicAppointmentBody, GetPublicAvailabilityQuery } from './public.schemas.js';
@@ -68,6 +71,7 @@ export interface PublicBookedAppointmentDto {
     price: string;
   };
   master: {
+    id: string;
     name: string;
   };
   company: {
@@ -80,6 +84,12 @@ export interface PublicBookedAppointmentDto {
 
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
+}
+
+function isAnyMasterChoice(
+  masterId: string | null | undefined,
+): masterId is undefined | null | 'ANY' {
+  return masterId === undefined || masterId === null || masterId === 'ANY';
 }
 
 async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<Company> {
@@ -100,6 +110,53 @@ async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<
   }
 
   return company;
+}
+
+async function resolveActiveService(
+  db: DbClient,
+  companyId: string,
+  serviceId: string,
+): Promise<Service> {
+  const service = await db.service.findFirst({
+    where: { id: serviceId, companyId },
+  });
+
+  if (!service) {
+    throw new AppError('NOT_FOUND', 404, 'Service not found');
+  }
+
+  if (!service.isActive) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Selected service is not active', [
+      { path: 'serviceId', message: 'Selected service is not active' },
+    ]);
+  }
+
+  return service;
+}
+
+async function resolveCandidateMastersForService(
+  db: DbClient,
+  companyId: string,
+  serviceId: string,
+): Promise<User[]> {
+  return db.user.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      isBookable: true,
+      services: {
+        some: {
+          serviceId,
+        },
+      },
+      workingHours: {
+        some: {},
+      },
+    },
+    orderBy: {
+      id: 'asc',
+    },
+  });
 }
 
 async function resolveBookableMasterAndService(
@@ -252,6 +309,52 @@ export async function getPublicAvailabilityBySlug(
   query: GetPublicAvailabilityQuery,
 ): Promise<AvailabilityResultDto> {
   const company = await resolveEnabledCompanyBySlug(prisma, slug);
+
+  if (isAnyMasterChoice(query.masterId)) {
+    const service = await resolveActiveService(prisma, company.id, query.serviceId);
+    const candidates = await resolveCandidateMastersForService(prisma, company.id, service.id);
+
+    if (candidates.length === 0) {
+      return {
+        date: query.date,
+        timezone: company.timezone,
+        slots: [],
+      };
+    }
+
+    const currentNow = clockNow();
+    const perMasterResults = await Promise.all(
+      candidates.map((master) =>
+        computeAvailableSlotsForDate(prisma, {
+          company,
+          service,
+          master,
+          date: query.date,
+          now: currentNow,
+        }),
+      ),
+    );
+
+    const slotByStartAt = new Map<string, AvailableSlotDto>();
+    for (const res of perMasterResults) {
+      for (const slot of res.slots) {
+        if (!slotByStartAt.has(slot.startAt)) {
+          slotByStartAt.set(slot.startAt, slot);
+        }
+      }
+    }
+
+    const mergedSlots = Array.from(slotByStartAt.values()).sort((a, b) =>
+      a.startAt.localeCompare(b.startAt),
+    );
+
+    return {
+      date: query.date,
+      timezone: company.timezone,
+      slots: mergedSlots,
+    };
+  }
+
   const { master, service } = await resolveBookableMasterAndService(
     prisma,
     company.id,
@@ -267,65 +370,26 @@ export async function getPublicAvailabilityBySlug(
   });
 }
 
-export async function createPublicAppointmentBySlug(
+async function bookSingleMasterInTransaction(
   slug: string,
+  masterId: string,
   input: CreatePublicAppointmentBody,
+  clientNote: string | null,
 ): Promise<PublicCreateAppointmentResultDto> {
-  const preflightCompany = await resolveEnabledCompanyBySlug(prisma, slug);
-  const preflightEntities = await resolveBookableMasterAndService(
-    prisma,
-    preflightCompany.id,
-    input.masterId,
-    input.serviceId,
-  );
-
-  // Honeypot `website`: if filled, return a fake 201 and write nothing to the DB
-  if (input.website.trim().length > 0) {
-    const fakeEndAt = new Date(
-      input.startAt.getTime() + preflightEntities.service.durationMin * 60_000,
-    );
-    return {
-      appointment: {
-        id: randomUUID(),
-        startAt: input.startAt.toISOString(),
-        endAt: fakeEndAt.toISOString(),
-        status: AppointmentStatus.SCHEDULED,
-        service: {
-          name: preflightEntities.service.name,
-          durationMin: preflightEntities.service.durationMin,
-          price: preflightEntities.service.price.toFixed(2),
-        },
-        master: {
-          name: preflightEntities.master.name,
-        },
-        company: {
-          name: preflightCompany.name,
-          address: preflightCompany.address,
-          phone: preflightCompany.phone,
-          timezone: preflightCompany.timezone,
-        },
-      },
-    };
-  }
-
-  const clientNote =
-    input.clientNote === undefined || input.clientNote === null || input.clientNote.length === 0
-      ? null
-      : input.clientNote;
-
   try {
     return await prisma.$transaction(async (tx: TransactionClient) => {
-      await lockMastersForUpdate(tx, [input.masterId]);
+      // BR-12: Lock strictly ONE master at a time inside the transaction
+      await lockMastersForUpdate(tx, [masterId]);
 
       const company = await resolveEnabledCompanyBySlug(tx, slug);
       const { master, service } = await resolveBookableMasterAndService(
         tx,
         company.id,
-        input.masterId,
+        masterId,
         input.serviceId,
       );
 
-      const now = new Date();
+      const currentNow = clockNow();
 
       // 1. Validate schedule, grid, lead time, and max advance (422 SLOT_NOT_AVAILABLE on violation)
       const { localDate, endAt } = await assertPublicSlotValidForSchedule(tx, {
@@ -333,7 +397,7 @@ export async function createPublicAppointmentBySlug(
         service,
         master,
         startAt: input.startAt,
-        now,
+        now: currentNow,
       });
 
       // 2. Check BR-1 overlap (409 SLOT_ALREADY_BOOKED on conflict)
@@ -350,7 +414,7 @@ export async function createPublicAppointmentBySlug(
         service,
         master,
         date: localDate,
-        now,
+        now: currentNow,
       });
       const targetIso = input.startAt.toISOString();
       if (!availability.slots.some((slot) => slot.startAt === targetIso)) {
@@ -367,7 +431,7 @@ export async function createPublicAppointmentBySlug(
           companyId: company.id,
           clientPhone: input.clientPhone,
           status: AppointmentStatus.SCHEDULED,
-          startAt: { gte: now },
+          startAt: { gte: currentNow },
         },
       });
 
@@ -408,6 +472,7 @@ export async function createPublicAppointmentBySlug(
             price: created.price.toFixed(2),
           },
           master: {
+            id: master.id,
             name: master.name,
           },
           company: {
@@ -425,4 +490,164 @@ export async function createPublicAppointmentBySlug(
     }
     throw err;
   }
+}
+
+export async function createPublicAppointmentBySlug(
+  slug: string,
+  input: CreatePublicAppointmentBody,
+): Promise<PublicCreateAppointmentResultDto> {
+  const preflightCompany = await resolveEnabledCompanyBySlug(prisma, slug);
+
+  const clientNote =
+    input.clientNote === undefined || input.clientNote === null || input.clientNote.length === 0
+      ? null
+      : input.clientNote;
+
+  if (!isAnyMasterChoice(input.masterId)) {
+    const preflightEntities = await resolveBookableMasterAndService(
+      prisma,
+      preflightCompany.id,
+      input.masterId,
+      input.serviceId,
+    );
+
+    // Honeypot `website`: if filled, return a fake 201 and write nothing to the DB
+    if (input.website.trim().length > 0) {
+      const fakeEndAt = addMinutesUtc(input.startAt, preflightEntities.service.durationMin);
+      return {
+        appointment: {
+          id: randomUUID(),
+          startAt: input.startAt.toISOString(),
+          endAt: fakeEndAt.toISOString(),
+          status: AppointmentStatus.SCHEDULED,
+          service: {
+            name: preflightEntities.service.name,
+            durationMin: preflightEntities.service.durationMin,
+            price: preflightEntities.service.price.toFixed(2),
+          },
+          master: {
+            id: preflightEntities.master.id,
+            name: preflightEntities.master.name,
+          },
+          company: {
+            name: preflightCompany.name,
+            address: preflightCompany.address,
+            phone: preflightCompany.phone,
+            timezone: preflightCompany.timezone,
+          },
+        },
+      };
+    }
+
+    return bookSingleMasterInTransaction(slug, input.masterId, input, clientNote);
+  }
+
+  // BR-12: Any-available-master booking
+  const preflightService = await resolveActiveService(prisma, preflightCompany.id, input.serviceId);
+  const candidates = await resolveCandidateMastersForService(
+    prisma,
+    preflightCompany.id,
+    preflightService.id,
+  );
+
+  if (candidates.length === 0) {
+    throw new AppError(
+      'SLOT_NOT_AVAILABLE',
+      422,
+      'Selected time slot is not available for booking',
+    );
+  }
+
+  const firstCandidate = candidates[0];
+  if (input.website.trim().length > 0 && firstCandidate) {
+    const fakeEndAt = addMinutesUtc(input.startAt, preflightService.durationMin);
+    return {
+      appointment: {
+        id: randomUUID(),
+        startAt: input.startAt.toISOString(),
+        endAt: fakeEndAt.toISOString(),
+        status: AppointmentStatus.SCHEDULED,
+        service: {
+          name: preflightService.name,
+          durationMin: preflightService.durationMin,
+          price: preflightService.price.toFixed(2),
+        },
+        master: {
+          id: firstCandidate.id,
+          name: firstCandidate.name,
+        },
+        company: {
+          name: preflightCompany.name,
+          address: preflightCompany.address,
+          phone: preflightCompany.phone,
+          timezone: preflightCompany.timezone,
+        },
+      },
+    };
+  }
+
+  // Deterministic candidate ordering: fewest appointments on that local day ASC, then id ASC
+  const localDate = utcToLocalParts(input.startAt, preflightCompany.timezone).date;
+  const { startUtc: dayStartUtc, endUtc: dayEndUtc } = getLocalDayBoundsUtc(
+    localDate,
+    preflightCompany.timezone,
+  );
+  const candidateIds = candidates.map((c) => c.id);
+
+  const dayCounts = await prisma.appointment.groupBy({
+    by: ['masterId'],
+    where: {
+      companyId: preflightCompany.id,
+      masterId: { in: candidateIds },
+      status: { in: [AppointmentStatus.SCHEDULED, AppointmentStatus.COMPLETED] },
+      startAt: { lt: dayEndUtc },
+      endAt: { gt: dayStartUtc },
+    },
+    _count: {
+      _all: true,
+    },
+  });
+
+  const countByMasterId = new Map<string, number>();
+  for (const row of dayCounts) {
+    countByMasterId.set(row.masterId, row._count._all);
+  }
+
+  const orderedCandidates = [...candidates].sort((a, b) => {
+    const countA = countByMasterId.get(a.id) ?? 0;
+    const countB = countByMasterId.get(b.id) ?? 0;
+    if (countA !== countB) {
+      return countA - countB;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  let sawSlotAlreadyBooked = false;
+
+  for (const candidate of orderedCandidates) {
+    try {
+      return await bookSingleMasterInTransaction(slug, candidate.id, input, clientNote);
+    } catch (err) {
+      if (err instanceof AppError) {
+        if (err.code === 'SLOT_ALREADY_BOOKED') {
+          sawSlotAlreadyBooked = true;
+          continue;
+        }
+        if (
+          err.code === 'SLOT_NOT_AVAILABLE' ||
+          err.code === 'NOT_FOUND' ||
+          err.code === 'VALIDATION_ERROR'
+        ) {
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+
+  if (sawSlotAlreadyBooked) {
+    throw new AppError('SLOT_ALREADY_BOOKED', 409, 'Selected time slot is already booked');
+  }
+
+  throw new AppError('SLOT_NOT_AVAILABLE', 422, 'Selected time slot is not available for booking');
 }

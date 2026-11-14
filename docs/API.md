@@ -50,7 +50,7 @@ Atomically creates a new `Company` (with auto-generated slug from `companyName`)
     "password": "Password123!"
   }
   ```
-  - `businessType`: `"BEAUTY_SALON" | "BARBERSHOP" | "AUTO_SERVICE" | "OTHER"` (optional, defaults to `"OTHER"`).
+  - `businessType`: `"BARBERSHOP" | "BEAUTY_SALON"` (optional, defaults to `"BARBERSHOP"`).
   - `phone`: optional; normalized to E.164 (`+996555123456`).
   - `password`: 8–128 chars.
 - **Responses**:
@@ -461,9 +461,12 @@ Returns the public company profile, active non-deleted services, and actually bo
   - `404 NOT_FOUND`: Unknown or soft-deleted `slug`.
 
 ### `GET /api/v1/public/companies/:slug/availability`
-Computes available slots for public booking (**BR-4**) and sets `Cache-Control: no-store`.
+Computes available slots for public booking (**BR-4**, **BR-12**) and sets `Cache-Control: no-store`.
 - **Auth**: None
-- **Query Parameters**: `serviceId` (UUID), `masterId` (UUID), `date` (`YYYY-MM-DD`).
+- **Query Parameters**:
+  - `serviceId` (required): UUID.
+  - `masterId` (optional): UUID or `"ANY"`. When omitted or `"ANY"`, returns the sorted union of free slots across all active, bookable masters who perform `serviceId` (**BR-12**).
+  - `date` (required): `YYYY-MM-DD`.
 - **Responses**:
   - `200 OK`: `{ "data": { "date": "2026-11-20", "timezone": "Asia/Bishkek", "slots": [{ "startAt": "...Z", "label": "10:00" }] } }` (with `Cache-Control: no-store`).
   - `400 VALIDATION_ERROR`: Invalid parameters or unbookable/unlinked master/service.
@@ -471,9 +474,10 @@ Computes available slots for public booking (**BR-4**) and sets `Cache-Control: 
   - `404 NOT_FOUND`
 
 ### `POST /api/v1/public/companies/:slug/appointments`
-Creates a client online booking (`source = "ONLINE"`). Enforces **BR-3**, **BR-4**, **BR-1**, and **BR-8** inside a locked transaction:
+Creates a client online booking (`source = "ONLINE"`). Enforces **BR-3**, **BR-4**, **BR-1**, **BR-8**, and **BR-12** inside a locked transaction:
 - Rate-limited to `10` requests / hour / IP (`429 RATE_LIMITED`).
 - Honeypot field `website`: if non-empty, returns a synthetic `201 Created` response and writes nothing to the database.
+- If `masterId` is omitted, `null`, or `"ANY"` (**BR-12**), candidate masters (active, bookable, linked to `serviceId`) are ordered deterministically by `(fewest appointments on that local day ASC, id ASC)` and attempted one by one, locking strictly one master at a time and falling back across remaining candidates on `SLOT_ALREADY_BOOKED` / `SLOT_NOT_AVAILABLE`.
 - Validates that `startAt` lies on the master's slot grid within working hours for that weekday in `Company.timezone` and satisfies `now + minLeadTimeMin <= startAt <= now + maxAdvanceDays` (`422 SLOT_NOT_AVAILABLE`).
 - Enforces **BR-1** (`409 SLOT_ALREADY_BOOKED` on overlap).
 - Enforces at most `3` upcoming `SCHEDULED` appointments per normalized `clientPhone` per company (`409 CONFLICT`).
@@ -482,7 +486,7 @@ Creates a client online booking (`source = "ONLINE"`). Enforces **BR-3**, **BR-4
   ```json
   {
     "serviceId": "uuid",
-    "masterId": "uuid",
+    "masterId": "uuid-or-ANY",
     "startAt": "2026-11-20T04:00:00.000Z",
     "clientName": "Айбек Сатыбалдиев",
     "clientPhone": "0555 123 456",

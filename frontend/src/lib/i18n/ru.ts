@@ -13,7 +13,7 @@ export const ru = {
     tagline: 'Онлайн-запись и CRM для сферы услуг Кыргызстана',
   },
   landing: {
-    badge: 'Для салонов красоты, барбершопов и СТО в Кыргызстане',
+    badge: 'Для барбершопов и салонов красоты в Кыргызстане',
     heroTitle: 'Запись клиентов без хаоса',
     heroSubtitle:
       'Замените бумажные блокноты и бесконечные переписки в WhatsApp единым расписанием мастеров и круглосуточной онлайн-записью по ссылке.',
@@ -72,10 +72,8 @@ export const ru = {
     registrationSuccess: 'Компания успешно зарегистрирована!',
   },
   businessTypes: {
-    BEAUTY_SALON: 'Салон красоты',
     BARBERSHOP: 'Барбершоп',
-    AUTO_SERVICE: 'Автосервис (СТО)',
-    OTHER: 'Другие услуги',
+    BEAUTY_SALON: 'Салон красоты',
   } satisfies Record<BusinessType, string>,
   roles: {
     OWNER: 'Владелец',
@@ -168,7 +166,7 @@ export const ru = {
     clientPhonePlaceholder: '+996 555 123 456',
     priceLabel: 'Стоимость (сом)',
     clientNoteLabel: 'Пожелание клиента (необязательно)',
-    clientNotePlaceholder: 'Комментарий от клиента...',
+    clientNotePlaceholder: 'Пожелания к визиту',
     internalNoteLabel: 'Внутренняя заметка мастера (не видна клиенту)',
     internalNotePlaceholder: 'Заметка для персонала...',
     createSuccess: 'Запись создана',
@@ -399,7 +397,7 @@ export const ru = {
     clientPhonePlaceholder: '+996 555 123 456',
     clientPhoneHint: 'Для связи и подтверждения визита (формат +996 или 0555...)',
     clientNoteLabel: 'Комментарий к записи (необязательно)',
-    clientNotePlaceholder: 'Пожелания мастеру...',
+    clientNotePlaceholder: 'Пожелания к визиту',
     summaryTitle: 'Проверьте детали записи',
     submitBooking: 'Записаться',
     submittingBooking: 'Оформляем запись...',

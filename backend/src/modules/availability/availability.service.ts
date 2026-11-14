@@ -5,8 +5,11 @@ import {
   type Service,
   type User,
 } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
 import {
   addDaysToLocalDate,
+  addDurationMsUtc,
+  epochMsToUtcDate,
   getIsoWeekdayOfLocalDate,
   getTodayLocalDate,
   localDateTimeToUtc,
@@ -54,7 +57,7 @@ export async function computeAvailableSlotsForDate(
   },
 ): Promise<AvailabilityResultDto> {
   const { company, service, master, date } = params;
-  const now = params.now ?? new Date();
+  const now = params.now ?? clockNow();
 
   // 1. Date before company-local today or after today + maxAdvanceDays -> no slots
   const todayLocal = getTodayLocalDate(company.timezone, now);
@@ -142,7 +145,7 @@ export async function computeAvailableSlotsForDate(
       continue;
     }
 
-    const candidateDate = new Date(candidateStartMs);
+    const candidateDate = epochMsToUtcDate(candidateStartMs);
     const localParts = utcToLocalParts(candidateDate, company.timezone);
     slots.push({
       startAt: candidateDate.toISOString(),
@@ -176,7 +179,7 @@ export async function assertPublicSlotValidForSchedule(
   },
 ): Promise<{ localDate: string; endAt: Date }> {
   const { company, service, master, startAt } = params;
-  const now = params.now ?? new Date();
+  const now = params.now ?? clockNow();
 
   const localParts = utcToLocalParts(startAt, company.timezone);
   const localDate = localParts.date;
@@ -219,7 +222,7 @@ export async function assertPublicSlotValidForSchedule(
   const workEndUtc = localDateTimeToUtc(localDate, workingHours.endTime, company.timezone);
   const durationMs = service.durationMin * 60_000;
   const stepMs = company.slotIntervalMin * 60_000;
-  const endAt = new Date(startAt.getTime() + durationMs);
+  const endAt = addDurationMsUtc(startAt, durationMs);
 
   if (startAt.getTime() < workStartUtc.getTime() || endAt.getTime() > workEndUtc.getTime()) {
     throw new AppError(
