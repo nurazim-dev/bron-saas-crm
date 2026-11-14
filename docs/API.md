@@ -150,3 +150,152 @@ Updates the authenticated owner's company profile and booking settings.
   - `401 UNAUTHENTICATED`
   - `403 FORBIDDEN`: Caller is not `OWNER`.
   - `409 CONFLICT`: `slug` is already taken by another company.
+
+---
+
+## 4. Services (`/api/v1/services`)
+
+All prices are serialized as two-decimal strings (e.g. `"500.00"`).
+
+### `GET /api/v1/services`
+Lists services belonging to the authenticated staff member's company.
+- **Auth**: `Authorization: Bearer <accessToken>`
+  - `OWNER`: receives all non-deleted services (`isActive: true` and `false`).
+  - `MASTER`: receives only active (`isActive: true`), non-deleted services.
+- **Responses**:
+  - `200 OK`: `{ "data": [ServiceDto, ...] }`
+
+### `POST /api/v1/services`
+Creates a new service for the owner's company.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body**:
+  ```json
+  {
+    "name": "Мужская стрижка",
+    "description": "С мытьём головы и укладкой",
+    "durationMin": 60,
+    "price": "500.00",
+    "isActive": true
+  }
+  ```
+  - `name`: 2–100 chars.
+  - `description`: optional, <= 500 chars or `null`.
+  - `durationMin`: integer 5–720, multiple of 5.
+  - `price`: number or decimal string in `0..1,000,000`.
+  - `isActive`: optional boolean (defaults to `true`).
+- **Responses**:
+  - `201 Created`: `{ "data": ServiceDto }`
+  - `400 VALIDATION_ERROR`
+  - `403 FORBIDDEN`
+
+### `GET /api/v1/services/:id`
+Returns a single service by ID within the caller's company (`MASTER` can only access active services; cross-tenant IDs return `404 NOT_FOUND`).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Responses**:
+  - `200 OK`: `{ "data": ServiceDto }`
+  - `404 NOT_FOUND`
+
+### `PATCH /api/v1/services/:id`
+Updates a service.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body**: Any subset of `{ name, description, durationMin, price, isActive }`.
+- **Responses**:
+  - `200 OK`: `{ "data": ServiceDto }`
+  - `400 VALIDATION_ERROR`
+  - `403 FORBIDDEN`
+  - `404 NOT_FOUND`
+
+### `DELETE /api/v1/services/:id`
+Soft-deletes a service (`deletedAt = now()`) and removes its `MasterService` links. Refuses if the service has upcoming (`startAt >= now`) `SCHEDULED` appointments (BR-7).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Responses**:
+  - `204 No Content`
+  - `404 NOT_FOUND`
+  - `409 HAS_UPCOMING_APPOINTMENTS`: Includes `upcomingAppointmentsCount` in `error.details[0]`.
+
+---
+
+## 5. Staff & Working Hours (`/api/v1/staff`)
+
+`StaffDto` includes `hasLogin: boolean`, `serviceIds: string[]`, and `workingHours: [{ dayOfWeek, startTime, endTime }]`.
+
+### `GET /api/v1/staff`
+Lists all non-deleted staff members (`OWNER` and `MASTER`s) of the company.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only; `MASTER` receives `403 FORBIDDEN`)
+- **Responses**:
+  - `200 OK`: `{ "data": [StaffDto, ...] }`
+
+### `POST /api/v1/staff`
+Creates a `MASTER` staff member. Login is optional: `email` and `password` must either both be provided or both be omitted. If `email` matches a soft-deleted `MASTER` of the **same** company, that record is restored and updated (§3.3); any other email collision returns `409 CONFLICT`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body**:
+  ```json
+  {
+    "name": "Бекзат Исаков",
+    "phone": "0700 11 22 33",
+    "email": "bekzat@zapis.kg",
+    "password": "Password123!",
+    "isActive": true,
+    "isBookable": true
+  }
+  ```
+- **Responses**:
+  - `201 Created`: `{ "data": StaffDto }`
+  - `400 VALIDATION_ERROR`
+  - `409 CONFLICT`
+
+### `GET /api/v1/staff/:id`
+Returns a staff member by ID, including `serviceIds` and `workingHours`. A `MASTER` may only read their own record (reading another staff member's ID returns `404 NOT_FOUND`).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER` for self)
+- **Responses**:
+  - `200 OK`: `{ "data": StaffDto }`
+  - `404 NOT_FOUND`
+
+### `PATCH /api/v1/staff/:id`
+Updates a staff member (`name`, `phone`, `email`, `password`, `isActive`, `isBookable`). Changing `password`, setting `isActive: false`, or clearing `email` increments `tokenVersion` so existing sessions are revoked immediately. The `OWNER` may update their own `name`, `phone`, `email`, `password`, and `isBookable`, but cannot set `isActive: false` or clear their own login.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Responses**:
+  - `200 OK`: `{ "data": StaffDto }`
+  - `400 VALIDATION_ERROR`
+  - `404 NOT_FOUND`
+  - `409 CONFLICT`
+
+### `DELETE /api/v1/staff/:id`
+Soft-deletes a `MASTER` record, clears their `MasterService` and `WorkingHours` links, and increments `tokenVersion`. The `OWNER` cannot delete himself (`403 FORBIDDEN`). Refuses with `409 HAS_UPCOMING_APPOINTMENTS` (with count) if the master has upcoming `SCHEDULED` appointments (BR-7).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Responses**:
+  - `204 No Content`
+  - `403 FORBIDDEN`: Attempted to delete the `OWNER`.
+  - `404 NOT_FOUND`
+  - `409 HAS_UPCOMING_APPOINTMENTS`
+
+### `PUT /api/v1/staff/:id/services`
+Replaces the full set of services performed by a staff member (`OWNER` or `MASTER`). Every `serviceId` must belong to the same company and not be soft-deleted.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body**:
+  ```json
+  {
+    "serviceIds": ["uuid-1", "uuid-2"]
+  }
+  ```
+- **Responses**:
+  - `200 OK`: `{ "data": StaffDto }`
+  - `400 VALIDATION_ERROR`: Unknown, cross-tenant, or deleted `serviceId`.
+  - `404 NOT_FOUND`
+
+### `PUT /api/v1/staff/:id/working-hours`
+Replaces the weekly working-hours schedule for a staff member (BR-10). `dayOfWeek` is ISO (`1` = Monday ... `7` = Sunday), `startTime < endTime` in `"HH:mm"` format on the same day. Omitted weekdays are days off.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body**:
+  ```json
+  {
+    "days": [
+      { "dayOfWeek": 1, "startTime": "10:00", "endTime": "20:00" },
+      { "dayOfWeek": 2, "startTime": "10:00", "endTime": "20:00" }
+    ]
+  }
+  ```
+- **Responses**:
+  - `200 OK`: `{ "data": StaffDto }`
+  - `400 VALIDATION_ERROR`
+  - `404 NOT_FOUND`
