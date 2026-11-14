@@ -12,8 +12,10 @@ import { globalRateLimiter } from './middleware/rate-limit.js';
 import { REQUEST_ID_HEADER, requestId } from './middleware/request-id.js';
 import { appointmentsRouter } from './modules/appointments/appointments.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { availabilityRouter } from './modules/availability/availability.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { publicRouter } from './modules/public/public.routes.js';
 import { servicesRouter } from './modules/services/services.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
 
@@ -58,6 +60,8 @@ export function createApp(): Express {
   app.use(`${API_PREFIX}/services`, servicesRouter);
   app.use(`${API_PREFIX}/staff`, staffRouter);
   app.use(`${API_PREFIX}/appointments`, appointmentsRouter);
+  app.use(`${API_PREFIX}/availability`, availabilityRouter);
+  app.use(`${API_PREFIX}/public`, publicRouter);
 
   app.use(notFound);
   app.use(errorHandler);

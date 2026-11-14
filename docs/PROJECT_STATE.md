@@ -6,7 +6,7 @@
 - [x] **Phase 2**: Auth, Company & RBAC (Backend)
 - [x] **Phase 3**: Services, Staff & Working Hours (Backend)
 - [x] **Phase 4**: Appointments & Double-Booking Protection (Backend)
-- [ ] **Phase 5**: Availability Engine & Public Booking API (Backend)
+- [x] **Phase 5**: Availability Engine & Public Booking API (Backend)
 - [ ] **Phase 6**: Frontend Foundation & Auth UI
 - [ ] **Phase 7**: Dashboard: Services, Staff, Settings
 - [ ] **Phase 8**: Dashboard: Schedule & Appointments
