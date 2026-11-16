@@ -13,6 +13,7 @@ import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
 import type { AuthenticatedActor } from '../../types/express.js';
+import { upsertClientInTx } from '../clients/clients.service.js';
 import type {
   CreateAppointmentBody,
   ListAppointmentsQuery,
@@ -38,6 +39,7 @@ export interface AppointmentDto {
   companyId: string;
   masterId: string;
   serviceId: string;
+  clientId: string;
   clientName: string;
   clientPhone: string;
   clientNote: string | null;
@@ -80,6 +82,7 @@ export function serializeAppointment(appt: AppointmentWithRelations): Appointmen
     companyId: appt.companyId,
     masterId: appt.masterId,
     serviceId: appt.serviceId,
+    clientId: appt.clientId,
     clientName: appt.clientName,
     clientPhone: appt.clientPhone,
     clientNote: appt.clientNote,
@@ -314,11 +317,20 @@ export async function createStaffAppointmentForActor(
         endAt,
       });
 
+      const client = await upsertClientInTx(tx, {
+        companyId: actor.companyId,
+        name: input.clientName,
+        phone: input.clientPhone,
+        overwriteName: true,
+        currentTime: clockNow(),
+      });
+
       return tx.appointment.create({
         data: {
           companyId: actor.companyId,
           masterId: master.id,
           serviceId: service.id,
+          clientId: client.id,
           clientName: input.clientName,
           clientPhone: input.clientPhone,
           clientNote,
@@ -420,6 +432,18 @@ export async function updateAppointmentForActor(
         excludeAppointmentId: existing.id,
       });
 
+      let nextClientId: string | undefined;
+      if (input.clientName !== undefined || input.clientPhone !== undefined) {
+        const upserted = await upsertClientInTx(tx, {
+          companyId: actor.companyId,
+          name: input.clientName ?? existing.clientName,
+          phone: input.clientPhone ?? existing.clientPhone,
+          overwriteName: true,
+          currentTime: clockNow(),
+        });
+        nextClientId = upserted.id;
+      }
+
       return tx.appointment.update({
         where: { id: existing.id },
         data: {
@@ -428,6 +452,7 @@ export async function updateAppointmentForActor(
           startAt: nextStartAt,
           endAt: nextEndAt,
           price: nextPrice,
+          ...(nextClientId !== undefined ? { clientId: nextClientId } : {}),
           ...(input.clientName !== undefined ? { clientName: input.clientName } : {}),
           ...(input.clientPhone !== undefined ? { clientPhone: input.clientPhone } : {}),
           ...(nextClientNote !== undefined ? { clientNote: nextClientNote } : {}),

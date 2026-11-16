@@ -24,6 +24,7 @@ export interface CreatePublicAppointmentPayload {
   clientName: string;
   clientPhone: string;
   clientNote?: string | null;
+  consentAccepted: boolean;
   website?: string;
 }
 

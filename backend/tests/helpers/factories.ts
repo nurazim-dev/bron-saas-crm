@@ -97,13 +97,30 @@ export async function createAppointmentFactory(
 ): Promise<Appointment> {
   const startAt = input.startAt ?? new Date('2026-11-20T04:00:00.000Z');
   const endAt = input.endAt ?? new Date(startAt.getTime() + 60 * 60_000);
+  const clientName = input.clientName ?? 'Test Client';
+  const clientPhone = input.clientPhone ?? '+996555999888';
+  const client = await prisma.client.upsert({
+    where: {
+      companyId_phone: {
+        companyId: input.companyId,
+        phone: clientPhone,
+      },
+    },
+    update: {},
+    create: {
+      companyId: input.companyId,
+      name: clientName,
+      phone: clientPhone,
+    },
+  });
   return prisma.appointment.create({
     data: {
       companyId: input.companyId,
       masterId: input.masterId,
       serviceId: input.serviceId,
-      clientName: input.clientName ?? 'Test Client',
-      clientPhone: input.clientPhone ?? '+996555999888',
+      clientId: client.id,
+      clientName,
+      clientPhone,
       clientNote: input.clientNote ?? null,
       internalNote: input.internalNote ?? null,
       startAt,

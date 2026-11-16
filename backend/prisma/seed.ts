@@ -57,6 +57,7 @@ async function runSeed(): Promise<void> {
     prismaUnfiltered.subscriptionPayment.deleteMany(),
     prismaUnfiltered.subscription.deleteMany(),
     prismaUnfiltered.appointment.deleteMany(),
+    prismaUnfiltered.client.deleteMany(),
     prismaUnfiltered.workingHours.deleteMany(),
     prismaUnfiltered.masterService.deleteMany(),
     prismaUnfiltered.service.deleteMany(),
@@ -260,11 +261,26 @@ async function runSeed(): Promise<void> {
 
   for (const appt of sampleAppointments) {
     const endAt = new Date(appt.startAt.getTime() + appt.service.durationMin * 60_000);
+    const client = await prismaUnfiltered.client.upsert({
+      where: {
+        companyId_phone: {
+          companyId: company.id,
+          phone: appt.clientPhone,
+        },
+      },
+      update: {},
+      create: {
+        companyId: company.id,
+        name: appt.clientName,
+        phone: appt.clientPhone,
+      },
+    });
     await prismaUnfiltered.appointment.create({
       data: {
         companyId: company.id,
         masterId: appt.masterId,
         serviceId: appt.service.id,
+        clientId: client.id,
         clientName: appt.clientName,
         clientPhone: appt.clientPhone,
         clientNote: appt.clientNote,

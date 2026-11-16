@@ -58,6 +58,12 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['OWNER', 'MASTER'],
   },
   {
+    href: '/dashboard/clients',
+    label: 'Клиенты',
+    icon: Users,
+    roles: ['OWNER', 'MASTER'],
+  },
+  {
     href: '/dashboard/services',
     label: ru.nav.services,
     icon: Briefcase,

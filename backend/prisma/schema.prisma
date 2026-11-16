@@ -113,6 +113,7 @@ model Company {
   deletedAt            DateTime?     @db.Timestamptz(3)
   users                User[]
   services             Service[]
+  clients              Client[]
   appointments         Appointment[]
   inAppNotifications   InAppNotification[]
   subscription         Subscription?
@@ -197,30 +198,53 @@ model WorkingHours {
   @@unique([userId, dayOfWeek])
 }
 
+model Client {
+  id           String        @id @default(uuid()) @db.Uuid
+  companyId    String        @db.Uuid
+  name         String
+  phone        String
+  notes        String?
+  isBlocked    Boolean       @default(false)
+  blockedAt    DateTime?     @db.Timestamptz(3)
+  locale       Locale        @default(RU)
+  anonymizedAt DateTime?     @db.Timestamptz(3)
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+  company      Company       @relation(fields: [companyId], references: [id])
+  appointments Appointment[]
+
+  @@unique([companyId, phone])
+  @@index([companyId, isBlocked])
+}
+
 model Appointment {
-  id           String            @id @default(uuid()) @db.Uuid
-  companyId    String            @db.Uuid
-  masterId     String            @db.Uuid
-  serviceId    String            @db.Uuid
-  clientName   String
-  clientPhone  String
-  clientNote   String?
-  internalNote String?
-  startAt      DateTime          @db.Timestamptz(3)
-  endAt        DateTime          @db.Timestamptz(3)
-  price        Decimal           @db.Decimal(10, 2)
-  status       AppointmentStatus @default(SCHEDULED)
-  source       AppointmentSource
-  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime          @updatedAt @db.Timestamptz(3)
-  deletedAt    DateTime?         @db.Timestamptz(3)
-  company      Company           @relation(fields: [companyId], references: [id])
-  master       User              @relation(fields: [masterId], references: [id])
-  service      Service           @relation(fields: [serviceId], references: [id])
+  id                String            @id @default(uuid()) @db.Uuid
+  companyId         String            @db.Uuid
+  masterId          String            @db.Uuid
+  serviceId         String            @db.Uuid
+  clientId          String            @db.Uuid
+  clientName        String
+  clientPhone       String
+  clientNote        String?
+  internalNote      String?
+  startAt           DateTime          @db.Timestamptz(3)
+  endAt             DateTime          @db.Timestamptz(3)
+  price             Decimal           @db.Decimal(10, 2)
+  status            AppointmentStatus @default(SCHEDULED)
+  source            AppointmentSource
+  consentAcceptedAt DateTime?         @db.Timestamptz(3)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+  deletedAt         DateTime?         @db.Timestamptz(3)
+  company           Company           @relation(fields: [companyId], references: [id])
+  master            User              @relation(fields: [masterId], references: [id])
+  service           Service           @relation(fields: [serviceId], references: [id])
+  client            Client            @relation(fields: [clientId], references: [id])
 
   @@index([companyId, startAt])
   @@index([masterId, startAt, endAt])
   @@index([companyId, clientPhone])
+  @@index([companyId, clientId])
 }
 
 model OutboxMessage {

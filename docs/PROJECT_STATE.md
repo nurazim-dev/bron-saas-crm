@@ -18,7 +18,7 @@
 - [x] **Phase 14**: Billing Core (Plans, Subscriptions, Trial, Grace, Locked, Manual Payments)
 - [x] **Phase 15**: Admin Panel Backend (`PlatformAdmin`, 2FA TOTP, Companies, Payments, Impersonation)
 - [x] **Phase 16**: Admin Panel Frontend (`/admin/**`)
-- [ ] **Phase 17**: Client CRM (Auto-Create, Search, Card, Notes, Blacklist, Anonymize)
+- [x] **Phase 17**: Client CRM (Auto-Create, Search, Card, Notes, Blacklist, Anonymize)
 - [ ] **Phase 18**: Breaks & Time Off (Lunch Breaks, Vacations, Sick Leave, Staff Booking Warnings)
 - [ ] **Phase 19**: Client Self-Service (`/manage/[token]` View, Cancel, Reschedule)
 - [ ] **Phase 20**: Staff Notifications & Client Reminders (Telegram Bot, Email, WhatsApp Queue)
@@ -102,4 +102,4 @@ npm run test:e2e     # Runs Playwright Chromium E2E suite
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
 ## Known Issues / Risks
-- None. Phases 0–16 are complete and verified. Ready for Phase 17.
+- None. Phases 0–17 are complete and verified. Ready for Phase 18.

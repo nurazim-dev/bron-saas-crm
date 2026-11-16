@@ -103,6 +103,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientNote, setClientNote] = useState('');
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [websiteHoneypot, setWebsiteHoneypot] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -243,6 +244,11 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
       return;
     }
 
+    if (!consentAccepted) {
+      setSubmitError('Необходимо согласие на обработку персональных данных');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const result = await createPublicAppointment(company.slug, {
@@ -252,6 +258,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
         clientName: trimmedName,
         clientPhone: normalizedPhone,
         clientNote: clientNote.trim().length > 0 ? clientNote.trim() : null,
+        consentAccepted: true,
         website: websiteHoneypot,
       });
 
@@ -644,6 +651,17 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
                     className="min-h-11"
                   />
                 </div>
+
+                <label className="flex items-start gap-2.5 text-sm leading-snug">
+                  <input
+                    id="public-consent"
+                    type="checkbox"
+                    checked={consentAccepted}
+                    onChange={(e) => setConsentAccepted(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-input"
+                  />
+                  <span>Я согласен(а) на обработку персональных данных для оформления записи</span>
+                </label>
 
                 <Button
                   type="submit"

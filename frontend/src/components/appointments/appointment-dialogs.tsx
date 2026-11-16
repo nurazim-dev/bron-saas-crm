@@ -15,6 +15,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +30,7 @@ import {
   getStaffAvailability,
   updateAppointment,
 } from '@/lib/api/appointments.api';
+import { type ClientListItemDto, listClients } from '@/lib/api/clients.api';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/api/client';
 import {
   extractLocalDateAndTime,
@@ -194,6 +196,9 @@ function AppointmentDetailsModalInner({
                   <Phone className="h-3.5 w-3.5" aria-hidden="true" />
                   {ru.appointmentDialog.callClient}
                 </a>
+              </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/dashboard/clients/${appointment.clientId}`}>Карточка клиента</Link>
               </Button>
               {whatsappUrl && (
                 <Button asChild variant="outline" size="sm" className="gap-1.5">
@@ -471,6 +476,28 @@ function AppointmentFormDialogInner({
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clientSuggestions, setClientSuggestions] = useState<ClientListItemDto[]>([]);
+  const [selectedClientBlocked, setSelectedClientBlocked] = useState(false);
+
+  useEffect(() => {
+    if (editingAppointment) return;
+    const q = clientPhone.trim() || clientName.trim();
+    if (q.length < 2) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void listClients({ search: q, limit: 5 })
+        .then((res) => {
+          if (!cancelled) setClientSuggestions(res.items);
+        })
+        .catch(() => {
+          if (!cancelled) setClientSuggestions([]);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [clientName, clientPhone, editingAppointment]);
 
   // Filter masters that perform the selected service (or fall back to all bookable staff if none assigned)
   const eligibleMasters = useMemo(() => {
@@ -734,7 +761,10 @@ function AppointmentFormDialogInner({
                 <Input
                   id="appt-client-name"
                   value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
+                  onChange={(e) => {
+                    setClientName(e.target.value);
+                    setSelectedClientBlocked(false);
+                  }}
                   placeholder={ru.appointmentDialog.clientNamePlaceholder}
                   className="min-h-11"
                 />
@@ -746,12 +776,48 @@ function AppointmentFormDialogInner({
                   id="appt-client-phone"
                   type="tel"
                   value={clientPhone}
-                  onChange={(e) => setClientPhone(e.target.value)}
+                  onChange={(e) => {
+                    setClientPhone(e.target.value);
+                    setSelectedClientBlocked(false);
+                  }}
                   placeholder={ru.appointmentDialog.clientPhonePlaceholder}
                   className="min-h-11"
                 />
               </div>
             </div>
+
+            {!editingAppointment && clientSuggestions.length > 0 && (
+              <div className="rounded-lg border bg-muted/40 p-2 text-xs">
+                <div className="mb-1 font-medium text-muted-foreground">Существующие клиенты:</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {clientSuggestions.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setClientName(c.name);
+                        setClientPhone(c.phone);
+                        setSelectedClientBlocked(c.isBlocked);
+                        setClientSuggestions([]);
+                      }}
+                      className="inline-flex items-center gap-1 rounded border bg-background px-2 py-1 hover:bg-muted"
+                    >
+                      <span>{c.name}</span>
+                      <span className="text-muted-foreground">({c.phone})</span>
+                      {c.isBlocked && <Badge variant="destructive">Заблокирован</Badge>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedClientBlocked && (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Внимание: этот клиент заблокирован для онлайн-записи, но вы можете создать запись
+                вручную.
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="appt-price">{ru.appointmentDialog.priceLabel}</Label>

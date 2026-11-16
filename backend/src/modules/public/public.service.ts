@@ -17,6 +17,7 @@ import {
   lockMastersForUpdate,
   type TransactionClient,
 } from '../appointments/appointments.service.js';
+import { upsertClientInTx } from '../clients/clients.service.js';
 import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
@@ -448,11 +449,28 @@ async function bookSingleMasterInTransaction(
         );
       }
 
+      const client = await upsertClientInTx(tx, {
+        companyId: company.id,
+        name: input.clientName,
+        phone: input.clientPhone,
+        overwriteName: false,
+        currentTime: currentNow,
+      });
+
+      if (client.isBlocked) {
+        throw new AppError(
+          'BOOKING_NOT_ALLOWED',
+          403,
+          'Online booking is not available for this phone number. Please contact the business.',
+        );
+      }
+
       const created = await tx.appointment.create({
         data: {
           companyId: company.id,
           masterId: master.id,
           serviceId: service.id,
+          clientId: client.id,
           clientName: input.clientName,
           clientPhone: input.clientPhone,
           clientNote,
@@ -462,6 +480,7 @@ async function bookSingleMasterInTransaction(
           price: service.price,
           status: AppointmentStatus.SCHEDULED,
           source: AppointmentSource.ONLINE,
+          consentAcceptedAt: currentNow,
         },
       });
 

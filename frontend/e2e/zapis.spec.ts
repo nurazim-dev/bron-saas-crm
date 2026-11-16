@@ -149,6 +149,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await clientPage.locator('#public-client-name').fill(clientName);
     await clientPage.locator('#public-client-phone').fill('0555 777 888');
     await clientPage.locator('#public-client-note').fill('Комментарий из E2E');
+    await clientPage.locator('#public-consent').check();
     await clientPage.getByRole('button', { name: 'Записаться' }).click();
 
     // Step 5: Confirmation screen
@@ -224,9 +225,11 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     // Both fill Step 4 details
     await page1.locator('#public-client-name').fill('Первый Клиент');
     await page1.locator('#public-client-phone').fill('0555 901 001');
+    await page1.locator('#public-consent').check();
 
     await page2.locator('#public-client-name').fill('Второй Клиент');
     await page2.locator('#public-client-phone').fill('0555 901 002');
+    await page2.locator('#public-consent').check();
 
     // Context 1 submits first -> Confirmation screen
     await page1.getByRole('button', { name: 'Записаться' }).click();
@@ -476,5 +479,94 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await ownerCtx.close();
     await adminCtx.close();
+  });
+
+  test('E2E 6: Client CRM — repeat client creates one card -> block refuses public booking generically -> anonymize clears PII keeping stats', async ({
+    browser,
+  }) => {
+    const clientCtx = await browser.newContext();
+    const clientPage = await clientCtx.newPage();
+
+    // Helper to book a slot on /b/demo-barbershop
+    async function bookSlot(slotIndex: number) {
+      await clientPage.goto('/b/demo-barbershop');
+      await clientPage
+        .getByRole('button', { name: /Стрижка/i })
+        .first()
+        .click();
+      await clientPage
+        .getByRole('button', { name: /Любой свободный/i })
+        .first()
+        .click();
+      await advanceUntilSlotsAvailable(clientPage);
+      await clientPage
+        .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+        .nth(slotIndex)
+        .click();
+      await clientPage.locator('#public-client-name').fill('Айбек CRM');
+      await clientPage.locator('#public-client-phone').fill('0555 888 999');
+      await clientPage.locator('#public-consent').check();
+      await clientPage.getByRole('button', { name: 'Записаться' }).click();
+      await expect(clientPage.getByText('Вы успешно записаны!')).toBeVisible();
+    }
+
+    await bookSlot(0);
+    await bookSlot(1);
+
+    // Owner checks /dashboard/clients -> one card for Айбек CRM with 2 appointments in history
+    const ownerCtx = await browser.newContext();
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.locator('#login-email').fill('owner@demo.zapis.kg');
+    await ownerPage.locator('#login-password').fill('Demo12345!');
+    await ownerPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+
+    await ownerPage.getByRole('link', { name: 'Клиенты', exact: true }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard\/clients$/);
+    await expect(ownerPage.getByRole('link', { name: 'Айбек CRM' })).toBeVisible();
+    await ownerPage.getByRole('link', { name: 'Айбек CRM' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard\/clients\/.+$/);
+    await expect(ownerPage.getByText('История записей (2)')).toBeVisible();
+
+    // Owner blocks client -> public booking is refused generically
+    await ownerPage.getByRole('button', { name: 'Заблокировать' }).first().click();
+    await ownerPage.getByRole('dialog').getByRole('button', { name: 'Заблокировать' }).click();
+    await expect(ownerPage.getByRole('dialog')).toBeHidden();
+    await expect(ownerPage.getByText('Заблокирован', { exact: true })).toBeVisible();
+
+    await clientPage.goto('/b/demo-barbershop');
+    await clientPage
+      .getByRole('button', { name: /Стрижка/i })
+      .first()
+      .click();
+    await clientPage
+      .getByRole('button', { name: /Любой свободный/i })
+      .first()
+      .click();
+    await advanceUntilSlotsAvailable(clientPage);
+    await clientPage
+      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+      .nth(2)
+      .click();
+    await clientPage.locator('#public-client-name').fill('Айбек CRM');
+    await clientPage.locator('#public-client-phone').fill('0555 888 999');
+    await clientPage.locator('#public-consent').check();
+    await clientPage.getByRole('button', { name: 'Записаться' }).click();
+    await expect(
+      clientPage.getByText(/Онлайн-запись для этого номера телефона недоступна/i),
+    ).toBeVisible();
+
+    // Owner anonymizes client -> PII gone, appointment history count remains
+    await ownerPage.getByRole('button', { name: 'Обезличить данные клиента' }).click();
+    await ownerPage
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Подтвердить обезличивание' })
+      .click();
+    await expect(ownerPage.getByRole('heading', { name: 'Deleted client' })).toBeVisible();
+    await expect(ownerPage.getByText('История записей (2)')).toBeVisible();
+
+    await clientCtx.close();
+    await ownerCtx.close();
   });
 });

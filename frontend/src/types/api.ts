@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'UNAUTHENTICATED'
   | 'FORBIDDEN'
   | 'BOOKING_DISABLED'
+  | 'BOOKING_NOT_ALLOWED'
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'SLOT_ALREADY_BOOKED'
@@ -146,6 +147,7 @@ export interface AppointmentDto {
   companyId: string;
   masterId: string;
   serviceId: string;
+  clientId: string;
   clientName: string;
   clientPhone: string;
   clientNote: string | null;

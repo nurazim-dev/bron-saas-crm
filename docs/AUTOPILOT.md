@@ -2,14 +2,14 @@
 
 - **Mode**: `RUNNING`
 - **Branch**: `develop`
-- **Current Phase**: `17`
-- **Next Action**: Implement Phase 17 (Client CRM backend, frontend, tests, E2E) and run the Phase 17 gate.
+- **Current Phase**: `18`
+- **Next Action**: Implement Phase 18 (Breaks & Time Off) and run the Phase 18 gate.
 - **Baseline Test Counts**:
-  - `backend_tests`: `113`
-  - `e2e_scenarios`: `5`
+  - `backend_tests`: `117`
+  - `e2e_scenarios`: `6`
 
-## Preflight Answers (User Confirmed `OK` + Item 2 = MANUAL)
-1. **Telegram Bot**: none (build provider + fake API tests; real Bot API marked `UNVERIFIED`).
+## Preflight Answers (User Confirmed `OK` + Item 1 = Bot Ready at End, Item 2 = MANUAL)
+1. **Telegram Bot**: user has a bot and will fill `TELEGRAM_BOT_TOKEN` & `TELEGRAM_BOT_USERNAME` into `backend/.env` at the end (build full provider + webhook/polling + fake API tests; real Bot API marked `UNVERIFIED` until user enters credentials).
 2. **SMS/WhatsApp Gateway (Phase 20)**: none — keep `MANUAL` mode + `LogProvider`, `AUTO` hidden in prod.
 3. **Downloads (`npm`, Playwright Chromium, Docker)**: allowed.
 4. **Local dev/test DB & Docker destructive ops**: allowed (`db:reset`, `truncate`, restart).
@@ -25,8 +25,8 @@
 ## Phase Table
 | Phase | Name | Status | Commit | Date |
 | :--- | :--- | :--- | :--- | :--- |
-| 17 | Client CRM | `IN_PROGRESS` | — | — |
-| 18 | Breaks & Time Off | `PENDING` | — | — |
+| 17 | Client CRM | `COMPLETE` | `phase-17` | 2026-11-16 |
+| 18 | Breaks & Time Off | `IN_PROGRESS` | — | — |
 | 19 | Client Self-Service | `PENDING` | — | — |
 | 20 | Staff Notifications & Client Reminders | `PENDING` | — | — |
 | 21 | Light Prepayment | `PENDING` | — | — |

@@ -283,6 +283,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '10:00', 'Asia/Bishkek').toISOString(),
         clientName: 'Client Disabled',
         clientPhone: '0555123456',
+        consentAccepted: true,
       })
       .expect(403);
     expect(asError(disabledBook.body).error.code).toBe('BOOKING_DISABLED');
@@ -409,6 +410,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
           startAt: slot1000Utc,
           clientName: `Public Racer ${String(idx + 1)}`,
           clientPhone: `055570000${String(idx)}`,
+          consentAccepted: true,
         }),
     );
 
@@ -486,6 +488,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '10:15', 'Asia/Bishkek').toISOString(),
         clientName: 'Off Grid',
         clientPhone: '0555800001',
+        consentAccepted: true,
       })
       .expect(422);
     expect(asError(offGrid.body).error.code).toBe('SLOT_NOT_AVAILABLE');
@@ -499,6 +502,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '09:30', 'Asia/Bishkek').toISOString(),
         clientName: 'Before Hours',
         clientPhone: '0555800002',
+        consentAccepted: true,
       })
       .expect(422);
     expect(asError(beforeHours.body).error.code).toBe('SLOT_NOT_AVAILABLE');
@@ -511,6 +515,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '11:30', 'Asia/Bishkek').toISOString(),
         clientName: 'Overflows End',
         clientPhone: '0555800003',
+        consentAccepted: true,
       })
       .expect(422);
     expect(asError(overflowsEnd.body).error.code).toBe('SLOT_NOT_AVAILABLE');
@@ -525,6 +530,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(dayOffDate, '10:00', 'Asia/Bishkek').toISOString(),
         clientName: 'Day Off',
         clientPhone: '0555800004',
+        consentAccepted: true,
       })
       .expect(422);
     expect(asError(onDayOff.body).error.code).toBe('SLOT_NOT_AVAILABLE');
@@ -539,6 +545,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: pastTime,
         clientName: 'Past Client',
         clientPhone: '0555800005',
+        consentAccepted: true,
       })
       .expect(422);
     expect(asError(inPast.body).error.code).toBe('SLOT_NOT_AVAILABLE');
@@ -553,6 +560,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(farDate, '10:00', 'Asia/Bishkek').toISOString(),
         clientName: 'Too Far Client',
         clientPhone: '0555800006',
+        consentAccepted: true,
       })
       .expect(422);
     expect(asError(tooFar.body).error.code).toBe('SLOT_NOT_AVAILABLE');
@@ -566,6 +574,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '10:00', 'Asia/Bishkek').toISOString(),
         clientName: 'Cross Service',
         clientPhone: '0555800007',
+        consentAccepted: true,
       })
       .expect(404);
   });
@@ -592,6 +601,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: slot1000Utc,
         clientName: 'Bot Spammer',
         clientPhone: '0555911911',
+        consentAccepted: true,
         website: 'https://spam.example.com',
       })
       .expect(201);
@@ -609,6 +619,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
           startAt: localDateTimeToUtc(ctx.targetDate, time, 'Asia/Bishkek').toISOString(),
           clientName: 'Loyal Client',
           clientPhone: '0555 33 44 55',
+          consentAccepted: true,
         })
         .expect(201);
     }
@@ -621,6 +632,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '11:30', 'Asia/Bishkek').toISOString(),
         clientName: 'Loyal Client',
         clientPhone: '+996555334455',
+        consentAccepted: true,
       })
       .expect(409);
     expect(asError(fourthForSamePhone.body).error.code).toBe('CONFLICT');
@@ -638,6 +650,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
           startAt: localDateTimeToUtc(ctx.targetDate, t, 'Asia/Bishkek').toISOString(),
           clientName: `Other Client ${String(i)}`,
           clientPhone: `055566600${String(i)}`,
+          consentAccepted: true,
         })
         .expect(201);
     }
@@ -650,6 +663,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: localDateTimeToUtc(ctx.targetDate, '14:30', 'Asia/Bishkek').toISOString(),
         clientName: 'Rate Limited Client',
         clientPhone: '0555666099',
+        consentAccepted: true,
       })
       .expect(429);
     expect(asError(eleventhReq.body).error.code).toBe('RATE_LIMITED');
@@ -719,6 +733,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
           startAt: slot1000Utc,
           clientName: `Any Racer ${String(idx + 1)}`,
           clientPhone: `055540000${String(idx)}`,
+          consentAccepted: true,
         }),
     );
 
@@ -758,6 +773,7 @@ describe('Phase 5: Availability Engine & Public Booking API (BR-3, BR-4, BR-1)',
         startAt: slot1100Utc,
         clientName: 'Least Loaded Client',
         clientPhone: '0555400099',
+        consentAccepted: true,
       })
       .expect(201);
 

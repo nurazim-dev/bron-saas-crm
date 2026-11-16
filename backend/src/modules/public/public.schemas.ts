@@ -81,6 +81,9 @@ export const createPublicAppointmentBodySchema = z
     clientName: clientNameSchema,
     clientPhone: clientPhoneSchema,
     clientNote: clientNoteSchema,
+    consentAccepted: z.literal(true, {
+      message: 'Consent to personal data processing is required',
+    }),
     website: z.string().optional().default(''),
   })
   .strict();
