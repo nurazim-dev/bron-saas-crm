@@ -308,9 +308,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       )}
 
       {/* Main Column */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-background/95 px-4 backdrop-blur sm:px-6">
-          <div className="flex items-center gap-3">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button
               type="button"
               variant="ghost"
@@ -443,7 +443,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </div>
           )}
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

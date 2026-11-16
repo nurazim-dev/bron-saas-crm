@@ -975,4 +975,74 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await ctx.close();
   });
+
+  test('E2E 14: Phase 25 — PWA manifest, SW registration, offline fallback, no /api/* in Cache Storage, and 360px mobile pass', async ({
+    browser,
+    request,
+  }) => {
+    // 1. Check /manifest.webmanifest & /sw.js headers
+    const manifestRes = await request.get('http://localhost:3000/manifest.webmanifest');
+    expect(manifestRes.status()).toBe(200);
+    const manifestJson = (await manifestRes.json()) as {
+      start_url: string;
+      display: string;
+      icons: Array<{ src: string }>;
+    };
+    expect(manifestJson.start_url).toBe('/dashboard');
+    expect(manifestJson.display).toBe('standalone');
+    expect(manifestJson.icons.length).toBeGreaterThanOrEqual(2);
+
+    const swRes = await request.get('http://localhost:3000/sw.js');
+    expect(swRes.status()).toBe(200);
+    expect(swRes.headers()['cache-control']).toContain('no-cache');
+
+    // 2. Mobile 360px pass for MASTER + SW registration & offline fallback
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 780 } });
+    const page = await ctx.newPage();
+    await page.goto('/login');
+    await page.locator('#login-email').fill('master@demo.zapis.kg');
+    await page.locator('#login-password').fill('Demo12345!');
+    await page.getByRole('button', { name: 'Войти' }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goto('/dashboard/schedule');
+    await expect(page).toHaveURL(/\/dashboard\/schedule$/);
+
+    // Check no horizontal overflow on 360px
+    const overflowSchedule = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 2,
+    );
+    expect(overflowSchedule).toBe(false);
+
+    // Wait for SW ready
+    const swReady = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.ready;
+      return Boolean(reg.active);
+    });
+    expect(swReady).toBe(true);
+
+    // Verify no /api/* URL is cached in Cache Storage
+    const cachedApiUrls = await page.evaluate(async () => {
+      const names = await caches.keys();
+      const hits: string[] = [];
+      for (const name of names) {
+        const cache = await caches.open(name);
+        const reqs = await cache.keys();
+        for (const r of reqs) {
+          if (new URL(r.url).pathname.startsWith('/api/')) {
+            hits.push(r.url);
+          }
+        }
+      }
+      return hits;
+    });
+    expect(cachedApiUrls).toEqual([]);
+
+    // Offline fallback check
+    await ctx.setOffline(true);
+    await page.goto('/dashboard/profile');
+    await expect(page.getByText('Нет подключения к интернету')).toBeVisible();
+    await ctx.setOffline(false);
+
+    await ctx.close();
+  });
 });

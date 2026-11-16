@@ -14,6 +14,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { OwnerGuard } from '@/components/layout/auth-bootstrap';
+import { PwaInstallCard } from '@/components/pwa/pwa-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -775,6 +776,8 @@ function SettingsManagerContent() {
           </form>
         </CardContent>
       </Card>
+
+      <PwaInstallCard />
     </div>
   );
 }

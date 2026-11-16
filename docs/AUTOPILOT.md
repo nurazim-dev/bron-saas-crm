@@ -2,11 +2,11 @@
 
 - **Mode**: `RUNNING`
 - **Branch**: `develop`
-- **Current Phase**: `25`
-- **Next Action**: Implement Phase 25 (PWA) and run the Phase 25 gate.
+- **Current Phase**: `26`
+- **Next Action**: Implement Phase 26 (Hardening, Full v2 E2E Suite, Security/Performance Audit & Final Release).
 - **Baseline Test Counts**:
   - `backend_tests`: `139`
-  - `e2e_scenarios`: `13`
+  - `e2e_scenarios`: `14`
 
 ## Preflight Answers (User Confirmed `OK` + Item 1 = Bot Ready at End, Item 2 = MANUAL)
 1. **Telegram Bot**: user has a bot and will fill `TELEGRAM_BOT_TOKEN` & `TELEGRAM_BOT_USERNAME` into `backend/.env` at the end (build full provider + webhook/polling + fake API tests; real Bot API marked `UNVERIFIED` until user enters credentials).
@@ -33,8 +33,8 @@
 | 22 | Analytics & CSV Export | `COMPLETE` | `phase-22` | 2026-11-16 |
 | 23 | Onboarding & Presets | `COMPLETE` | `phase-23` | 2026-11-16 |
 | 24 | Kyrgyz Language, Legal Pages & Consent | `COMPLETE_WITH_NOTES` | `phase-24` | 2026-11-16 |
-| 25 | PWA | `IN_PROGRESS` | — | — |
-| 26 | Hardening, E2E & Release Readiness | `PENDING` | — | — |
+| 25 | PWA | `COMPLETE` | `phase-25` | 2026-11-16 |
+| 26 | Hardening, E2E & Release Readiness | `IN_PROGRESS` | — | — |
 
 ## Links
 - [BLOCKERS.md](./BLOCKERS.md)

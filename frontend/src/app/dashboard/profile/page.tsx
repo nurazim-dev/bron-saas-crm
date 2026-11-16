@@ -3,6 +3,7 @@
 import { Bell, ExternalLink, Send, Unlink, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { PwaInstallCard } from '@/components/pwa/pwa-provider';
 import { TimeOffManager } from '@/components/time-off/time-off-manager';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -240,6 +241,8 @@ export default function DashboardProfilePage() {
           readOnly={isImpersonating}
         />
       )}
+
+      <PwaInstallCard />
     </div>
   );
 }
