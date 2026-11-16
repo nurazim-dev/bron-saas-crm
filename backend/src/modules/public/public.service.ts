@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
@@ -7,6 +7,7 @@ import {
   type Service,
   type User,
 } from '../../generated/prisma/client.js';
+import { env } from '../../config/env.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { addMinutesUtc, getLocalDayBoundsUtc, utcToLocalParts } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
@@ -86,6 +87,7 @@ export interface PublicBookedAppointmentDto {
 
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
+  manageUrl: string;
 }
 
 function isAnyMasterChoice(
@@ -465,6 +467,7 @@ async function bookSingleMasterInTransaction(
         );
       }
 
+      const manageToken = randomBytes(32).toString('base64url');
       const created = await tx.appointment.create({
         data: {
           companyId: company.id,
@@ -480,11 +483,13 @@ async function bookSingleMasterInTransaction(
           price: service.price,
           status: AppointmentStatus.SCHEDULED,
           source: AppointmentSource.ONLINE,
+          manageToken,
           consentAcceptedAt: currentNow,
         },
       });
 
       return {
+        manageUrl: `${env.APP_URL}/manage/${created.manageToken}`,
         appointment: {
           id: created.id,
           startAt: created.startAt.toISOString(),
@@ -539,6 +544,7 @@ export async function createPublicAppointmentBySlug(
     if (input.website.trim().length > 0) {
       const fakeEndAt = addMinutesUtc(input.startAt, preflightEntities.service.durationMin);
       return {
+        manageUrl: `${env.APP_URL}/manage/${randomBytes(32).toString('base64url')}`,
         appointment: {
           id: randomUUID(),
           startAt: input.startAt.toISOString(),
@@ -586,6 +592,7 @@ export async function createPublicAppointmentBySlug(
   if (input.website.trim().length > 0 && firstCandidate) {
     const fakeEndAt = addMinutesUtc(input.startAt, preflightService.durationMin);
     return {
+      manageUrl: `${env.APP_URL}/manage/${randomBytes(32).toString('base64url')}`,
       appointment: {
         id: randomUUID(),
         startAt: input.startAt.toISOString(),

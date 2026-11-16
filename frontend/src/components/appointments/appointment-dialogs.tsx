@@ -247,6 +247,25 @@ function AppointmentDetailsModalInner({
                 {formatPriceKgs(appointment.price)}
               </span>
             </div>
+
+            {(appointment.rescheduledCount ?? 0) > 0 && (
+              <div className="flex items-center justify-between border-t pt-2 text-xs text-muted-foreground">
+                <span>Переносов клиентом:</span>
+                <span className="font-medium text-foreground">{appointment.rescheduledCount}</span>
+              </div>
+            )}
+
+            {appointment.cancelledBy && (
+              <div className="space-y-1 border-t pt-2 text-xs text-destructive">
+                <div className="flex items-center justify-between">
+                  <span>Отменил:</span>
+                  <span className="font-medium">
+                    {appointment.cancelledBy === 'CLIENT' ? 'Клиент' : 'Персонал'}
+                  </span>
+                </div>
+                {appointment.cancelReason && <div>Причина: {appointment.cancelReason}</div>}
+              </div>
+            )}
           </div>
 
           {/* Notes */}

@@ -23,6 +23,8 @@ export interface CompanyDto {
   minLeadTimeMin: number;
   maxAdvanceDays: number;
   publicBookingEnabled: boolean;
+  clientCancelMinHours: number;
+  allowClientReschedule: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +43,8 @@ export function serializeCompany(company: Company): CompanyDto {
     minLeadTimeMin: company.minLeadTimeMin,
     maxAdvanceDays: company.maxAdvanceDays,
     publicBookingEnabled: company.publicBookingEnabled,
+    clientCancelMinHours: company.clientCancelMinHours,
+    allowClientReschedule: company.allowClientReschedule,
     createdAt: company.createdAt.toISOString(),
     updatedAt: company.updatedAt.toISOString(),
   };

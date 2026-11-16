@@ -89,3 +89,35 @@ export const createPublicAppointmentBodySchema = z
   .strict();
 
 export type CreatePublicAppointmentBody = z.infer<typeof createPublicAppointmentBodySchema>;
+
+export const manageTokenParamsSchema = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
+export const publicManageAvailabilityQuerySchema = z.object({
+  date: localDateQuerySchema,
+});
+
+export const publicManageCancelBodySchema = z
+  .object({
+    reason: z
+      .string()
+      .transform((val) => sanitizeText(val))
+      .pipe(z.string().max(500))
+      .nullable()
+      .optional(),
+  })
+  .strict()
+  .optional()
+  .default({});
+
+export const publicManageRescheduleBodySchema = z
+  .object({
+    startAt: startAtSchema,
+  })
+  .strict();
+
+export type ManageTokenParams = z.infer<typeof manageTokenParamsSchema>;
+export type PublicManageAvailabilityQuery = z.infer<typeof publicManageAvailabilityQuerySchema>;
+export type PublicManageCancelBody = z.infer<typeof publicManageCancelBodySchema>;
+export type PublicManageRescheduleBody = z.infer<typeof publicManageRescheduleBodySchema>;

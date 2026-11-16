@@ -46,6 +46,8 @@ export const updateCompanyBodySchema = z
     minLeadTimeMin: z.number().int().min(0).max(10_080).optional(),
     maxAdvanceDays: z.number().int().min(1).max(365).optional(),
     publicBookingEnabled: z.boolean().optional(),
+    clientCancelMinHours: z.number().int().min(0).max(168).optional(),
+    allowClientReschedule: z.boolean().optional(),
   })
   .strict();
 

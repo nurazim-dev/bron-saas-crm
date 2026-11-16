@@ -88,6 +88,80 @@ export function getPublicErrorCode(err: unknown): ErrorCode | undefined {
   return undefined;
 }
 
+export type ManageDisableReason =
+  'WINDOW_CLOSED' | 'NOT_SCHEDULED' | 'RESCHEDULE_DISABLED' | 'RESCHEDULE_LIMIT';
+
+export interface PublicManageAppointmentDto {
+  id: string;
+  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  startAt: string;
+  endAt: string;
+  rescheduledCount: number;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  service: { id: string; name: string; durationMin: number; price: string };
+  master: { id: string; name: string };
+  company: {
+    name: string;
+    slug: string;
+    address: string | null;
+    phone: string | null;
+    timezone: string;
+    currency: string;
+    clientCancelMinHours: number;
+    allowClientReschedule: boolean;
+  };
+  actions: {
+    canCancel: boolean;
+    cancelDisabledReason: ManageDisableReason | null;
+    canReschedule: boolean;
+    rescheduleDisabledReason: ManageDisableReason | null;
+  };
+}
+
+export async function getPublicManageAppointment(
+  token: string,
+): Promise<PublicManageAppointmentDto> {
+  const res = await publicHttpClient.get<ApiSuccessEnvelope<PublicManageAppointmentDto>>(
+    `/manage/${encodeURIComponent(token)}`,
+  );
+  return res.data.data;
+}
+
+export async function getPublicManageAvailability(
+  token: string,
+  date: string,
+): Promise<AvailabilityDto> {
+  const res = await publicHttpClient.get<ApiSuccessEnvelope<AvailabilityDto>>(
+    `/manage/${encodeURIComponent(token)}/availability`,
+    { params: { date } },
+  );
+  return res.data.data;
+}
+
+export async function cancelPublicManageAppointment(
+  token: string,
+  reason?: string | null,
+): Promise<PublicManageAppointmentDto> {
+  const res = await publicHttpClient.post<ApiSuccessEnvelope<PublicManageAppointmentDto>>(
+    `/manage/${encodeURIComponent(token)}/cancel`,
+    reason ? { reason } : {},
+  );
+  return res.data.data;
+}
+
+export async function reschedulePublicManageAppointment(
+  token: string,
+  startAt: string,
+): Promise<PublicManageAppointmentDto> {
+  const res = await publicHttpClient.post<ApiSuccessEnvelope<PublicManageAppointmentDto>>(
+    `/manage/${encodeURIComponent(token)}/reschedule`,
+    { startAt },
+  );
+  return res.data.data;
+}
+
 export function getPublicErrorMessage(err: unknown): string {
   if (axios.isAxiosError<ApiErrorResponse>(err)) {
     if (!err.response) {

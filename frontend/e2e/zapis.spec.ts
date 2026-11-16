@@ -498,6 +498,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
         .getByRole('button', { name: /Любой свободный/i })
         .first()
         .click();
+      await clientPage.locator('.overflow-x-auto button').nth(1).click();
       await advanceUntilSlotsAvailable(clientPage);
       await clientPage
         .getByRole('button', { name: /^\d{2}:\d{2}$/ })
@@ -544,6 +545,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
       .getByRole('button', { name: /Любой свободный/i })
       .first()
       .click();
+    await clientPage.locator('.overflow-x-auto button').nth(1).click();
     await advanceUntilSlotsAvailable(clientPage);
     await clientPage
       .getByRole('button', { name: /^\d{2}:\d{2}$/ })
@@ -616,5 +618,75 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await masterCtx.close();
     await clientCtx.close();
+  });
+
+  test('E2E 8: Client Self-Service — book -> open manage link -> reschedule -> cancel -> staff sees cancellation', async ({
+    browser,
+  }) => {
+    const clientCtx = await browser.newContext();
+    const clientPage = await clientCtx.newPage();
+
+    await clientPage.goto('/b/demo-barbershop');
+    await clientPage
+      .getByRole('button', { name: /Стрижка/i })
+      .first()
+      .click();
+    await clientPage
+      .getByRole('button', { name: /Любой свободный/i })
+      .first()
+      .click();
+    await clientPage.locator('.overflow-x-auto button').nth(1).click();
+    await advanceUntilSlotsAvailable(clientPage);
+    await clientPage
+      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+      .first()
+      .click();
+    await clientPage.locator('#public-client-name').fill('Клиент SelfService');
+    await clientPage.locator('#public-client-phone').fill('0555 444 333');
+    await clientPage.locator('#public-consent').check();
+    await clientPage.getByRole('button', { name: 'Записаться' }).click();
+    await expect(clientPage.getByText('Вы успешно записаны!')).toBeVisible();
+
+    const manageLink = clientPage.locator('a[href*="/manage/"]');
+    await expect(manageLink).toBeVisible();
+    const href = (await manageLink.getAttribute('href')) ?? '';
+    const managePath = href.startsWith('http') ? new URL(href).pathname : href;
+    await clientPage.goto(managePath);
+    await expect(clientPage.getByText('Управление вашей записью')).toBeVisible();
+
+    // Reschedule
+    await clientPage.getByRole('button', { name: 'Перенести время' }).click();
+    await clientPage.getByRole('dialog').locator('.overflow-x-auto button').nth(2).click();
+    await clientPage
+      .getByRole('dialog')
+      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+      .first()
+      .click();
+    await clientPage.getByRole('dialog').getByRole('button', { name: 'Перенести' }).click();
+    await expect(clientPage.getByText('Запись успешно перенесена')).toBeVisible();
+
+    // Cancel
+    await clientPage.getByRole('button', { name: 'Отменить запись' }).click();
+    await clientPage.locator('#cancel-reason').fill('E2E отмена клиентом');
+    await clientPage
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Подтвердить отмену' })
+      .click();
+    await expect(clientPage.getByText(/Запись отменена \(вами\)/i)).toBeVisible();
+
+    // Owner checks appointments list
+    const ownerCtx = await browser.newContext();
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.locator('#login-email').fill('owner@demo.zapis.kg');
+    await ownerPage.locator('#login-password').fill('Demo12345!');
+    await ownerPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+
+    await ownerPage.getByRole('link', { name: 'Записи', exact: true }).click();
+    await expect(ownerPage.getByText('Клиент SelfService')).toBeVisible();
+
+    await clientCtx.close();
+    await ownerCtx.close();
   });
 });

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
@@ -129,6 +130,7 @@ export async function createAppointmentFactory(
         input.price !== undefined ? new Prisma.Decimal(input.price) : new Prisma.Decimal('500.00'),
       status: input.status ?? AppointmentStatus.SCHEDULED,
       source: input.source ?? AppointmentSource.ONLINE,
+      manageToken: randomBytes(32).toString('base64url'),
       deletedAt: input.deletedAt ?? null,
     },
   });

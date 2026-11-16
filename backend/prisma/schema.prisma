@@ -98,6 +98,11 @@ enum TimeOffKind {
   OTHER
 }
 
+enum CancelActor {
+  CLIENT
+  STAFF
+}
+
 model Company {
   id                   String        @id @default(uuid()) @db.Uuid
   name                 String
@@ -111,6 +116,8 @@ model Company {
   minLeadTimeMin       Int           @default(60)
   maxAdvanceDays       Int           @default(60)
   publicBookingEnabled Boolean       @default(true)
+  clientCancelMinHours Int           @default(2)
+  allowClientReschedule Boolean      @default(true)
   suspendedAt          DateTime?     @db.Timestamptz(3)
   suspendedReason      String?
   suspendedByAdminId   String?       @db.Uuid
@@ -259,6 +266,11 @@ model Appointment {
   price             Decimal           @db.Decimal(10, 2)
   status            AppointmentStatus @default(SCHEDULED)
   source            AppointmentSource
+  manageToken       String            @unique
+  cancelledAt       DateTime?         @db.Timestamptz(3)
+  cancelledBy       CancelActor?
+  cancelReason      String?
+  rescheduledCount  Int               @default(0)
   consentAcceptedAt DateTime?         @db.Timestamptz(3)
   createdAt         DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime          @updatedAt @db.Timestamptz(3)

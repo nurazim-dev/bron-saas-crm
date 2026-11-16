@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
@@ -59,6 +60,10 @@ export interface AppointmentDto {
   source: AppointmentSource;
   service: AppointmentServiceSummaryDto;
   master: AppointmentMasterSummaryDto;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  rescheduledCount: number;
   warnings?: AppointmentScheduleWarning[];
   createdAt: string;
   updatedAt: string;
@@ -173,6 +178,10 @@ export function serializeAppointment(
       id: appt.master.id,
       name: appt.master.name,
     },
+    cancelledAt: appt.cancelledAt ? appt.cancelledAt.toISOString() : null,
+    cancelledBy: appt.cancelledBy,
+    cancelReason: appt.cancelReason,
+    rescheduledCount: appt.rescheduledCount,
     ...(warnings !== undefined ? { warnings } : {}),
     createdAt: appt.createdAt.toISOString(),
     updatedAt: appt.updatedAt.toISOString(),
@@ -420,6 +429,7 @@ export async function createStaffAppointmentForActor(
           price,
           status: AppointmentStatus.SCHEDULED,
           source: AppointmentSource.STAFF,
+          manageToken: randomBytes(32).toString('base64url'),
         },
         include: appointmentInclude,
       });
@@ -586,7 +596,11 @@ export async function changeAppointmentStatusForActor(
     if (nextStatus === AppointmentStatus.CANCELLED) {
       const updated = await prisma.appointment.update({
         where: { id: existing.id },
-        data: { status: AppointmentStatus.CANCELLED },
+        data: {
+          status: AppointmentStatus.CANCELLED,
+          cancelledBy: 'STAFF',
+          cancelledAt: now,
+        },
         include: appointmentInclude,
       });
       return serializeAppointment(updated);
@@ -639,7 +653,12 @@ export async function changeAppointmentStatusForActor(
 
         return tx.appointment.update({
           where: { id: existing.id },
-          data: { status: AppointmentStatus.SCHEDULED },
+          data: {
+            status: AppointmentStatus.SCHEDULED,
+            cancelledAt: null,
+            cancelledBy: null,
+            cancelReason: null,
+          },
           include: appointmentInclude,
         });
       });

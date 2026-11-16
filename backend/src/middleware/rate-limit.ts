@@ -81,11 +81,16 @@ export const forgotPasswordEmailRateLimiter: RateLimitRequestHandler = rateLimit
   },
 });
 
+export const publicManageReadRateLimiter = createRateLimiter({ windowMs: 60 * 60_000, limit: 60 });
+export const publicManageWriteRateLimiter = createRateLimiter({ windowMs: 60 * 60_000, limit: 10 });
+
 export function resetRateLimitersForTest(ip = '::ffff:127.0.0.1'): void {
   for (const key of [ip, '127.0.0.1', '::1', '::ffff:127.0.0.1']) {
     globalRateLimiter.resetKey(key);
     authRateLimiter.resetKey(key);
     publicBookingRateLimiter.resetKey(key);
+    publicManageReadRateLimiter.resetKey(key);
+    publicManageWriteRateLimiter.resetKey(key);
     forgotPasswordIpRateLimiter.resetKey(key);
     adminLoginRateLimiter.resetKey(key);
     adminMfaRateLimiter.resetKey(key);

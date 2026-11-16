@@ -13,6 +13,8 @@ export interface UpdateCompanyPayload {
   minLeadTimeMin?: number;
   maxAdvanceDays?: number;
   publicBookingEnabled?: boolean;
+  clientCancelMinHours?: number;
+  allowClientReschedule?: boolean;
 }
 
 export async function getCompany(): Promise<CompanyDto> {

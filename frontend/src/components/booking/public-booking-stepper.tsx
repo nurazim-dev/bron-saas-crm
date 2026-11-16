@@ -112,6 +112,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
   const [bookedAppointment, setBookedAppointment] = useState<PublicBookedAppointmentDto | null>(
     null,
   );
+  const [manageUrl, setManageUrl] = useState<string | null>(null);
 
   // Masters that perform the selected service
   const eligibleMasters = useMemo<PublicMasterDto[]>(() => {
@@ -263,6 +264,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
       });
 
       setBookedAppointment(result.appointment);
+      setManageUrl(result.manageUrl);
       setStep(5);
     } catch (err) {
       const code = getPublicErrorCode(err);
@@ -730,6 +732,33 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
                 </div>
               )}
             </div>
+
+            {manageUrl && (
+              <div className="space-y-2 rounded-xl border bg-muted/20 p-3.5 text-xs">
+                <div className="font-medium text-foreground">
+                  Ссылка для переноса или отмены записи:
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={manageUrl}
+                    className="min-w-0 flex-1 truncate font-mono text-primary underline"
+                  >
+                    {manageUrl}
+                  </a>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(manageUrl);
+                      toast.success('Ссылка скопирована');
+                    }}
+                  >
+                    Копировать
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {bookedAppointment.company.phone && (
               <div className="flex flex-wrap gap-2">

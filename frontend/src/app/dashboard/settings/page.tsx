@@ -53,6 +53,12 @@ function SettingsManagerContent() {
   const [publicBookingEnabled, setPublicBookingEnabled] = useState(
     storeCompany?.publicBookingEnabled ?? true,
   );
+  const [clientCancelMinHours, setClientCancelMinHours] = useState(
+    storeCompany?.clientCancelMinHours ?? 2,
+  );
+  const [allowClientReschedule, setAllowClientReschedule] = useState(
+    storeCompany?.allowClientReschedule ?? true,
+  );
 
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -77,6 +83,8 @@ function SettingsManagerContent() {
     setMinLeadTimeMin(c.minLeadTimeMin);
     setMaxAdvanceDays(c.maxAdvanceDays);
     setPublicBookingEnabled(c.publicBookingEnabled);
+    setClientCancelMinHours(c.clientCancelMinHours ?? 2);
+    setAllowClientReschedule(c.allowClientReschedule ?? true);
   }, []);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -188,6 +196,8 @@ function SettingsManagerContent() {
         minLeadTimeMin: Number(minLeadTimeMin),
         maxAdvanceDays: Number(maxAdvanceDays),
         publicBookingEnabled,
+        clientCancelMinHours: Number(clientCancelMinHours),
+        allowClientReschedule,
       });
       setCompany(updated);
       populateForm(updated);
@@ -494,6 +504,34 @@ function SettingsManagerContent() {
                 <p className="text-xs text-muted-foreground">
                   {ru.settingsPage.maxAdvanceDaysHint}
                 </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="company-cancel-hours">
+                  Окно отмены и переноса клиентом (часов до визита)
+                </Label>
+                <Input
+                  id="company-cancel-hours"
+                  type="number"
+                  min={0}
+                  max={168}
+                  value={clientCancelMinHours}
+                  onChange={(e) => setClientCancelMinHours(Number(e.target.value))}
+                  className="min-h-11"
+                />
+              </div>
+              <div className="flex items-center pt-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={allowClientReschedule}
+                    onChange={(e) => setAllowClientReschedule(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Разрешить клиентам самостоятельный перенос записи
+                </label>
               </div>
             </div>
 

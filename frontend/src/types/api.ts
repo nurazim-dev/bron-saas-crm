@@ -18,6 +18,7 @@ export type ErrorCode =
   | 'HAS_UPCOMING_APPOINTMENTS'
   | 'INVALID_STATUS_TRANSITION'
   | 'SLOT_NOT_AVAILABLE'
+  | 'CHANGE_NOT_ALLOWED'
   | 'INVALID_OR_EXPIRED_TOKEN'
   | 'SUBSCRIPTION_REQUIRED'
   | 'PLAN_LIMIT_REACHED'
@@ -82,6 +83,8 @@ export interface CompanyDto {
   minLeadTimeMin: number;
   maxAdvanceDays: number;
   publicBookingEnabled: boolean;
+  clientCancelMinHours?: number;
+  allowClientReschedule?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -161,6 +164,10 @@ export interface AppointmentDto {
   source: AppointmentSource;
   service: AppointmentServiceSummaryDto;
   master: AppointmentMasterSummaryDto;
+  cancelledAt?: string | null;
+  cancelledBy?: 'CLIENT' | 'STAFF' | null;
+  cancelReason?: string | null;
+  rescheduledCount?: number;
   warnings?: Array<'OUTSIDE_WORKING_HOURS' | 'DURING_BREAK' | 'DURING_TIME_OFF'>;
   createdAt: string;
   updatedAt: string;
@@ -242,6 +249,7 @@ export interface PublicBookedAppointmentDto {
 
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
+  manageUrl: string;
 }
 
 export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'LOCKED';

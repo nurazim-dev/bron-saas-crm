@@ -1,4 +1,5 @@
 import '../src/config/utc.js';
+import { randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
 import { DateTime } from 'luxon';
 import {
@@ -289,6 +290,7 @@ async function runSeed(): Promise<void> {
         price: appt.service.price,
         status: AppointmentStatus.SCHEDULED,
         source: appt.source,
+        manageToken: randomBytes(32).toString('base64url'),
       },
     });
   }
