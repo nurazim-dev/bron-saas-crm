@@ -113,6 +113,8 @@ export interface WorkingHoursDto {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
+  breakStart?: string | null;
+  breakEnd?: string | null;
 }
 
 export interface StaffDto {
@@ -159,6 +161,7 @@ export interface AppointmentDto {
   source: AppointmentSource;
   service: AppointmentServiceSummaryDto;
   master: AppointmentMasterSummaryDto;
+  warnings?: Array<'OUTSIDE_WORKING_HOURS' | 'DURING_BREAK' | 'DURING_TIME_OFF'>;
   createdAt: string;
   updatedAt: string;
 }

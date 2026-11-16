@@ -112,11 +112,53 @@ const workingDaySchema = z
     dayOfWeek: z.number().int().min(1).max(7),
     startTime: z.string().regex(hhMmRegex, 'startTime must be in HH:mm format (00:00..23:59)'),
     endTime: z.string().regex(hhMmRegex, 'endTime must be in HH:mm format (00:00..23:59)'),
+    breakStart: z
+      .string()
+      .regex(hhMmRegex, 'breakStart must be in HH:mm format (00:00..23:59)')
+      .nullable()
+      .optional(),
+    breakEnd: z
+      .string()
+      .regex(hhMmRegex, 'breakEnd must be in HH:mm format (00:00..23:59)')
+      .nullable()
+      .optional(),
   })
   .strict()
   .refine((day) => parseMinutes(day.startTime) < parseMinutes(day.endTime), {
     path: ['endTime'],
     message: 'startTime must be strictly earlier than endTime on the same day (BR-10)',
+  })
+  .superRefine((day, ctx) => {
+    const hasStart = day.breakStart !== undefined && day.breakStart !== null;
+    const hasEnd = day.breakEnd !== undefined && day.breakEnd !== null;
+    if (hasStart !== hasEnd) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasStart ? 'breakEnd' : 'breakStart'],
+        message: 'breakStart and breakEnd must either both be set or both be null',
+      });
+      return;
+    }
+    if (hasStart && hasEnd && day.breakStart && day.breakEnd) {
+      const bs = parseMinutes(day.breakStart);
+      const be = parseMinutes(day.breakEnd);
+      const ws = parseMinutes(day.startTime);
+      const we = parseMinutes(day.endTime);
+      if (bs >= be) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['breakEnd'],
+          message: 'breakStart must be strictly earlier than breakEnd',
+        });
+      }
+      if (bs < ws || be > we) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['breakStart'],
+          message: 'Break must fall inside [startTime, endTime]',
+        });
+      }
+    }
   });
 
 export const replaceWorkingHoursBodySchema = z

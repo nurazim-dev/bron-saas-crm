@@ -568,8 +568,8 @@ describe('Services, Staff & Working Hours (/api/v1/services, /api/v1/staff)', ()
         });
       expect(whOk.status).toBe(200);
       expect(asStaff(whOk.body).data.workingHours).toEqual([
-        { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
-        { dayOfWeek: 2, startTime: '10:00', endTime: '19:00' },
+        { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', breakStart: null, breakEnd: null },
+        { dayOfWeek: 2, startTime: '10:00', endTime: '19:00', breakStart: null, breakEnd: null },
       ]);
 
       // Working hours validation: startTime >= endTime (overnight / zero length) -> 400

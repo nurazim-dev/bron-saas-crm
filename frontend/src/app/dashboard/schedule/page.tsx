@@ -22,6 +22,7 @@ import { listAppointments } from '@/lib/api/appointments.api';
 import { getApiErrorMessage } from '@/lib/api/client';
 import { listServices } from '@/lib/api/services.api';
 import { listVisibleStaffForRole } from '@/lib/api/staff.api';
+import { listTimeOff, type TimeOffDto } from '@/lib/api/time-off.api';
 import {
   addDaysToLocalDateInTz,
   formatLocalDateRussian,
@@ -83,6 +84,7 @@ export default function SchedulePage() {
   const [staffList, setStaffList] = useState<StaffDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [timeOffs, setTimeOffs] = useState<TimeOffDto[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -109,7 +111,7 @@ export default function SchedulePage() {
     async function loadData() {
       try {
         const { fromUtc, toUtc } = getLocalDayUtcRange(selectedDate, timezone);
-        const [staffData, servicesData, apptsRes] = await Promise.all([
+        const [staffData, servicesData, apptsRes, timeOffData] = await Promise.all([
           listVisibleStaffForRole(userId, userRole),
           listServices(),
           listAppointments({
@@ -117,12 +119,14 @@ export default function SchedulePage() {
             to: toUtc,
             limit: 200,
           }),
+          listTimeOff({ from: fromUtc, to: toUtc }),
         ]);
 
         if (!cancelled) {
           setStaffList(staffData);
           setServices(servicesData);
           setAppointments(apptsRes.data);
+          setTimeOffs(timeOffData);
           setLoadError(null);
         }
       } catch (err) {
@@ -414,6 +418,10 @@ export default function SchedulePage() {
                   const workEndMin = wh ? parseHhMmToMinutes(wh.endTime) : -1;
 
                   const masterAppts = appointments.filter((a) => a.masterId === master.id);
+                  const masterTimeOffs = timeOffs.filter((t) => t.userId === master.id);
+                  const { fromUtc, toUtc } = getLocalDayUtcRange(selectedDate, timezone);
+                  const dayStartMs = new Date(fromUtc).getTime();
+                  const dayEndMs = new Date(toUtc).getTime();
 
                   return (
                     <div key={master.id} className="relative border-r last:border-r-0">
@@ -437,6 +445,68 @@ export default function SchedulePage() {
                             }`}
                             style={{ height: `${ROW_HEIGHT_PX}px` }}
                           />
+                        );
+                      })}
+
+                      {/* Recurring Break Hatched Block */}
+                      {wh?.breakStart &&
+                        wh?.breakEnd &&
+                        (() => {
+                          const bStart = Math.max(
+                            GRID_START_MIN,
+                            parseHhMmToMinutes(wh.breakStart),
+                          );
+                          const bEnd = Math.min(GRID_END_MIN, parseHhMmToMinutes(wh.breakEnd));
+                          if (bEnd <= bStart) return null;
+                          return (
+                            <div
+                              className="pointer-events-none absolute inset-x-1 z-[1] flex items-center justify-center rounded border border-dashed border-amber-500/50 bg-[repeating-linear-gradient(45deg,rgba(245,158,11,0.08),rgba(245,158,11,0.08)_6px,transparent_6px,transparent_12px)] text-[11px] font-medium text-amber-700 dark:text-amber-300"
+                              style={{
+                                top: `${(bStart - GRID_START_MIN) * PX_PER_MINUTE}px`,
+                                height: `${(bEnd - bStart) * PX_PER_MINUTE}px`,
+                              }}
+                            >
+                              Перерыв ({wh.breakStart}–{wh.breakEnd})
+                            </div>
+                          );
+                        })()}
+
+                      {/* TimeOff Hatched Blocks */}
+                      {masterTimeOffs.map((to) => {
+                        const sMs = new Date(to.startAt).getTime();
+                        const eMs = new Date(to.endAt).getTime();
+                        const startMin =
+                          sMs <= dayStartMs
+                            ? GRID_START_MIN
+                            : Math.max(
+                                GRID_START_MIN,
+                                getMinutesSinceMidnightInTz(to.startAt, timezone),
+                              );
+                        const endMin =
+                          eMs >= dayEndMs
+                            ? GRID_END_MIN
+                            : Math.min(
+                                GRID_END_MIN,
+                                getMinutesSinceMidnightInTz(to.endAt, timezone),
+                              );
+                        if (endMin <= startMin) return null;
+                        const label =
+                          to.kind === 'VACATION'
+                            ? 'Отпуск'
+                            : to.kind === 'SICK_LEAVE'
+                              ? 'Больничный'
+                              : 'Отсутствие';
+                        return (
+                          <div
+                            key={to.id}
+                            className="pointer-events-none absolute inset-x-1 z-[1] flex items-center justify-center rounded border border-dashed border-slate-500/50 bg-[repeating-linear-gradient(45deg,rgba(100,116,139,0.12),rgba(100,116,139,0.12)_6px,transparent_6px,transparent_12px)] text-[11px] font-medium text-slate-700 dark:text-slate-300"
+                            style={{
+                              top: `${(startMin - GRID_START_MIN) * PX_PER_MINUTE}px`,
+                              height: `${(endMin - startMin) * PX_PER_MINUTE}px`,
+                            }}
+                          >
+                            {label}
+                          </div>
                         );
                       })}
 

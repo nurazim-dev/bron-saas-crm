@@ -144,3 +144,23 @@ export function parseNormalizedStartAtUtc(isoInstant: string): Date {
   const normalized = dt.toUTC().set({ second: 0, millisecond: 0 });
   return normalized.toJSDate();
 }
+
+/**
+ * Converts an inclusive company-local date range [startDate, endDate] (YYYY-MM-DD)
+ * into a half-open UTC [startAt, endAt) interval, DST-safe.
+ */
+export function localAllDayRangeToUtc(
+  startDate: string,
+  endDate: string,
+  timeZone: string,
+): { startAt: Date; endAt: Date } {
+  const startLocal = DateTime.fromISO(startDate, { zone: timeZone }).startOf('day');
+  const endLocal = DateTime.fromISO(endDate, { zone: timeZone }).startOf('day').plus({ days: 1 });
+  if (!startLocal.isValid || !endLocal.isValid || startLocal >= endLocal) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Invalid local date range');
+  }
+  return {
+    startAt: startLocal.toUTC().toJSDate(),
+    endAt: endLocal.toUTC().toJSDate(),
+  };
+}

@@ -14,6 +14,7 @@ import {
   Menu,
   Scissors,
   Settings,
+  User,
   Users,
   X,
   type LucideIcon,
@@ -86,6 +87,12 @@ const NAV_ITEMS: NavItem[] = [
     label: ru.nav.settings,
     icon: Settings,
     roles: ['OWNER'],
+  },
+  {
+    href: '/dashboard/profile',
+    label: 'Профиль',
+    icon: User,
+    roles: ['OWNER', 'MASTER'],
   },
 ];
 

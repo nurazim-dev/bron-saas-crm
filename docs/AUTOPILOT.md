@@ -2,11 +2,11 @@
 
 - **Mode**: `RUNNING`
 - **Branch**: `develop`
-- **Current Phase**: `18`
-- **Next Action**: Implement Phase 18 (Breaks & Time Off) and run the Phase 18 gate.
+- **Current Phase**: `19`
+- **Next Action**: Implement Phase 19 (Client Self-Service) and run the Phase 19 gate.
 - **Baseline Test Counts**:
-  - `backend_tests`: `117`
-  - `e2e_scenarios`: `6`
+  - `backend_tests`: `120`
+  - `e2e_scenarios`: `7`
 
 ## Preflight Answers (User Confirmed `OK` + Item 1 = Bot Ready at End, Item 2 = MANUAL)
 1. **Telegram Bot**: user has a bot and will fill `TELEGRAM_BOT_TOKEN` & `TELEGRAM_BOT_USERNAME` into `backend/.env` at the end (build full provider + webhook/polling + fake API tests; real Bot API marked `UNVERIFIED` until user enters credentials).
@@ -26,8 +26,8 @@
 | Phase | Name | Status | Commit | Date |
 | :--- | :--- | :--- | :--- | :--- |
 | 17 | Client CRM | `COMPLETE` | `phase-17` | 2026-11-16 |
-| 18 | Breaks & Time Off | `IN_PROGRESS` | — | — |
-| 19 | Client Self-Service | `PENDING` | — | — |
+| 18 | Breaks & Time Off | `COMPLETE` | `phase-18` | 2026-11-16 |
+| 19 | Client Self-Service | `IN_PROGRESS` | — | — |
 | 20 | Staff Notifications & Client Reminders | `PENDING` | — | — |
 | 21 | Light Prepayment | `PENDING` | — | — |
 | 22 | Analytics & CSV Export | `PENDING` | — | — |

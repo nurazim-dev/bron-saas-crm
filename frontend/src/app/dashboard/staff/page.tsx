@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { TimeOffManager } from '@/components/time-off/time-off-manager';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getApiErrorMessage } from '@/lib/api/client';
@@ -45,6 +46,8 @@ interface EditableDayRow {
   isWorking: boolean;
   startTime: string;
   endTime: string;
+  breakStart: string;
+  breakEnd: string;
 }
 
 const ISO_DAYS = [1, 2, 3, 4, 5, 6, 7] as const;
@@ -75,6 +78,8 @@ function buildEditableSchedule(workingHours: WorkingHoursDto[]): EditableDayRow[
         isWorking: true,
         startTime: existing.startTime,
         endTime: existing.endTime,
+        breakStart: existing.breakStart ?? '',
+        breakEnd: existing.breakEnd ?? '',
       };
     }
     return {
@@ -82,6 +87,8 @@ function buildEditableSchedule(workingHours: WorkingHoursDto[]): EditableDayRow[
       isWorking: false,
       startTime: '10:00',
       endTime: '20:00',
+      breakStart: '',
+      breakEnd: '',
     };
   });
 }
@@ -360,6 +367,8 @@ function StaffManagerContent() {
               isWorking: true,
               startTime: monday.startTime,
               endTime: monday.endTime,
+              breakStart: monday.breakStart,
+              breakEnd: monday.breakEnd,
             }
           : row,
       );
@@ -387,6 +396,8 @@ function StaffManagerContent() {
           dayOfWeek: d.dayOfWeek,
           startTime: d.startTime,
           endTime: d.endTime,
+          breakStart: d.breakStart ? d.breakStart : null,
+          breakEnd: d.breakEnd ? d.breakEnd : null,
         })),
       );
       setStaffList((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
@@ -1054,6 +1065,37 @@ function StaffManagerContent() {
                             </option>
                           ))}
                         </select>
+                        <span className="ml-2 text-xs text-muted-foreground">Перерыв:</span>
+                        <select
+                          aria-label={`${ru.staffPage.weekdays[row.dayOfWeek]} начало перерыва`}
+                          value={row.breakStart}
+                          onChange={(e) =>
+                            updateDayRow(row.dayOfWeek, { breakStart: e.target.value })
+                          }
+                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="">—</option>
+                          {TIME_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label={`${ru.staffPage.weekdays[row.dayOfWeek]} конец перерыва`}
+                          value={row.breakEnd}
+                          onChange={(e) =>
+                            updateDayRow(row.dayOfWeek, { breakEnd: e.target.value })
+                          }
+                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="">—</option>
+                          {TIME_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     ) : (
                       <span className="text-xs font-medium text-muted-foreground">
@@ -1138,6 +1180,11 @@ function StaffManagerContent() {
           </Card>
         </div>
       )}
+
+      <TimeOffManager
+        title="Отпуска и отсутствия команды"
+        description="Управление отпусками, больничными и разовыми отсутствиями мастеров."
+      />
     </div>
   );
 }

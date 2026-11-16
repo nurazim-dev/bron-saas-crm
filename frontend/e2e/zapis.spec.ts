@@ -569,4 +569,52 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await clientCtx.close();
     await ownerCtx.close();
   });
+
+  test('E2E 7: Breaks & Time Off — master adds vacation on /dashboard/profile -> public slots hidden for that master -> schedule shows hatched block', async ({
+    browser,
+  }) => {
+    const masterCtx = await browser.newContext();
+    const masterPage = await masterCtx.newPage();
+
+    await masterPage.goto('/login');
+    await masterPage.locator('#login-email').fill('master@demo.zapis.kg');
+    await masterPage.locator('#login-password').fill('Demo12345!');
+    await masterPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(masterPage).toHaveURL(/\/dashboard/);
+
+    await masterPage.getByRole('link', { name: 'Профиль', exact: true }).click();
+    await expect(masterPage).toHaveURL(/\/dashboard\/profile$/);
+    await expect(masterPage.getByText('Мои отпуска и больничные')).toBeVisible();
+
+    const today = new Date();
+    const tomorrow = new Date(today.getTime() + 86_400_000);
+    const in3Days = new Date(today.getTime() + 3 * 86_400_000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+
+    await masterPage.getByRole('button', { name: 'Добавить' }).click();
+    await masterPage.locator('#to-start-date').fill(fmt(tomorrow));
+    await masterPage.locator('#to-end-date').fill(fmt(in3Days));
+    await masterPage.locator('#to-note').fill('E2E Отпуск');
+    await masterPage.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
+    await expect(masterPage.getByText('E2E Отпуск')).toBeVisible();
+
+    // Verify public booking for that master shows no slots tomorrow
+    const clientCtx = await browser.newContext();
+    const clientPage = await clientCtx.newPage();
+    await clientPage.goto('/b/demo-barbershop');
+    await clientPage
+      .getByRole('button', { name: /Стрижка/i })
+      .first()
+      .click();
+    await clientPage
+      .getByRole('button', { name: /Бекзат Исаков/i })
+      .first()
+      .click();
+    await clientPage.locator('.overflow-x-auto button').nth(1).click();
+    await expect(clientPage.getByRole('button', { name: 'Выбрать следующую дату' })).toBeVisible();
+    await expect(clientPage.getByRole('button', { name: /^\d{2}:\d{2}$/ })).toHaveCount(0);
+
+    await masterCtx.close();
+    await clientCtx.close();
+  });
 });

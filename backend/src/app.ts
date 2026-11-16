@@ -23,6 +23,7 @@ import { notificationsRouter } from './modules/notifications/notifications.route
 import { publicRouter } from './modules/public/public.routes.js';
 import { servicesRouter } from './modules/services/services.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
+import { timeOffRouter } from './modules/time-off/time-off.routes.js';
 
 export const API_PREFIX = '/api/v1';
 
@@ -76,6 +77,7 @@ export function createApp(): Express {
   app.use(`${API_PREFIX}/company`, companyRouter);
   app.use(`${API_PREFIX}/services`, servicesRouter);
   app.use(`${API_PREFIX}/staff`, staffRouter);
+  app.use(`${API_PREFIX}/time-off`, timeOffRouter);
   app.use(`${API_PREFIX}/appointments`, appointmentsRouter);
   app.use(`${API_PREFIX}/availability`, availabilityRouter);
   app.use(`${API_PREFIX}/notifications`, notificationsRouter);

@@ -92,6 +92,12 @@ enum PaymentSource {
   ADMIN_MANUAL
 }
 
+enum TimeOffKind {
+  VACATION
+  SICK_LEAVE
+  OTHER
+}
+
 model Company {
   id                   String        @id @default(uuid()) @db.Uuid
   name                 String
@@ -115,6 +121,7 @@ model Company {
   services             Service[]
   clients              Client[]
   appointments         Appointment[]
+  timeOffs             TimeOff[]
   inAppNotifications   InAppNotification[]
   subscription         Subscription?
   subscriptionPayments SubscriptionPayment[]
@@ -139,6 +146,7 @@ model User {
   services           MasterService[]
   workingHours       WorkingHours[]
   appointments        Appointment[]
+  timeOffs            TimeOff[]
   inAppNotifications  InAppNotification[]
   passwordResetTokens PasswordResetToken[]
 
@@ -188,14 +196,33 @@ model MasterService {
 }
 
 model WorkingHours {
-  id        String @id @default(uuid()) @db.Uuid
-  userId    String @db.Uuid
-  dayOfWeek Int
-  startTime String
-  endTime   String
-  user      User   @relation(fields: [userId], references: [id])
+  id         String  @id @default(uuid()) @db.Uuid
+  userId     String  @db.Uuid
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  breakStart String?
+  breakEnd   String?
+  user       User    @relation(fields: [userId], references: [id])
 
   @@unique([userId, dayOfWeek])
+}
+
+model TimeOff {
+  id        String      @id @default(uuid()) @db.Uuid
+  companyId String      @db.Uuid
+  userId    String      @db.Uuid
+  startAt   DateTime    @db.Timestamptz(3)
+  endAt     DateTime    @db.Timestamptz(3)
+  kind      TimeOffKind
+  note      String?
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
+  company   Company     @relation(fields: [companyId], references: [id])
+  user      User        @relation(fields: [userId], references: [id])
+
+  @@index([userId, startAt, endAt])
+  @@index([companyId, startAt, endAt])
 }
 
 model Client {

@@ -8,7 +8,12 @@ import {
 } from '../../generated/prisma/client.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
-import { addDurationMsUtc, addMinutesUtc } from '../../lib/datetime.js';
+import {
+  addDurationMsUtc,
+  addMinutesUtc,
+  localDateTimeToUtc,
+  utcToLocalParts,
+} from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
@@ -34,6 +39,9 @@ export interface AppointmentMasterSummaryDto {
   name: string;
 }
 
+export type AppointmentScheduleWarning =
+  'OUTSIDE_WORKING_HOURS' | 'DURING_BREAK' | 'DURING_TIME_OFF';
+
 export interface AppointmentDto {
   id: string;
   companyId: string;
@@ -51,6 +59,7 @@ export interface AppointmentDto {
   source: AppointmentSource;
   service: AppointmentServiceSummaryDto;
   master: AppointmentMasterSummaryDto;
+  warnings?: AppointmentScheduleWarning[];
   createdAt: string;
   updatedAt: string;
 }
@@ -76,7 +85,70 @@ export const appointmentInclude = {
   },
 } as const;
 
-export function serializeAppointment(appt: AppointmentWithRelations): AppointmentDto {
+async function computeScheduleWarnings(
+  tx: TransactionClient,
+  params: { companyId: string; masterId: string; startAt: Date; endAt: Date },
+): Promise<AppointmentScheduleWarning[]> {
+  const company = await tx.company.findUnique({
+    where: { id: params.companyId },
+    select: { timezone: true },
+  });
+  if (!company) return [];
+
+  const localParts = utcToLocalParts(params.startAt, company.timezone);
+  const [workingHours, overlappingTimeOff] = await Promise.all([
+    tx.workingHours.findUnique({
+      where: {
+        userId_dayOfWeek: {
+          userId: params.masterId,
+          dayOfWeek: localParts.dayOfWeek,
+        },
+      },
+    }),
+    tx.timeOff.findFirst({
+      where: {
+        companyId: params.companyId,
+        userId: params.masterId,
+        startAt: { lt: params.endAt },
+        endAt: { gt: params.startAt },
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  const warnings: AppointmentScheduleWarning[] = [];
+  if (!workingHours) {
+    warnings.push('OUTSIDE_WORKING_HOURS');
+  } else {
+    const workStart = localDateTimeToUtc(localParts.date, workingHours.startTime, company.timezone);
+    const workEnd = localDateTimeToUtc(localParts.date, workingHours.endTime, company.timezone);
+    if (params.startAt < workStart || params.endAt > workEnd) {
+      warnings.push('OUTSIDE_WORKING_HOURS');
+    }
+    if (workingHours.breakStart && workingHours.breakEnd) {
+      const breakStart = localDateTimeToUtc(
+        localParts.date,
+        workingHours.breakStart,
+        company.timezone,
+      );
+      const breakEnd = localDateTimeToUtc(localParts.date, workingHours.breakEnd, company.timezone);
+      if (breakStart < params.endAt && breakEnd > params.startAt) {
+        warnings.push('DURING_BREAK');
+      }
+    }
+  }
+
+  if (overlappingTimeOff) {
+    warnings.push('DURING_TIME_OFF');
+  }
+
+  return warnings;
+}
+
+export function serializeAppointment(
+  appt: AppointmentWithRelations,
+  warnings?: AppointmentScheduleWarning[],
+): AppointmentDto {
   return {
     id: appt.id,
     companyId: appt.companyId,
@@ -101,6 +173,7 @@ export function serializeAppointment(appt: AppointmentWithRelations): Appointmen
       id: appt.master.id,
       name: appt.master.name,
     },
+    ...(warnings !== undefined ? { warnings } : {}),
     createdAt: appt.createdAt.toISOString(),
     updatedAt: appt.updatedAt.toISOString(),
   };
@@ -257,7 +330,7 @@ export async function listAppointmentsForActor(
   ]);
 
   return {
-    data: rows.map(serializeAppointment),
+    data: rows.map((r) => serializeAppointment(r)),
     meta: {
       page: query.page,
       limit: query.limit,
@@ -325,7 +398,14 @@ export async function createStaffAppointmentForActor(
         currentTime: clockNow(),
       });
 
-      return tx.appointment.create({
+      const warnings = await computeScheduleWarnings(tx, {
+        companyId: actor.companyId,
+        masterId: master.id,
+        startAt,
+        endAt,
+      });
+
+      const created = await tx.appointment.create({
         data: {
           companyId: actor.companyId,
           masterId: master.id,
@@ -343,9 +423,11 @@ export async function createStaffAppointmentForActor(
         },
         include: appointmentInclude,
       });
+
+      return { created, warnings };
     });
 
-    return serializeAppointment(created);
+    return serializeAppointment(created.created, created.warnings);
   } catch (err) {
     if (isExclusionConstraintError(err)) {
       throw new AppError('SLOT_ALREADY_BOOKED', 409, 'Selected time slot is already booked');
@@ -444,7 +526,14 @@ export async function updateAppointmentForActor(
         nextClientId = upserted.id;
       }
 
-      return tx.appointment.update({
+      const warnings = await computeScheduleWarnings(tx, {
+        companyId: actor.companyId,
+        masterId: nextMasterId,
+        startAt: nextStartAt,
+        endAt: nextEndAt,
+      });
+
+      const appt = await tx.appointment.update({
         where: { id: existing.id },
         data: {
           masterId: nextMasterId,
@@ -460,9 +549,11 @@ export async function updateAppointmentForActor(
         },
         include: appointmentInclude,
       });
+
+      return { appt, warnings };
     });
 
-    return serializeAppointment(updated);
+    return serializeAppointment(updated.appt, updated.warnings);
   } catch (err) {
     if (isExclusionConstraintError(err)) {
       throw new AppError('SLOT_ALREADY_BOOKED', 409, 'Selected time slot is already booked');

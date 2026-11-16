@@ -107,24 +107,45 @@ export async function computeAvailableSlotsForDate(
     };
   }
 
-  // 4. Load the master's blocking appointments overlapping that window
-  const blockingAppointments = await db.appointment.findMany({
-    where: {
-      companyId: company.id,
-      masterId: master.id,
-      deletedAt: null,
-      status: { in: BLOCKING_STATUSES },
-      startAt: { lt: workEndUtc },
-      endAt: { gt: workStartUtc },
-    },
-    select: {
-      startAt: true,
-      endAt: true,
-    },
-    orderBy: { startAt: 'asc' },
-  });
+  // 4. Load the master's blocking appointments and TimeOff rows overlapping that window
+  const [blockingAppointments, timeOffs] = await Promise.all([
+    db.appointment.findMany({
+      where: {
+        companyId: company.id,
+        masterId: master.id,
+        deletedAt: null,
+        status: { in: BLOCKING_STATUSES },
+        startAt: { lt: workEndUtc },
+        endAt: { gt: workStartUtc },
+      },
+      select: {
+        startAt: true,
+        endAt: true,
+      },
+      orderBy: { startAt: 'asc' },
+    }),
+    db.timeOff.findMany({
+      where: {
+        companyId: company.id,
+        userId: master.id,
+        startAt: { lt: workEndUtc },
+        endAt: { gt: workStartUtc },
+      },
+      select: {
+        startAt: true,
+        endAt: true,
+      },
+    }),
+  ]);
 
-  // 5 & 6. Generate candidate starts and drop those overlapping a blocking appointment or < now + minLeadTimeMin
+  const breakStartMs = workingHours.breakStart
+    ? localDateTimeToUtc(date, workingHours.breakStart, company.timezone).getTime()
+    : null;
+  const breakEndMs = workingHours.breakEnd
+    ? localDateTimeToUtc(date, workingHours.breakEnd, company.timezone).getTime()
+    : null;
+
+  // 5 & 6. Generate candidate starts and drop those overlapping a blocking appointment, break, time off, or < now + minLeadTimeMin
   const slots: AvailableSlotDto[] = [];
 
   for (
@@ -140,8 +161,23 @@ export async function computeAvailableSlotsForDate(
     const overlapsExisting = blockingAppointments.some(
       (appt) => appt.startAt.getTime() < candidateEndMs && appt.endAt.getTime() > candidateStartMs,
     );
-
     if (overlapsExisting) {
+      continue;
+    }
+
+    const overlapsBreak =
+      breakStartMs !== null &&
+      breakEndMs !== null &&
+      breakStartMs < candidateEndMs &&
+      breakEndMs > candidateStartMs;
+    if (overlapsBreak) {
+      continue;
+    }
+
+    const overlapsTimeOff = timeOffs.some(
+      (to) => to.startAt.getTime() < candidateEndMs && to.endAt.getTime() > candidateStartMs,
+    );
+    if (overlapsTimeOff) {
       continue;
     }
 
@@ -234,6 +270,31 @@ export async function assertPublicSlotValidForSchedule(
 
   if ((startAt.getTime() - workStartUtc.getTime()) % stepMs !== 0) {
     throw new AppError('SLOT_NOT_AVAILABLE', 422, 'Selected time does not lie on the slot grid');
+  }
+
+  if (workingHours.breakStart && workingHours.breakEnd) {
+    const breakStartUtc = localDateTimeToUtc(localDate, workingHours.breakStart, company.timezone);
+    const breakEndUtc = localDateTimeToUtc(localDate, workingHours.breakEnd, company.timezone);
+    if (breakStartUtc.getTime() < endAt.getTime() && breakEndUtc.getTime() > startAt.getTime()) {
+      throw new AppError(
+        'SLOT_NOT_AVAILABLE',
+        422,
+        'Selected time overlaps the master break window',
+      );
+    }
+  }
+
+  const overlappingTimeOff = await db.timeOff.findFirst({
+    where: {
+      companyId: company.id,
+      userId: master.id,
+      startAt: { lt: endAt },
+      endAt: { gt: startAt },
+    },
+    select: { id: true },
+  });
+  if (overlappingTimeOff) {
+    throw new AppError('SLOT_NOT_AVAILABLE', 422, 'Master is unavailable due to time off');
   }
 
   return { localDate, endAt };

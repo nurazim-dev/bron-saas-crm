@@ -600,6 +600,16 @@ function AppointmentFormDialogInner({
           ? ru.appointmentDialog.updateSuccess
           : ru.appointmentDialog.createSuccess,
       );
+      if (saved.warnings && saved.warnings.length > 0) {
+        const warningLabels: Record<string, string> = {
+          OUTSIDE_WORKING_HOURS: 'вне рабочих часов',
+          DURING_BREAK: 'во время перерыва',
+          DURING_TIME_OFF: 'в период отсутствия мастера',
+        };
+        toast.warning(
+          `Обратите внимание: запись создана ${saved.warnings.map((w) => warningLabels[w] ?? w).join(', ')}.`,
+        );
+      }
       onSaved(saved);
       onClose();
     } catch (err) {

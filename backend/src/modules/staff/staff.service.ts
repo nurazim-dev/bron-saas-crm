@@ -26,6 +26,8 @@ export interface WorkingHoursDto {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
+  breakStart: string | null;
+  breakEnd: string | null;
 }
 
 export interface StaffDto {
@@ -73,6 +75,8 @@ export function serializeStaff(user: UserWithRelations): StaffDto {
       dayOfWeek: wh.dayOfWeek,
       startTime: wh.startTime,
       endTime: wh.endTime,
+      breakStart: wh.breakStart,
+      breakEnd: wh.breakEnd,
     }));
 
   return {
@@ -488,6 +492,8 @@ export async function replaceStaffWorkingHoursForCompany(
               dayOfWeek: day.dayOfWeek,
               startTime: day.startTime,
               endTime: day.endTime,
+              breakStart: day.breakStart ?? null,
+              breakEnd: day.breakEnd ?? null,
             })),
           }),
         ]
