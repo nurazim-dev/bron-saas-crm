@@ -327,6 +327,7 @@ describe('Notification infrastructure (Phase 12)', () => {
         ownerName: 'Owner A',
         email: 'owner-a@example.com',
         password: 'Password123',
+        termsAccepted: true,
         companyName: 'Salon A',
         businessType: 'BARBERSHOP',
       });
@@ -345,6 +346,7 @@ describe('Notification infrastructure (Phase 12)', () => {
         ownerName: 'Owner B',
         email: 'owner-b@example.com',
         password: 'Password123',
+        termsAccepted: true,
         companyName: 'Salon B',
         businessType: 'BEAUTY_SALON',
       });

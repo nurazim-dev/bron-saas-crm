@@ -60,6 +60,7 @@ describe('Audit log (Phase 12)', () => {
       ownerName: 'Audit Owner',
       email: 'audit-owner@example.com',
       password: 'Password123',
+      termsAccepted: true,
       companyName: 'Audit Barbershop',
       businessType: 'BARBERSHOP',
     });

@@ -14,8 +14,10 @@ import {
   Users,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { PublicLangSwitcher } from '@/components/booking/public-lang-switcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +37,7 @@ import {
   getTodayLocalDateInTz,
 } from '@/lib/datetime';
 import { formatDurationMin, formatPriceKgs, ru } from '@/lib/i18n/ru';
+import { getPublicLangFromCookie, PUBLIC_DICT, type PublicLang } from '@/lib/i18n/public-dict';
 import { formatPhoneDisplay, getWhatsAppUrl, normalizePhoneE164OrNull } from '@/lib/phone';
 import type {
   PublicBookedAppointmentDto,
@@ -115,6 +118,18 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
   );
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [prepaymentBlock, setPrepaymentBlock] = useState<PublicPrepaymentBlockDto | null>(null);
+  const [lang, setLang] = useState<PublicLang>('ru');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const cookieLang = getPublicLangFromCookie();
+      setLang(cookieLang);
+      document.documentElement.lang = cookieLang;
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const t = PUBLIC_DICT[lang];
 
   // Masters that perform the selected service
   const eligibleMasters = useMemo<PublicMasterDto[]>(() => {
@@ -262,6 +277,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
         clientPhone: normalizedPhone,
         clientNote: clientNote.trim().length > 0 ? clientNote.trim() : null,
         consentAccepted: true,
+        locale: lang === 'ky' ? 'KY' : 'RU',
         website: websiteHoneypot,
       });
 
@@ -311,14 +327,17 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
 
   return (
     <div className="space-y-5">
+      <div className="flex justify-end">
+        <PublicLangSwitcher lang={lang} onChange={setLang} />
+      </div>
       {/* Stepper Progress Pills (Steps 1–4) */}
       {step < 5 && (
         <nav aria-label="Шаги онлайн-записи" className="grid grid-cols-4 gap-1.5">
           {[
-            { num: 1 as const, label: ru.publicBooking.step1Label },
-            { num: 2 as const, label: ru.publicBooking.step2Label },
-            { num: 3 as const, label: ru.publicBooking.step3Label },
-            { num: 4 as const, label: ru.publicBooking.step4Label },
+            { num: 1 as const, label: t.stepService },
+            { num: 2 as const, label: t.stepMaster },
+            { num: 3 as const, label: t.stepDateTime },
+            { num: 4 as const, label: t.stepContacts },
           ].map((item) => {
             const isActive = step === item.num;
             const isCompleted = step > item.num;
@@ -670,7 +689,12 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
                     onChange={(e) => setConsentAccepted(e.target.checked)}
                     className="mt-0.5 h-4 w-4 rounded border-input"
                   />
-                  <span>Я согласен(а) на обработку персональных данных для оформления записи</span>
+                  <span>
+                    {t.consentPrefix}{' '}
+                    <Link href="/privacy" target="_blank" className="text-primary underline">
+                      {t.privacyLinkLabel}
+                    </Link>
+                  </span>
                 </label>
 
                 <Button
@@ -678,9 +702,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
                   disabled={isSubmitting}
                   className="min-h-12 w-full text-base font-semibold"
                 >
-                  {isSubmitting
-                    ? ru.publicBooking.submittingBooking
-                    : ru.publicBooking.submitBooking}
+                  {isSubmitting ? t.submitting : t.submitBooking}
                 </Button>
               </form>
             </CardContent>
@@ -695,7 +717,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
             <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
               <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
             </div>
-            <CardTitle className="text-xl font-bold">{ru.publicBooking.confirmTitle}</CardTitle>
+            <CardTitle className="text-xl font-bold">{t.successTitle}</CardTitle>
             <CardDescription>{ru.publicBooking.confirmSubtitle}</CardDescription>
           </CardHeader>
 

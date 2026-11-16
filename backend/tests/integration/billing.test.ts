@@ -43,6 +43,7 @@ describe('Billing Core (Phase 14 / BR-19)', () => {
       ownerName: 'Owner',
       email,
       password: 'Password123',
+      termsAccepted: true,
       companyName,
       businessType: 'BARBERSHOP',
     });
@@ -104,6 +105,7 @@ describe('Billing Core (Phase 14 / BR-19)', () => {
       ownerName: 'Blocked',
       email: 'blocked@salon.kg',
       password: 'Password123',
+      termsAccepted: true,
       companyName: 'Blocked Salon',
       businessType: 'BARBERSHOP',
     });

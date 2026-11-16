@@ -26,6 +26,7 @@ export interface CreatePublicAppointmentPayload {
   clientPhone: string;
   clientNote?: string | null;
   consentAccepted: boolean;
+  locale?: 'RU' | 'KY';
   website?: string;
 }
 

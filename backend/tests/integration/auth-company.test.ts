@@ -71,6 +71,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         email: '  OWNER@Lord.kg ',
         phone: '0555 123 456',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       expect(res.status).toBe(201);
@@ -116,6 +117,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Владелец 1',
         email: 'owner1@lord.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       expect(r1.status).toBe(201);
       const body1 = asAuthEnvelope(r1.body);
@@ -130,6 +132,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Владелец 2',
         email: 'owner2@lord.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       expect(r2.status).toBe(201);
       const body2 = asAuthEnvelope(r2.body);
@@ -143,6 +146,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner One',
         email: 'dup@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       const dupRes = await request(app).post('/api/v1/auth/register').send({
@@ -151,6 +155,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner Two',
         email: 'DUP@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       expect(dupRes.status).toBe(409);
@@ -180,6 +185,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Race User',
         email: 'race@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       expect(res.status).toBe(409);
@@ -196,6 +202,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         email: 'a@salon.kg',
         phone: '123',
         password: 'Password123!',
+        termsAccepted: true,
       });
       expect(badPhone.status).toBe(400);
       expect(badPhone.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
@@ -205,6 +212,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner A',
         email: 'a@salon.kg',
         password: 'short',
+        termsAccepted: true,
       });
       expect(shortPass.status).toBe(400);
       expect(shortPass.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
@@ -219,6 +227,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Айгуль',
         email: 'aigul@salon.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       const okRes = await request(app).post('/api/v1/auth/login').send({
@@ -254,6 +263,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner',
         email: 'refresh@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const regBody = asAuthEnvelope(regRes.body);
 
@@ -313,6 +323,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner',
         email: 'pass@zapis.kg',
         password: 'OldPassword123!',
+        termsAccepted: true,
       });
       const regBody = asAuthEnvelope(regRes.body);
 
@@ -368,6 +379,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner',
         email: 'active@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const regBody = asAuthEnvelope(regRes.body);
 
@@ -422,6 +434,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner A',
         email: 'ownera@salon.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const bodyA = asAuthEnvelope(regA.body);
       const ownerTokenA = bodyA.data.accessToken;
@@ -499,12 +512,14 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Alpha Owner',
         email: 'alpha@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const regB = await request(app).post('/api/v1/auth/register').send({
         companyName: 'Salon Beta',
         ownerName: 'Beta Owner',
         email: 'beta@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       const bodyA = asAuthEnvelope(regA.body);

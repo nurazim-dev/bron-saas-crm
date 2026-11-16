@@ -78,6 +78,7 @@ describe('Password recovery (Phase 13 / BR-13)', () => {
       ownerName: 'Owner',
       email,
       password: 'Password123',
+      termsAccepted: true,
       companyName,
       businessType: 'BARBERSHOP',
     });

@@ -63,6 +63,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await ownerPage.locator('#reg-email').fill(ownerEmail);
     await ownerPage.locator('#reg-phone').fill('+996 555 111 222');
     await ownerPage.locator('#reg-password').fill('Password123!');
+    await ownerPage.locator('#reg-terms').check();
     await ownerPage.getByRole('button', { name: 'Создать аккаунт' }).click();
 
     await expect(ownerPage).toHaveURL(/\/dashboard\/onboarding$/);
@@ -298,6 +299,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
         password: 'OldPassword123',
         companyName: 'E2E Reset Salon',
         businessType: 'BARBERSHOP',
+        termsAccepted: true,
       },
     });
     expect(regRes.status()).toBe(201);
@@ -881,6 +883,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await ownerPage.locator('#reg-email').fill(ownerEmail);
     await ownerPage.locator('#reg-phone').fill('');
     await ownerPage.locator('#reg-password').fill('Password123!');
+    await ownerPage.locator('#reg-terms').check();
     await ownerPage.getByRole('button', { name: 'Создать аккаунт' }).click();
 
     await expect(ownerPage).toHaveURL(/\/dashboard\/onboarding$/);
@@ -925,5 +928,51 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await clientCtx.close();
     await ownerCtx.close();
+  });
+
+  test('E2E 13: Phase 24 — Kyrgyz language switcher persists via zapis_lang, books in KY, and /privacy & /terms drafts render in both locales', async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+
+    // 1. Switch to Kyrgyz on /b/demo-barbershop and verify persistence across reload
+    await page.goto('/b/demo-barbershop');
+    await page.getByRole('button', { name: 'Кыр' }).click();
+    await expect(page.getByText('1. Кызмат')).toBeVisible();
+    await page.reload();
+    await expect(page.getByText('1. Кызмат')).toBeVisible();
+
+    // 2. Complete booking in Kyrgyz
+    await page
+      .getByRole('button', { name: /Стрижка/i })
+      .first()
+      .click();
+    await page
+      .getByRole('button', { name: /Любой свободный/i })
+      .first()
+      .click();
+    await page.locator('.overflow-x-auto button').nth(1).click();
+    await advanceUntilSlotsAvailable(page);
+    await page
+      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+      .first()
+      .click();
+    await page.locator('#public-client-name').fill('Айзада КЫР');
+    await page.locator('#public-client-phone').fill('0555 123 987');
+    await page.locator('#public-consent').check();
+    await page.getByRole('button', { name: 'Жазылуу' }).click();
+    await expect(page.getByText('Ийгиликтүү жазылдыңыз!')).toBeVisible();
+
+    // 3. Check /privacy and /terms drafts in KY
+    await page.goto('/privacy');
+    await expect(page.getByText('ДОЛБООР (DRAFT)')).toBeVisible();
+    await expect(page.getByText('Купуялуулук саясаты').first()).toBeVisible();
+
+    await page.goto('/terms');
+    await expect(page.getByText('ДОЛБООР (DRAFT)')).toBeVisible();
+    await expect(page.getByText('Колдонуучу макулдашуусу').first()).toBeVisible();
+
+    await ctx.close();
   });
 });

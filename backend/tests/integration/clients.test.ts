@@ -34,6 +34,7 @@ async function registerOwnerFactory(
       ownerName: 'Owner Test',
       email: opts.email,
       password: 'Password123',
+      termsAccepted: true,
       phone: '+996555000001',
     });
   expect(res.status).toBe(201);

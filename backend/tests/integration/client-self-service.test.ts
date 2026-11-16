@@ -31,6 +31,7 @@ async function setupShop() {
       ownerName: 'Owner SS',
       email: `owner-${Date.now()}@test.kg`,
       password: 'Password123',
+      termsAccepted: true,
       phone: '+996555000001',
     });
   expect(regRes.status).toBe(201);

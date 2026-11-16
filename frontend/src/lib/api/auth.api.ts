@@ -9,6 +9,7 @@ export interface RegisterOwnerPayload {
   email: string;
   phone?: string;
   password: string;
+  termsAccepted: true;
 }
 
 export interface LoginPayload {

@@ -81,6 +81,7 @@ async function setupCompanyWithStaffAndServices(suffix = '1'): Promise<SetupFixt
       email: `owner-${suffix}@alpha.kg`,
       phone: '0555100100',
       password: 'Password123!',
+      termsAccepted: true,
     })
     .expect(201);
 

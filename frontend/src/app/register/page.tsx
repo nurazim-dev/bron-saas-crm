@@ -40,6 +40,9 @@ const registerSchema = z.object({
       message: ru.validation.phoneInvalid,
     }),
   password: z.string().min(8, ru.validation.passwordMin).max(128, ru.validation.passwordMax),
+  termsAccepted: z.literal(true, {
+    message: 'Необходимо принять пользовательское соглашение',
+  }),
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -77,6 +80,7 @@ function RegisterFormContent() {
         email: values.email.trim().toLowerCase(),
         ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         password: values.password,
+        termsAccepted: true,
       });
       toast.success(ru.auth.registrationSuccess);
       router.replace('/dashboard/onboarding');
@@ -227,6 +231,32 @@ function RegisterFormContent() {
               {errors.password && (
                 <p id="reg-password-error" className="text-xs font-medium text-destructive">
                   {errors.password.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                <input
+                  id="reg-terms"
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-primary"
+                  {...register('termsAccepted')}
+                />
+                <span>
+                  Я принимаю{' '}
+                  <Link href="/terms" target="_blank" className="text-primary underline">
+                    Пользовательское соглашение
+                  </Link>{' '}
+                  и{' '}
+                  <Link href="/privacy" target="_blank" className="text-primary underline">
+                    Политику конфиденциальности
+                  </Link>
+                </span>
+              </label>
+              {errors.termsAccepted && (
+                <p className="text-xs font-medium text-destructive">
+                  {errors.termsAccepted.message}
                 </p>
               )}
             </div>

@@ -60,6 +60,7 @@ describe('Platform Admin Backend (Phase 15 / BR-20)', () => {
       ownerName: 'Owner',
       email,
       password: 'Password123',
+      termsAccepted: true,
       companyName,
       businessType: 'BARBERSHOP',
     });

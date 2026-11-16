@@ -493,6 +493,7 @@ async function bookSingleMasterInTransaction(
         phone: input.clientPhone,
         overwriteName: false,
         currentTime: currentNow,
+        locale: input.locale ?? company.defaultLocale,
       });
 
       if (client.isBlocked) {

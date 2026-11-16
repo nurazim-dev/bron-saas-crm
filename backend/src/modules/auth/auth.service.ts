@@ -1,3 +1,4 @@
+import { LEGAL_VERSION } from '../../config/legal.js';
 import {
   AuditActor,
   Prisma,
@@ -6,6 +7,7 @@ import {
   type User,
 } from '../../generated/prisma/client.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
+import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/jwt.js';
 import { hashPassword, verifyDummyPassword, verifyPassword } from '../../lib/password.js';
@@ -119,6 +121,8 @@ export async function registerOwnerAndCompany(input: RegisterBody): Promise<Auth
           phone: normalizedPhone,
           isActive: true,
           isBookable: true,
+          termsAcceptedAt: clockNow(),
+          termsVersion: LEGAL_VERSION,
         },
       });
 

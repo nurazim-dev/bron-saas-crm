@@ -33,6 +33,9 @@ export const registerBodySchema = z.object({
     .transform((val) => sanitizeText(val))
     .optional(),
   password: passwordSchema,
+  termsAccepted: z.literal(true, {
+    message: 'Terms of service acceptance is required',
+  }),
 });
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;

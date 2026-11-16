@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma } from '../../generated/prisma/client.js';
+import { type Locale, Prisma } from '../../generated/prisma/client.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
@@ -42,14 +42,17 @@ export async function upsertClientInTx(
     phone: string;
     overwriteName: boolean;
     currentTime: Date;
+    locale?: Locale;
   },
 ): Promise<{ id: string; isBlocked: boolean }> {
+  const loc = input.locale ?? 'RU';
   const rows = await tx.$queryRaw<Array<{ id: string; isBlocked: boolean }>>(Prisma.sql`
     INSERT INTO "Client" ("id", "companyId", "name", "phone", "locale", "createdAt", "updatedAt")
-    VALUES (${randomUUID()}::uuid, ${input.companyId}::uuid, ${input.name}, ${input.phone}, 'RU'::"Locale", ${input.currentTime}, ${input.currentTime})
+    VALUES (${randomUUID()}::uuid, ${input.companyId}::uuid, ${input.name}, ${input.phone}, ${loc}::"Locale", ${input.currentTime}, ${input.currentTime})
     ON CONFLICT ("companyId", "phone") DO UPDATE
     SET
       "name" = CASE WHEN ${input.overwriteName} THEN EXCLUDED."name" ELSE "Client"."name" END,
+      "locale" = CASE WHEN ${input.locale !== undefined} THEN ${loc}::"Locale" ELSE "Client"."locale" END,
       "updatedAt" = ${input.currentTime}
     RETURNING "id", "isBlocked"
   `);

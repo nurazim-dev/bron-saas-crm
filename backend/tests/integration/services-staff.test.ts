@@ -74,6 +74,7 @@ describe('Services, Staff & Working Hours (/api/v1/services, /api/v1/staff)', ()
       ownerName: 'Owner User',
       email,
       password: 'Password123!',
+      termsAccepted: true,
     });
     expect(res.status).toBe(201);
     return asAuth(res.body).data;

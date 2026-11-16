@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { PublicLangSwitcher } from '@/components/booking/public-lang-switcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,6 +43,7 @@ import {
   formatTimeInCompanyTz,
   getTodayLocalDateInTz,
 } from '@/lib/datetime';
+import { getPublicLangFromCookie, PUBLIC_DICT, type PublicLang } from '@/lib/i18n/public-dict';
 import { formatPriceKgs, ru } from '@/lib/i18n/ru';
 import type { AvailableSlotDto } from '@/types/api';
 
@@ -92,6 +94,18 @@ export default function ManageAppointmentPage() {
   const [selectedDate, setSelectedDate] = useState('');
   const [slots, setSlots] = useState<AvailableSlotDto[]>([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [lang, setLang] = useState<PublicLang>('ru');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const cookieLang = getPublicLangFromCookie();
+      setLang(cookieLang);
+      document.documentElement.lang = cookieLang;
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const t = PUBLIC_DICT[lang];
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [isRescheduling, setIsRescheduling] = useState(false);
 
@@ -203,6 +217,9 @@ export default function ManageAppointmentPage() {
 
   return (
     <main className="mx-auto max-w-lg space-y-6 px-4 py-10">
+      <div className="flex justify-end">
+        <PublicLangSwitcher lang={lang} onChange={setLang} />
+      </div>
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -219,7 +236,7 @@ export default function ManageAppointmentPage() {
               {ru.appointmentStatuses[appt.status]}
             </Badge>
           </div>
-          <CardDescription>Управление вашей записью</CardDescription>
+          <CardDescription>{t.manageTitle}</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
