@@ -16,7 +16,7 @@
 - [x] **Phase 12**: Notification Infrastructure (Outbox, Worker, Email, In-App, Audit Log)
 - [x] **Phase 13**: Password Recovery (Email + Owner-Generated Reset Links)
 - [x] **Phase 14**: Billing Core (Plans, Subscriptions, Trial, Grace, Locked, Manual Payments)
-- [ ] **Phase 15**: Admin Panel Backend (`PlatformAdmin`, 2FA TOTP, Companies, Payments, Impersonation)
+- [x] **Phase 15**: Admin Panel Backend (`PlatformAdmin`, 2FA TOTP, Companies, Payments, Impersonation)
 - [ ] **Phase 16**: Admin Panel Frontend (`/admin/**`)
 - [ ] **Phase 17**: Client CRM (Auto-Create, Search, Card, Notes, Blacklist, Anonymize)
 - [ ] **Phase 18**: Breaks & Time Off (Lunch Breaks, Vacations, Sick Leave, Staff Booking Warnings)
@@ -47,6 +47,7 @@
   - `helmet`: 8.3.0
   - `cors`: 2.8.6
   - `nodemailer`: 10.5.0 (`@types/nodemailer`: 8.0.2)
+  - `otplib`: 13.6.0
   - `tsx`: 4.23.15
   - `vitest`: 5.1.0 / `supertest`: 7.3.2
   - `eslint`: 9.39.5 / `typescript-eslint`: 8.72.2 / `prettier`: 3.10.1
@@ -101,4 +102,4 @@ npm run test:e2e     # Runs Playwright Chromium E2E suite
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
 ## Known Issues / Risks
-- None. Phases 0–14 are complete and verified. Ready for Phase 15.
+- None. Phases 0–15 are complete and verified. Ready for Phase 16.

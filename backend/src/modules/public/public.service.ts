@@ -102,7 +102,11 @@ async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<
     throw new AppError('NOT_FOUND', 404, 'Company not found');
   }
 
-  if (!company.publicBookingEnabled || (await isCompanyBookingLocked(company.id, db))) {
+  if (
+    !company.publicBookingEnabled ||
+    company.suspendedAt !== null ||
+    (await isCompanyBookingLocked(company.id, db))
+  ) {
     throw new AppError(
       'BOOKING_DISABLED',
       403,

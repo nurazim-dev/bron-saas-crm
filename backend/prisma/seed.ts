@@ -34,6 +34,24 @@ async function runSeed(): Promise<void> {
   }
 
   const passwordHash = await argon2.hash(DEMO_PASSWORD, { type: argon2.argon2id });
+  const adminPasswordHash = await argon2.hash('AdminDemo12345!', { type: argon2.argon2id });
+
+  await prismaUnfiltered.platformAdmin.upsert({
+    where: { email: 'admin@demo.zapis.kg' },
+    update: {
+      name: 'Demo Platform Admin',
+      passwordHash: adminPasswordHash,
+      isActive: true,
+      failedLoginCount: 0,
+      lockedUntil: null,
+    },
+    create: {
+      email: 'admin@demo.zapis.kg',
+      name: 'Demo Platform Admin',
+      passwordHash: adminPasswordHash,
+      isActive: true,
+    },
+  });
 
   await prismaUnfiltered.$transaction([
     prismaUnfiltered.subscriptionPayment.deleteMany(),

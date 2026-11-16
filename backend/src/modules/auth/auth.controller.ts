@@ -4,9 +4,14 @@ import { extractAuditContext } from '../../lib/audit.js';
 import { parseDurationToMs, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH } from '../../lib/jwt.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody, getValidatedQuery } from '../../middleware/validate.js';
+import {
+  exchangeImpersonationCode,
+  exitImpersonationSession,
+} from '../admin/impersonation.service.js';
 import type {
   ChangePasswordBody,
   ForgotPasswordBody,
+  ImpersonateExchangeBody,
   LoginBody,
   RegisterBody,
   ResetPasswordBody,
@@ -133,5 +138,17 @@ export const validateResetPasswordTokenController: RequestHandler = async (req, 
 export const resetPasswordController: RequestHandler = async (req, res) => {
   const body = getValidatedBody<ResetPasswordBody>(req);
   await resetPasswordWithToken(body.token, body.newPassword, extractAuditContext(req));
+  res.status(204).send();
+};
+
+export const impersonateExchangeController: RequestHandler = async (req, res) => {
+  const body = getValidatedBody<ImpersonateExchangeBody>(req);
+  const result = await exchangeImpersonationCode(body.code, extractAuditContext(req));
+  res.status(200).json({ data: result });
+};
+
+export const impersonateExitController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  await exitImpersonationSession(actor, extractAuditContext(req));
   res.status(204).send();
 };

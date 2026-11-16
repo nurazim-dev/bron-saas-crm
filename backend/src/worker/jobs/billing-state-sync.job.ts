@@ -13,7 +13,7 @@ export async function runBillingStateSyncOnce(
     getPlatformSettings(prisma),
     prisma.subscription.findMany({
       where: {
-        company: { deletedAt: null },
+        company: { deletedAt: null, suspendedAt: null },
       },
       select: {
         id: true,

@@ -5,11 +5,14 @@ import {
   authRateLimiter,
   forgotPasswordEmailRateLimiter,
   forgotPasswordIpRateLimiter,
+  impersonateExchangeRateLimiter,
 } from '../../middleware/rate-limit.js';
 import { validate } from '../../middleware/validate.js';
 import {
   changePasswordController,
   forgotPasswordController,
+  impersonateExchangeController,
+  impersonateExitController,
   loginController,
   logoutController,
   meController,
@@ -21,6 +24,7 @@ import {
 import {
   changePasswordBodySchema,
   forgotPasswordBodySchema,
+  impersonateExchangeBodySchema,
   loginBodySchema,
   registerBodySchema,
   resetPasswordBodySchema,
@@ -71,3 +75,12 @@ authRouter.post(
   validate({ body: resetPasswordBodySchema }),
   resetPasswordController,
 );
+
+authRouter.post(
+  '/impersonate/exchange',
+  impersonateExchangeRateLimiter,
+  validate({ body: impersonateExchangeBodySchema }),
+  impersonateExchangeController,
+);
+
+authRouter.post('/impersonate/exit', authenticate, impersonateExitController);

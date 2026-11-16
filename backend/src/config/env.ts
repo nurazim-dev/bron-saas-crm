@@ -46,50 +46,93 @@ const booleanStringSchema = (defaultVal: boolean) =>
       return z.NEVER;
     });
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  DATABASE_URL: z.url(),
-  JWT_ACCESS_SECRET: z.string().min(32),
-  JWT_REFRESH_SECRET: z.string().min(32),
-  JWT_ACCESS_TTL: z.string().min(2).default('15m'),
-  JWT_REFRESH_TTL: z.string().min(2).default('30d'),
-  CORS_ORIGINS: corsOriginsSchema,
-  TRUST_PROXY: trustProxySchema,
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  APP_URL: z.url().default('http://localhost:3000'),
-  SMTP_HOST: z.string().trim().min(1).default('localhost'),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
-  SMTP_SECURE: booleanStringSchema(false),
-  SMTP_USER: z.string().default(''),
-  SMTP_PASS: z.string().default(''),
-  MAIL_FROM: z.string().trim().min(3).default('Zapis.kg <noreply@zapis.kg>'),
-  TELEGRAM_MODE: z.enum(['off', 'polling', 'webhook']).default('off'),
-  TELEGRAM_BOT_TOKEN: z.string().default(''),
-  TELEGRAM_BOT_USERNAME: z.string().default(''),
-  TELEGRAM_WEBHOOK_SECRET: z.string().default(''),
-  CLIENT_MESSAGE_PROVIDER: z.string().trim().min(1).default('off'),
-  WORKER_ENABLED: booleanStringSchema(false),
-  WORKER_INTERVAL_MS: z.coerce.number().int().min(500).max(300_000).default(5000),
-  RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().min(1).default(300),
-  RATE_LIMIT_GLOBAL_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(15 * 60 * 1000),
-  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).default(10),
-  RATE_LIMIT_AUTH_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(60 * 1000),
-  RATE_LIMIT_PUBLIC_BOOKING_MAX: z.coerce.number().int().min(1).default(10),
-  RATE_LIMIT_PUBLIC_BOOKING_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .min(1000)
-    .default(60 * 60 * 1000),
-});
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    DATABASE_URL: z.url(),
+    JWT_ACCESS_SECRET: z.string().min(32),
+    JWT_REFRESH_SECRET: z.string().min(32),
+    JWT_ACCESS_TTL: z.string().min(2).default('15m'),
+    JWT_REFRESH_TTL: z.string().min(2).default('30d'),
+    CORS_ORIGINS: corsOriginsSchema,
+    TRUST_PROXY: trustProxySchema,
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    APP_URL: z.url().default('http://localhost:3000'),
+    SMTP_HOST: z.string().trim().min(1).default('localhost'),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+    SMTP_SECURE: booleanStringSchema(false),
+    SMTP_USER: z.string().default(''),
+    SMTP_PASS: z.string().default(''),
+    MAIL_FROM: z.string().trim().min(3).default('Zapis.kg <noreply@zapis.kg>'),
+    TELEGRAM_MODE: z.enum(['off', 'polling', 'webhook']).default('off'),
+    TELEGRAM_BOT_TOKEN: z.string().default(''),
+    TELEGRAM_BOT_USERNAME: z.string().default(''),
+    TELEGRAM_WEBHOOK_SECRET: z.string().default(''),
+    CLIENT_MESSAGE_PROVIDER: z.string().trim().min(1).default('off'),
+    WORKER_ENABLED: booleanStringSchema(false),
+    WORKER_INTERVAL_MS: z.coerce.number().int().min(500).max(300_000).default(5000),
+    RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().min(1).default(300),
+    RATE_LIMIT_GLOBAL_WINDOW_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .default(15 * 60 * 1000),
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).default(10),
+    RATE_LIMIT_AUTH_WINDOW_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .default(60 * 1000),
+    RATE_LIMIT_PUBLIC_BOOKING_MAX: z.coerce.number().int().min(1).default(10),
+    RATE_LIMIT_PUBLIC_BOOKING_WINDOW_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .default(60 * 60 * 1000),
+    ADMIN_JWT_ACCESS_SECRET: z.string().min(32),
+    ADMIN_JWT_REFRESH_SECRET: z.string().min(32),
+    ADMIN_TOTP_ENCRYPTION_KEY: z
+      .string()
+      .trim()
+      .refine(
+        (value) => Buffer.from(value, 'base64').length === 32,
+        'must be a base64-encoded 32-byte key',
+      ),
+    ADMIN_REQUIRE_2FA: z
+      .string()
+      .trim()
+      .optional()
+      .transform((value, ctx): boolean | undefined => {
+        if (value === undefined || value === '') return undefined;
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+        ctx.addIssue({ code: 'custom', message: 'must be "true" or "false"' });
+        return z.NEVER;
+      }),
+  })
+  .transform((data) => ({
+    ...data,
+    ADMIN_REQUIRE_2FA: data.ADMIN_REQUIRE_2FA ?? data.NODE_ENV === 'production',
+  }))
+  .superRefine((data, ctx) => {
+    if (data.ADMIN_JWT_ACCESS_SECRET === data.JWT_ACCESS_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ADMIN_JWT_ACCESS_SECRET'],
+        message: 'ADMIN_JWT_ACCESS_SECRET must differ from JWT_ACCESS_SECRET',
+      });
+    }
+    if (data.ADMIN_JWT_REFRESH_SECRET === data.JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ADMIN_JWT_REFRESH_SECRET'],
+        message: 'ADMIN_JWT_REFRESH_SECRET must differ from JWT_REFRESH_SECRET',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

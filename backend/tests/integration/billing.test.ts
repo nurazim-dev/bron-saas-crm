@@ -162,16 +162,13 @@ describe('Billing Core (Phase 14 / BR-19)', () => {
         .post('/api/v1/staff')
         .set('Authorization', `Bearer ${lockedToken}`)
         .send({ name: 'New Master', isActive: true, isBookable: true }),
-      request(app)
-        .post('/api/v1/appointments')
-        .set('Authorization', `Bearer ${lockedToken}`)
-        .send({
-          masterId: owner.user.id,
-          serviceId: service.id,
-          startAt: '2026-11-25T10:00:00.000Z',
-          clientName: 'Client',
-          clientPhone: '+996555111222',
-        }),
+      request(app).post('/api/v1/appointments').set('Authorization', `Bearer ${lockedToken}`).send({
+        masterId: owner.user.id,
+        serviceId: service.id,
+        startAt: '2026-11-25T10:00:00.000Z',
+        clientName: 'Client',
+        clientPhone: '+996555111222',
+      }),
     ];
 
     for (const reqPromise of lockedChecks) {

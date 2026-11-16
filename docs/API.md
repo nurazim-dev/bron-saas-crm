@@ -631,5 +631,33 @@ Cancels the company's own `PENDING` payment claim.
   - `404 NOT_FOUND`
   - `409 ALREADY_REVIEWED`
 
+---
+
+## 10. Platform Admin & Impersonation (`/api/v1/admin/*`, `/api/v1/auth/impersonate/*`)
+
+All `/api/v1/admin/*` routes require `aud: "zapis-admin"` JWTs (`ADMIN_JWT_ACCESS_SECRET`) and never expose end-client PII. See `docs/ADMIN.md` for full security policy.
+
+- **Admin Auth (`/api/v1/admin/auth`)**:
+  - `POST /login`, `POST /mfa`, `POST /2fa/enroll`, `POST /2fa/verify-enroll`, `POST /refresh`, `POST /logout`, `GET /me`, `PATCH /password`
+- **Metrics**:
+  - `GET /api/v1/admin/metrics/overview` (companies by effective state, signups 7/30d, MRR, confirmed payments this month, appointments 30d, failed outbox count)
+  - `GET /api/v1/admin/metrics/signups?days=30`
+- **Companies**:
+  - `GET /api/v1/admin/companies`, `GET /api/v1/admin/companies/:id`, `PATCH /api/v1/admin/companies/:id`
+  - `POST /api/v1/admin/companies/:id/suspend`, `POST /api/v1/admin/companies/:id/unsuspend`
+  - `DELETE /api/v1/admin/companies/:id` (`{ confirmSlug }`), `POST /api/v1/admin/companies/:id/restore`
+  - `POST /api/v1/admin/companies/:id/impersonate` (`{ reason }` -> `{ code, expiresAt }`)
+- **Impersonation (Staff side)**:
+  - `POST /api/v1/auth/impersonate/exchange` (`{ code }` -> 30m read-only access token, no refresh cookie)
+  - `POST /api/v1/auth/impersonate/exit` (`204`, audited)
+- **Subscriptions, Payments & Plans**:
+  - `PUT /api/v1/admin/companies/:id/subscription`, `POST /api/v1/admin/companies/:id/payments`
+  - `GET /api/v1/admin/payments`, `POST /api/v1/admin/payments/:id/confirm`, `POST /api/v1/admin/payments/:id/reject`
+  - `GET /api/v1/admin/plans`, `POST /api/v1/admin/plans`, `PATCH /api/v1/admin/plans/:id`
+- **Users, Outbox, Audit & Settings**:
+  - `GET /api/v1/admin/users`, `PATCH /api/v1/admin/users/:id`, `POST /api/v1/admin/users/:id/deactivate`, `POST /api/v1/admin/users/:id/activate`, `POST /api/v1/admin/users/:id/revoke-sessions`, `POST /api/v1/admin/users/:id/password-reset-link`
+  - `GET /api/v1/admin/outbox`, `POST /api/v1/admin/outbox/:id/retry`, `POST /api/v1/admin/outbox/:id/cancel`
+  - `GET /api/v1/admin/audit`, `GET /api/v1/admin/settings`, `PUT /api/v1/admin/settings`
+
 
 

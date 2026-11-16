@@ -48,7 +48,8 @@ export async function requestPasswordResetByEmail(
     user.isActive &&
     user.passwordHash !== null &&
     user.email !== null &&
-    user.company.deletedAt === null;
+    user.company.deletedAt === null &&
+    user.company.suspendedAt === null;
 
   if (!isEligible || user === null || user.email === null) {
     // Equalize response timing so account existence cannot be inferred.
@@ -137,7 +138,8 @@ export async function validatePasswordResetToken(
     record.user.deletedAt !== null ||
     !record.user.isActive ||
     record.user.passwordHash === null ||
-    record.user.company.deletedAt !== null
+    record.user.company.deletedAt !== null ||
+    record.user.company.suspendedAt !== null
   ) {
     return { valid: false };
   }
@@ -169,7 +171,8 @@ export async function resetPasswordWithToken(
     record.user.deletedAt !== null ||
     !record.user.isActive ||
     record.user.passwordHash === null ||
-    record.user.company.deletedAt !== null
+    record.user.company.deletedAt !== null ||
+    record.user.company.suspendedAt !== null
   ) {
     throw new AppError(
       'INVALID_OR_EXPIRED_TOKEN',

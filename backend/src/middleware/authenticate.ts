@@ -36,11 +36,26 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
     throw new AppError('UNAUTHENTICATED', 401, 'Invalid or revoked session');
   }
 
+  if (user.company.suspendedAt !== null) {
+    throw new AppError('COMPANY_SUSPENDED', 403, 'Company account is suspended');
+  }
+
+  const isReadMethod = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
+  const reqPath = req.originalUrl.split('?')[0] ?? req.originalUrl;
+  if (claims.imp !== undefined && !isReadMethod && reqPath !== '/api/v1/auth/impersonate/exit') {
+    throw new AppError(
+      'IMPERSONATION_READ_ONLY',
+      403,
+      'Support impersonation session is read-only',
+    );
+  }
+
   req.auth = {
     userId: user.id,
     companyId: user.companyId,
     role: user.role,
     tokenVersion: user.tokenVersion,
+    ...(claims.imp !== undefined ? { imp: claims.imp } : {}),
   };
 
   next();

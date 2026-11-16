@@ -23,7 +23,7 @@ export async function runBillingNotificationsOnce(
     getPlatformSettings(prisma),
     prisma.subscription.findMany({
       where: {
-        company: { deletedAt: null },
+        company: { deletedAt: null, suspendedAt: null },
       },
       include: {
         company: {

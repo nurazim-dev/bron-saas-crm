@@ -11,6 +11,7 @@ export interface AccessTokenClaims {
   role: Role;
   tv: number;
   typ: 'access';
+  imp?: string;
 }
 
 export interface RefreshTokenClaims {
@@ -67,6 +68,29 @@ export function signAccessToken(payload: {
   return jwt.sign(claims, env.JWT_ACCESS_SECRET, options);
 }
 
+export function signImpersonationAccessToken(payload: {
+  sub: string;
+  companyId: string;
+  role: Role;
+  tv: number;
+  imp: string;
+}): string {
+  const iat = Math.floor(clockNow().getTime() / 1000);
+  const claims: AccessTokenClaims & { iat: number } = {
+    sub: payload.sub,
+    companyId: payload.companyId,
+    role: payload.role,
+    tv: payload.tv,
+    typ: 'access',
+    imp: payload.imp,
+    iat,
+  };
+  return jwt.sign(claims, env.JWT_ACCESS_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: '30m',
+  });
+}
+
 export function signRefreshToken(payload: {
   sub: string;
   companyId: string;
@@ -119,6 +143,7 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
       role: record.role,
       tv: record.tv,
       typ: 'access',
+      ...(typeof record.imp === 'string' ? { imp: record.imp } : {}),
     };
   } catch (err) {
     if (err instanceof AppError) throw err;

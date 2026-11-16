@@ -10,6 +10,8 @@ import { errorHandler } from './middleware/error-handler.js';
 import { notFound } from './middleware/not-found.js';
 import { globalRateLimiter } from './middleware/rate-limit.js';
 import { REQUEST_ID_HEADER, requestId } from './middleware/request-id.js';
+import { adminAuthRouter } from './modules/admin/admin-auth.routes.js';
+import { adminRouter } from './modules/admin/admin.routes.js';
 import { appointmentsRouter } from './modules/appointments/appointments.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { availabilityRouter } from './modules/availability/availability.routes.js';
@@ -65,6 +67,8 @@ export function createApp(): Express {
   app.use(globalRateLimiter);
 
   app.use(`${API_PREFIX}/health`, healthRouter);
+  app.use(`${API_PREFIX}/admin/auth`, adminAuthRouter);
+  app.use(`${API_PREFIX}/admin`, adminRouter);
   app.use(`${API_PREFIX}/auth`, authRouter);
   app.use(`${API_PREFIX}/billing`, billingRouter);
   app.use(`${API_PREFIX}/company`, companyRouter);

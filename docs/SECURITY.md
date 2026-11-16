@@ -22,6 +22,9 @@ This living document tracks all security controls, rate limits, cryptographic pr
 | `POST /api/v1/auth/login` | Per IP | `10` requests / `1` minute | `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_AUTH_WINDOW_MS` |
 | `POST /api/v1/auth/forgot-password` | Per IP / Per email hash | `5` / `1` hour (IP), `3` / `1` hour (email) | — |
 | `POST /api/v1/auth/reset-password` | Per IP | `10` requests / `1` minute | `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_AUTH_WINDOW_MS` |
+| `POST /api/v1/auth/impersonate/exchange` | Per IP | `10` requests / `1` minute | — |
+| `POST /api/v1/admin/auth/login` | Per IP | `5` requests / `1` minute | — |
+| `POST /api/v1/admin/auth/mfa` | Per IP | `5` requests / `1` minute | — |
 | `POST /api/v1/public/companies/:slug/appointments` | Per IP | `10` requests / `1` hour | `RATE_LIMIT_PUBLIC_BOOKING_MAX`, `RATE_LIMIT_PUBLIC_BOOKING_WINDOW_MS` |
 
 *(Additional rate limiters for manage links and `/api/v1/admin/*` are added in Phases 15 and 19.)*

@@ -69,3 +69,11 @@ export const resetPasswordBodySchema = z.object({
 });
 
 export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;
+
+export const impersonateExchangeBodySchema = z
+  .object({
+    code: z.string().min(1, 'Impersonation code is required').max(256),
+  })
+  .strict();
+
+export type ImpersonateExchangeBody = z.infer<typeof impersonateExchangeBodySchema>;

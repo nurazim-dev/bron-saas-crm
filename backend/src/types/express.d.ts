@@ -6,6 +6,14 @@ export interface AuthenticatedActor {
   companyId: string;
   role: Role;
   tokenVersion: number;
+  imp?: string;
+}
+
+export interface AuthenticatedAdmin {
+  adminId: string;
+  email: string;
+  name: string;
+  tokenVersion: number;
 }
 
 export interface ValidatedInput<TBody = unknown, TQuery = unknown, TParams = unknown> {
@@ -18,6 +26,7 @@ declare module 'express-serve-static-core' {
   interface Request {
     requestId: string;
     auth?: AuthenticatedActor;
+    adminAuth?: AuthenticatedAdmin;
     validated?: ValidatedInput;
   }
 }

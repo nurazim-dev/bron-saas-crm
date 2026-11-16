@@ -158,6 +158,10 @@ export async function loginWithEmailPassword(input: LoginBody): Promise<AuthSess
     throw new AppError('UNAUTHENTICATED', 401, 'Invalid email or password');
   }
 
+  if (user.company.suspendedAt !== null) {
+    throw new AppError('COMPANY_SUSPENDED', 403, 'Company account is suspended');
+  }
+
   return issueSessionTokens(user, user.company);
 }
 
@@ -185,6 +189,10 @@ export async function refreshAuthSession(
     user.company.deletedAt !== null
   ) {
     throw new AppError('UNAUTHENTICATED', 401, 'Invalid or revoked refresh token');
+  }
+
+  if (user.company.suspendedAt !== null) {
+    throw new AppError('COMPANY_SUSPENDED', 403, 'Company account is suspended');
   }
 
   return issueSessionTokens(user, user.company);

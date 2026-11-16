@@ -42,6 +42,23 @@ export const forgotPasswordIpRateLimiter: RateLimitRequestHandler = createRateLi
   limit: 5,
 });
 
+const ONE_MINUTE_MS = 60 * 1000;
+
+export const adminLoginRateLimiter: RateLimitRequestHandler = createRateLimiter({
+  windowMs: ONE_MINUTE_MS,
+  limit: 5,
+});
+
+export const adminMfaRateLimiter: RateLimitRequestHandler = createRateLimiter({
+  windowMs: ONE_MINUTE_MS,
+  limit: 5,
+});
+
+export const impersonateExchangeRateLimiter: RateLimitRequestHandler = createRateLimiter({
+  windowMs: ONE_MINUTE_MS,
+  limit: 10,
+});
+
 export function hashEmailForRateLimit(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
 }
@@ -70,6 +87,9 @@ export function resetRateLimitersForTest(ip = '::ffff:127.0.0.1'): void {
     authRateLimiter.resetKey(key);
     publicBookingRateLimiter.resetKey(key);
     forgotPasswordIpRateLimiter.resetKey(key);
+    adminLoginRateLimiter.resetKey(key);
+    adminMfaRateLimiter.resetKey(key);
+    impersonateExchangeRateLimiter.resetKey(key);
   }
 }
 
