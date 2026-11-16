@@ -84,6 +84,7 @@ export const createPublicAppointmentBodySchema = z
     consentAccepted: z.literal(true, {
       message: 'Consent to personal data processing is required',
     }),
+    locale: z.enum(['RU', 'KY']).optional(),
     website: z.string().optional().default(''),
   })
   .strict();

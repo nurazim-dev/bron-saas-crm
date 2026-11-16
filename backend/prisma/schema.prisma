@@ -103,6 +103,12 @@ enum CancelActor {
   STAFF
 }
 
+enum ReminderMode {
+  OFF
+  MANUAL
+  AUTO
+}
+
 model Company {
   id                   String        @id @default(uuid()) @db.Uuid
   name                 String
@@ -115,10 +121,14 @@ model Company {
   slotIntervalMin      Int           @default(30)
   minLeadTimeMin       Int           @default(60)
   maxAdvanceDays       Int           @default(60)
-  publicBookingEnabled Boolean       @default(true)
-  clientCancelMinHours Int           @default(2)
-  allowClientReschedule Boolean      @default(true)
-  suspendedAt          DateTime?     @db.Timestamptz(3)
+  publicBookingEnabled  Boolean       @default(true)
+  clientCancelMinHours  Int           @default(2)
+  allowClientReschedule Boolean       @default(true)
+  defaultLocale         Locale        @default(RU)
+  reminderMode          ReminderMode  @default(MANUAL)
+  remind24h             Boolean       @default(true)
+  remind2h              Boolean       @default(true)
+  suspendedAt           DateTime?     @db.Timestamptz(3)
   suspendedReason      String?
   suspendedByAdminId   String?       @db.Uuid
   createdAt            DateTime      @default(now()) @db.Timestamptz(3)
@@ -145,8 +155,13 @@ model User {
   phone        String?
   tokenVersion Int             @default(0)
   isActive     Boolean         @default(true)
-  isBookable   Boolean         @default(true)
-  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  isBookable                Boolean              @default(true)
+  notifyEmail               Boolean              @default(true)
+  notifyTelegram            Boolean              @default(true)
+  telegramChatId            String?              @unique
+  telegramLinkCodeHash      String?
+  telegramLinkCodeExpiresAt DateTime?            @db.Timestamptz(3)
+  createdAt                 DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
   deletedAt    DateTime?       @db.Timestamptz(3)
   company      Company         @relation(fields: [companyId], references: [id])
@@ -270,8 +285,10 @@ model Appointment {
   cancelledAt       DateTime?         @db.Timestamptz(3)
   cancelledBy       CancelActor?
   cancelReason      String?
-  rescheduledCount  Int               @default(0)
-  consentAcceptedAt DateTime?         @db.Timestamptz(3)
+  rescheduledCount     Int               @default(0)
+  clientLocale         Locale            @default(RU)
+  manualReminderSentAt DateTime?         @db.Timestamptz(3)
+  consentAcceptedAt    DateTime?         @db.Timestamptz(3)
   createdAt         DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
   deletedAt         DateTime?         @db.Timestamptz(3)

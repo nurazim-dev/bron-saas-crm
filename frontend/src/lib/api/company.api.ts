@@ -1,6 +1,13 @@
 import { apiClient } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/auth.store';
-import type { ApiSuccessEnvelope, BusinessType, CompanyDto } from '@/types/api';
+import type {
+  ApiSuccessEnvelope,
+  BusinessType,
+  CompanyCapabilitiesDto,
+  CompanyDto,
+  LocaleCode,
+  ReminderMode,
+} from '@/types/api';
 
 export interface UpdateCompanyPayload {
   name?: string;
@@ -15,6 +22,16 @@ export interface UpdateCompanyPayload {
   publicBookingEnabled?: boolean;
   clientCancelMinHours?: number;
   allowClientReschedule?: boolean;
+  defaultLocale?: LocaleCode;
+  reminderMode?: ReminderMode;
+  remind24h?: boolean;
+  remind2h?: boolean;
+}
+
+export async function getCompanyCapabilities(): Promise<CompanyCapabilitiesDto> {
+  const res =
+    await apiClient.get<ApiSuccessEnvelope<CompanyCapabilitiesDto>>('/company/capabilities');
+  return res.data.data;
 }
 
 export async function getCompany(): Promise<CompanyDto> {

@@ -6,6 +6,7 @@ import {
   getValidatedParams,
   getValidatedQuery,
 } from '../../middleware/validate.js';
+import { markManualReminderSent } from '../notifications/reminders.service.js';
 import type {
   AppointmentIdParams,
   CreateAppointmentBody,
@@ -67,4 +68,11 @@ export const deleteAppointmentController: RequestHandler = async (req, res) => {
     context: extractAuditContext(req),
   });
   res.status(204).send();
+};
+
+export const markReminderSentController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<AppointmentIdParams>(req);
+  const data = await markManualReminderSent(actor, id);
+  res.status(200).json({ data });
 };

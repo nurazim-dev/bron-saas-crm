@@ -20,6 +20,12 @@ import { clientsRouter } from './modules/clients/clients.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
+import {
+  meNotificationsRouter,
+  remindersRouter,
+  telegramWebhookRouter,
+} from './modules/notifications/phase20.routes.js';
+import { registerReminderOutboxHooks } from './modules/notifications/reminders.service.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { servicesRouter } from './modules/services/services.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
@@ -28,6 +34,7 @@ import { timeOffRouter } from './modules/time-off/time-off.routes.js';
 export const API_PREFIX = '/api/v1';
 
 export function createApp(): Express {
+  registerReminderOutboxHooks();
   const app = express();
 
   app.disable('x-powered-by');
@@ -81,6 +88,9 @@ export function createApp(): Express {
   app.use(`${API_PREFIX}/appointments`, appointmentsRouter);
   app.use(`${API_PREFIX}/availability`, availabilityRouter);
   app.use(`${API_PREFIX}/notifications`, notificationsRouter);
+  app.use(`${API_PREFIX}/me`, meNotificationsRouter);
+  app.use(`${API_PREFIX}/telegram`, telegramWebhookRouter);
+  app.use(`${API_PREFIX}/reminders`, remindersRouter);
   app.use(`${API_PREFIX}/public`, publicRouter);
 
   app.use(notFound);

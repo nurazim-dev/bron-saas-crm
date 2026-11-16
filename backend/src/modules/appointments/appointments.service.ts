@@ -20,6 +20,11 @@ import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
 import type { AuthenticatedActor } from '../../types/express.js';
 import { upsertClientInTx } from '../clients/clients.service.js';
+import {
+  cancelPendingReminders,
+  scheduleAppointmentReminders,
+} from '../notifications/reminders.service.js';
+import { notifyCompanyStaff } from '../notifications/staff-notify.service.js';
 import type {
   CreateAppointmentBody,
   ListAppointmentsQuery,
@@ -434,6 +439,44 @@ export async function createStaffAppointmentForActor(
         include: appointmentInclude,
       });
 
+      const company = await tx.company.findUnique({
+        where: { id: actor.companyId },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          timezone: true,
+          reminderMode: true,
+          remind24h: true,
+          remind2h: true,
+        },
+      });
+
+      if (company) {
+        if (actor.userId !== master.id) {
+          await notifyCompanyStaff(tx, {
+            kind: 'STAFF_BOOKING_FOR_MASTER',
+            companyId: company.id,
+            companyName: company.name,
+            timezone: company.timezone,
+            appointmentId: created.id,
+            masterId: master.id,
+            masterName: master.name,
+            serviceName: service.name,
+            clientName: created.clientName,
+            startAt: created.startAt,
+            dedupeSuffix: 'create',
+            includeOwner: false,
+            excludeUserId: actor.userId,
+          });
+        }
+        await scheduleAppointmentReminders(tx, {
+          appointment: created,
+          company,
+          serviceName: service.name,
+        });
+      }
+
       return { created, warnings };
     });
 
@@ -560,6 +603,29 @@ export async function updateAppointmentForActor(
         include: appointmentInclude,
       });
 
+      if (input.startAt !== undefined || input.clientPhone !== undefined) {
+        await cancelPendingReminders(tx, appt.id);
+        const company = await tx.company.findUnique({
+          where: { id: actor.companyId },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            timezone: true,
+            reminderMode: true,
+            remind24h: true,
+            remind2h: true,
+          },
+        });
+        if (company) {
+          await scheduleAppointmentReminders(tx, {
+            appointment: appt,
+            company,
+            serviceName: appt.service.name,
+          });
+        }
+      }
+
       return { appt, warnings };
     });
 
@@ -594,14 +660,18 @@ export async function changeAppointmentStatusForActor(
 
   if (existing.status === AppointmentStatus.SCHEDULED) {
     if (nextStatus === AppointmentStatus.CANCELLED) {
-      const updated = await prisma.appointment.update({
-        where: { id: existing.id },
-        data: {
-          status: AppointmentStatus.CANCELLED,
-          cancelledBy: 'STAFF',
-          cancelledAt: now,
-        },
-        include: appointmentInclude,
+      const updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.appointment.update({
+          where: { id: existing.id },
+          data: {
+            status: AppointmentStatus.CANCELLED,
+            cancelledBy: 'STAFF',
+            cancelledAt: now,
+          },
+          include: appointmentInclude,
+        });
+        await cancelPendingReminders(tx, row.id);
+        return row;
       });
       return serializeAppointment(updated);
     }
@@ -616,10 +686,14 @@ export async function changeAppointmentStatusForActor(
         );
       }
 
-      const updated = await prisma.appointment.update({
-        where: { id: existing.id },
-        data: { status: nextStatus },
-        include: appointmentInclude,
+      const updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.appointment.update({
+          where: { id: existing.id },
+          data: { status: nextStatus },
+          include: appointmentInclude,
+        });
+        await cancelPendingReminders(tx, row.id);
+        return row;
       });
       return serializeAppointment(updated);
     }
@@ -692,8 +766,11 @@ export async function deleteAppointmentForCompany(
     throw new AppError('NOT_FOUND', 404, 'Appointment not found');
   }
 
-  await prisma.appointment.delete({
-    where: { id: existing.id },
+  await prisma.$transaction(async (tx) => {
+    await cancelPendingReminders(tx, existing.id);
+    await tx.appointment.delete({
+      where: { id: existing.id },
+    });
   });
 
   await audit(prisma, {

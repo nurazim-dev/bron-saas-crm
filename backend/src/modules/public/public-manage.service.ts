@@ -1,20 +1,19 @@
-import { AppointmentStatus, NotificationChannel, Role } from '../../generated/prisma/client.js';
+import { AppointmentStatus } from '../../generated/prisma/client.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
-import { utcToLocalParts } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
-import {
-  assertNoSlotOverlap,
-  lockMastersForUpdate,
-  type TransactionClient,
-} from '../appointments/appointments.service.js';
+import { assertNoSlotOverlap, lockMastersForUpdate } from '../appointments/appointments.service.js';
 import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
 } from '../availability/availability.service.js';
-import { enqueue } from '../notifications/outbox.service.js';
+import {
+  cancelPendingReminders,
+  scheduleAppointmentReminders,
+} from '../notifications/reminders.service.js';
+import { notifyCompanyStaff } from '../notifications/staff-notify.service.js';
 
 export type ManageDisableReason =
   'WINDOW_CLOSED' | 'NOT_SCHEDULED' | 'RESCHEDULE_DISABLED' | 'RESCHEDULE_LIMIT';
@@ -158,81 +157,6 @@ function serializeManageAppointment(
   };
 }
 
-async function notifyStaffOnClientChange(
-  tx: TransactionClient,
-  params: {
-    kind: 'CLIENT_CANCELLED' | 'CLIENT_RESCHEDULED';
-    appointmentId: string;
-    companyId: string;
-    masterId: string;
-    serviceName: string;
-    clientName: string;
-    startAt: Date;
-    timezone: string;
-    suffix: string;
-  },
-) {
-  const owner = await tx.user.findFirst({
-    where: {
-      companyId: params.companyId,
-      role: Role.OWNER,
-      isActive: true,
-      deletedAt: null,
-    },
-    select: { id: true, email: true },
-  });
-
-  const master = await tx.user.findFirst({
-    where: {
-      id: params.masterId,
-      companyId: params.companyId,
-      isActive: true,
-      deletedAt: null,
-    },
-    select: { id: true, email: true },
-  });
-
-  const recipients = new Map<string, { id: string; email: string | null }>();
-  if (owner) recipients.set(owner.id, owner);
-  if (master) recipients.set(master.id, master);
-
-  const localParts = utcToLocalParts(params.startAt, params.timezone);
-  const title =
-    params.kind === 'CLIENT_CANCELLED'
-      ? `Клиент отменил запись: ${params.clientName}`
-      : `Клиент перенёс запись: ${params.clientName}`;
-  const body = `${params.serviceName} • ${localParts.date} ${localParts.time}`;
-
-  for (const recipient of recipients.values()) {
-    await tx.inAppNotification.create({
-      data: {
-        companyId: params.companyId,
-        userId: recipient.id,
-        kind: params.kind,
-        title,
-        body,
-        data: { appointmentId: params.appointmentId },
-      },
-    });
-
-    if (recipient.email) {
-      await enqueue(tx, {
-        companyId: params.companyId,
-        channel: NotificationChannel.EMAIL,
-        kind: params.kind,
-        recipient: recipient.email,
-        toUserId: recipient.id,
-        appointmentId: params.appointmentId,
-        payload: {
-          subject: title,
-          text: `${title}\n${body}`,
-        },
-        dedupeKey: `staff:${params.kind}:${params.appointmentId}:${recipient.id}:${params.suffix}`,
-      });
-    }
-  }
-}
-
 export async function getPublicManageAppointment(
   token: string,
 ): Promise<PublicManageAppointmentDto> {
@@ -285,16 +209,20 @@ export async function cancelPublicManageAppointment(
       },
     });
 
-    await notifyStaffOnClientChange(tx, {
+    await cancelPendingReminders(tx, row.id);
+
+    await notifyCompanyStaff(tx, {
       kind: 'CLIENT_CANCELLED',
-      appointmentId: row.id,
       companyId: row.companyId,
+      companyName: row.company.name,
+      timezone: row.company.timezone,
+      appointmentId: row.id,
       masterId: row.masterId,
+      masterName: row.master.name,
       serviceName: row.service.name,
       clientName: row.clientName,
       startAt: row.startAt,
-      timezone: row.company.timezone,
-      suffix: 'cancel',
+      dedupeSuffix: 'cancel',
     });
 
     await audit(tx, {
@@ -365,16 +293,26 @@ export async function reschedulePublicManageAppointment(
         },
       });
 
-      await notifyStaffOnClientChange(tx, {
+      await cancelPendingReminders(tx, row.id);
+      await scheduleAppointmentReminders(tx, {
+        appointment: row,
+        company: row.company,
+        serviceName: row.service.name,
+        currentNow,
+      });
+
+      await notifyCompanyStaff(tx, {
         kind: 'CLIENT_RESCHEDULED',
-        appointmentId: row.id,
         companyId: row.companyId,
+        companyName: row.company.name,
+        timezone: row.company.timezone,
+        appointmentId: row.id,
         masterId: row.masterId,
+        masterName: row.master.name,
         serviceName: row.service.name,
         clientName: row.clientName,
         startAt: row.startAt,
-        timezone: row.company.timezone,
-        suffix: `r${row.rescheduledCount}`,
+        dedupeSuffix: `r${row.rescheduledCount}`,
       });
 
       await audit(tx, {

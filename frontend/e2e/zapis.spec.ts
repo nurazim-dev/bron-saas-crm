@@ -689,4 +689,75 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await clientCtx.close();
     await ownerCtx.close();
   });
+
+  test('E2E 9: Phase 20 — Online booking triggers owner bell notification, Telegram link-code in profile, and MANUAL reminders queue', async ({
+    browser,
+  }) => {
+    const clientName = `Клиент Увед ${Date.now().toString().slice(-5)}`;
+    const clientCtx = await browser.newContext();
+    const clientPage = await clientCtx.newPage();
+
+    await clientPage.goto('/b/demo-barbershop');
+    await clientPage
+      .getByRole('button', { name: /Стрижка/i })
+      .first()
+      .click();
+    await clientPage
+      .getByRole('button', { name: /Любой свободный/i })
+      .first()
+      .click();
+    await clientPage.locator('.overflow-x-auto button').nth(1).click();
+    await advanceUntilSlotsAvailable(clientPage);
+    await clientPage
+      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+      .first()
+      .click();
+    await clientPage.locator('#public-client-name').fill(clientName);
+    await clientPage.locator('#public-client-phone').fill('0555 777 999');
+    await clientPage.locator('#public-consent').check();
+    await clientPage.getByRole('button', { name: 'Записаться' }).click();
+    await expect(clientPage.getByText('Вы успешно записаны!')).toBeVisible();
+    await clientCtx.close();
+
+    const ownerCtx = await browser.newContext();
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.locator('#login-email').fill('owner@demo.zapis.kg');
+    await ownerPage.locator('#login-password').fill('Demo12345!');
+    await ownerPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+
+    // 1. Notification bell shows unread badge & dropdown
+    await expect(ownerPage.getByTestId('unread-notifications-badge')).toBeVisible();
+    await ownerPage.getByRole('button', { name: 'Уведомления' }).click();
+    await expect(
+      ownerPage.getByText(new RegExp(`Новая онлайн-запись: ${clientName}`)),
+    ).toBeVisible();
+    await ownerPage.getByRole('button', { name: 'Прочитать все' }).click();
+    await expect(ownerPage.getByTestId('unread-notifications-badge')).toHaveCount(0);
+
+    // 2. Profile -> Telegram link-code
+    await ownerPage.getByRole('link', { name: 'Профиль', exact: true }).click();
+    await expect(ownerPage.getByText('Уведомления о записях')).toBeVisible();
+    await ownerPage.getByRole('button', { name: 'Подключить Telegram' }).click();
+    await expect(ownerPage.getByText(/\/start /)).toBeVisible();
+
+    // 3. Settings -> ensure MANUAL reminder mode
+    await ownerPage.getByRole('link', { name: 'Настройки', exact: true }).click();
+    await expect(ownerPage.locator('#company-reminder-mode')).toBeVisible();
+    await ownerPage.locator('#company-reminder-mode').selectOption('MANUAL');
+    await ownerPage.getByRole('button', { name: 'Сохранить настройки' }).click();
+    await expect(ownerPage.getByText('Настройки компании сохранены')).toBeVisible();
+
+    // 4. Appointments -> Напоминания tab -> mark sent
+    await ownerPage.getByRole('link', { name: 'Записи', exact: true }).click();
+    await ownerPage.getByRole('button', { name: 'Напоминания', exact: true }).click();
+    const row = ownerPage.getByTestId('manual-reminder-row').filter({ hasText: clientName });
+    await expect(row.first()).toBeVisible();
+    await expect(row.first().getByRole('link', { name: 'Написать в WhatsApp' })).toBeVisible();
+    await row.first().getByRole('button', { name: 'Отправлено' }).click();
+    await expect(ownerPage.getByText('Напоминание отмечено как отправленное')).toBeVisible();
+
+    await ownerCtx.close();
+  });
 });

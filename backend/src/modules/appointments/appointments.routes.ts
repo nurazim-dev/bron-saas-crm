@@ -10,6 +10,7 @@ import {
   deleteAppointmentController,
   getAppointmentController,
   listAppointmentsController,
+  markReminderSentController,
   updateAppointmentController,
 } from './appointments.controller.js';
 import {
@@ -58,6 +59,14 @@ appointmentsRouter.post(
   requireWritableSubscription,
   validate({ params: appointmentIdParamsSchema, body: updateAppointmentStatusBodySchema }),
   changeAppointmentStatusController,
+);
+
+appointmentsRouter.post(
+  '/:id/reminder-sent',
+  authenticate,
+  requireWritableSubscription,
+  validate({ params: appointmentIdParamsSchema }),
+  markReminderSentController,
 );
 
 appointmentsRouter.delete(

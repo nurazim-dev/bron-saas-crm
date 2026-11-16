@@ -21,7 +21,7 @@
 - [x] **Phase 17**: Client CRM (Auto-Create, Search, Card, Notes, Blacklist, Anonymize)
 - [x] **Phase 18**: Breaks & Time Off (Lunch Breaks, Vacations, Sick Leave, Staff Booking Warnings)
 - [x] **Phase 19**: Client Self-Service (`/manage/[token]` View, Cancel, Reschedule)
-- [ ] **Phase 20**: Staff Notifications & Client Reminders (Telegram Bot, Email, WhatsApp Queue)
+- [x] **Phase 20**: Staff Notifications & Client Reminders (Telegram Bot, Email, WhatsApp Queue)
 - [ ] **Phase 21**: Light Prepayment (Manual Transfer Flow, Hold Expiry, Staff Confirm)
 - [ ] **Phase 22**: Analytics & CSV Export (Owner + Master Scoped)
 - [ ] **Phase 23**: Onboarding Checklist & Service Presets (`BARBERSHOP`, `BEAUTY_SALON`)

@@ -21,12 +21,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { changePassword } from '@/lib/api/auth.api';
+import { getBillingOverview } from '@/lib/api/billing.api';
 import { getApiErrorMessage } from '@/lib/api/client';
-import { getCompany, updateCompany } from '@/lib/api/company.api';
+import { getCompany, getCompanyCapabilities, updateCompany } from '@/lib/api/company.api';
 import { ru } from '@/lib/i18n/ru';
 import { normalizePhoneE164OrNull } from '@/lib/phone';
 import { useAuthStore } from '@/stores/auth.store';
-import type { BusinessType, CompanyDto } from '@/types/api';
+import type {
+  BusinessType,
+  CompanyCapabilitiesDto,
+  CompanyDto,
+  LocaleCode,
+  ReminderMode,
+} from '@/types/api';
 
 const BUSINESS_TYPES: BusinessType[] = ['BARBERSHOP', 'BEAUTY_SALON'];
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -59,6 +66,16 @@ function SettingsManagerContent() {
   const [allowClientReschedule, setAllowClientReschedule] = useState(
     storeCompany?.allowClientReschedule ?? true,
   );
+  const [defaultLocale, setDefaultLocale] = useState<LocaleCode>(
+    storeCompany?.defaultLocale ?? 'RU',
+  );
+  const [reminderMode, setReminderMode] = useState<ReminderMode>(
+    storeCompany?.reminderMode ?? 'MANUAL',
+  );
+  const [remind24h, setRemind24h] = useState(storeCompany?.remind24h ?? true);
+  const [remind2h, setRemind2h] = useState(storeCompany?.remind2h ?? true);
+  const [capabilities, setCapabilities] = useState<CompanyCapabilitiesDto | null>(null);
+  const [planSupportsAutoReminders, setPlanSupportsAutoReminders] = useState(true);
 
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -85,6 +102,10 @@ function SettingsManagerContent() {
     setPublicBookingEnabled(c.publicBookingEnabled);
     setClientCancelMinHours(c.clientCancelMinHours ?? 2);
     setAllowClientReschedule(c.allowClientReschedule ?? true);
+    setDefaultLocale(c.defaultLocale ?? 'RU');
+    setReminderMode(c.reminderMode ?? 'MANUAL');
+    setRemind24h(c.remind24h ?? true);
+    setRemind2h(c.remind2h ?? true);
   }, []);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -94,10 +115,16 @@ function SettingsManagerContent() {
 
     async function load() {
       try {
-        const data = await getCompany();
+        const [data, caps, billing] = await Promise.all([
+          getCompany(),
+          getCompanyCapabilities().catch(() => null),
+          getBillingOverview().catch(() => null),
+        ]);
         if (!cancelled) {
           setCompany(data);
           populateForm(data);
+          if (caps) setCapabilities(caps);
+          if (billing) setPlanSupportsAutoReminders(billing.subscription.plan.featureAutoReminders);
           setLoadError(null);
         }
       } catch (err) {
@@ -198,6 +225,10 @@ function SettingsManagerContent() {
         publicBookingEnabled,
         clientCancelMinHours: Number(clientCancelMinHours),
         allowClientReschedule,
+        defaultLocale,
+        reminderMode,
+        remind24h,
+        remind2h,
       });
       setCompany(updated);
       populateForm(updated);
@@ -533,6 +564,81 @@ function SettingsManagerContent() {
                   Разрешить клиентам самостоятельный перенос записи
                 </label>
               </div>
+            </div>
+
+            <div className="space-y-4 border-t pt-4">
+              <div>
+                <h3 className="text-sm font-semibold">Напоминания клиентам</h3>
+                <p className="text-xs text-muted-foreground">
+                  Уведомляйте клиентов о предстоящих визитах вручную через WhatsApp или
+                  автоматически.
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-reminder-mode">Режим напоминаний</Label>
+                  <select
+                    id="company-reminder-mode"
+                    value={reminderMode}
+                    onChange={(e) => setReminderMode(e.target.value as ReminderMode)}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-2xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <option value="OFF">Выключены</option>
+                    <option value="MANUAL">Вручную (очередь WhatsApp)</option>
+                    {(capabilities?.autoRemindersAvailable ?? false) && (
+                      <option value="AUTO" disabled={!planSupportsAutoReminders}>
+                        Автоматически (SMS/WhatsApp)
+                        {!planSupportsAutoReminders ? ' — нужен тариф выше' : ''}
+                      </option>
+                    )}
+                  </select>
+                  {!planSupportsAutoReminders && (
+                    <p className="text-xs text-muted-foreground">
+                      Авто-напоминания доступны на старших тарифах.{' '}
+                      <Link href="/dashboard/billing" className="underline text-primary">
+                        Посмотреть тарифы
+                      </Link>
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-default-locale">Язык сообщений по умолчанию</Label>
+                  <select
+                    id="company-default-locale"
+                    value={defaultLocale}
+                    onChange={(e) => setDefaultLocale(e.target.value as LocaleCode)}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-2xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <option value="RU">Русский (RU)</option>
+                    <option value="KY">Кыргызча (KY)</option>
+                  </select>
+                </div>
+              </div>
+
+              {reminderMode !== 'OFF' && (
+                <div className="flex flex-wrap gap-6">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={remind24h}
+                      onChange={(e) => setRemind24h(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Напоминать за 24 часа
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={remind2h}
+                      onChange={(e) => setRemind2h(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Напоминать за 2 часа
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t pt-4">

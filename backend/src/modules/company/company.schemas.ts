@@ -48,6 +48,10 @@ export const updateCompanyBodySchema = z
     publicBookingEnabled: z.boolean().optional(),
     clientCancelMinHours: z.number().int().min(0).max(168).optional(),
     allowClientReschedule: z.boolean().optional(),
+    defaultLocale: z.enum(['RU', 'KY']).optional(),
+    reminderMode: z.enum(['OFF', 'MANUAL', 'AUTO']).optional(),
+    remind24h: z.boolean().optional(),
+    remind2h: z.boolean().optional(),
   })
   .strict();
 

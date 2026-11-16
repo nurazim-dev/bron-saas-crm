@@ -85,8 +85,66 @@ export interface CompanyDto {
   publicBookingEnabled: boolean;
   clientCancelMinHours?: number;
   allowClientReschedule?: boolean;
+  defaultLocale?: 'RU' | 'KY';
+  reminderMode?: 'OFF' | 'MANUAL' | 'AUTO';
+  remind24h?: boolean;
+  remind2h?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ReminderMode = 'OFF' | 'MANUAL' | 'AUTO';
+export type LocaleCode = 'RU' | 'KY';
+
+export interface CompanyCapabilitiesDto {
+  autoRemindersAvailable: boolean;
+  clientMessageProvider: string;
+  telegramConfigured: boolean;
+  telegramBotUsername: string | null;
+}
+
+export interface InAppNotificationDto {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationsListDto {
+  items: InAppNotificationDto[];
+  unreadCount: number;
+}
+
+export interface MyNotificationSettingsDto {
+  notifyEmail: boolean;
+  notifyTelegram: boolean;
+  telegramConnected: boolean;
+  telegramBotUsername: string | null;
+}
+
+export interface TelegramLinkCodeDto {
+  code: string;
+  expiresAt: string;
+  deepLink: string | null;
+}
+
+export interface ManualReminderItemDto {
+  id: string;
+  clientName: string;
+  clientPhone: string;
+  clientLocale: LocaleCode;
+  startAt: string;
+  serviceName: string;
+  masterName: string;
+  whatsappUrl: string;
+}
+
+export interface ManualRemindersQueueDto {
+  reminderMode: ReminderMode;
+  items: ManualReminderItemDto[];
 }
 
 export interface AuthSessionDto {

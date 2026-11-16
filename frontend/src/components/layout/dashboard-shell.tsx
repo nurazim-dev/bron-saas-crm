@@ -25,6 +25,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from '@/components/layout/notification-bell';
 import { exitImpersonation, logoutSession } from '@/lib/api/auth.api';
 import { getBillingOverview, getPublicPlatform } from '@/lib/api/billing.api';
 import { ru } from '@/lib/i18n/ru';
@@ -324,6 +325,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
             {user && (
               <div className="flex items-center gap-2 text-right">
                 <div className="hidden sm:block">

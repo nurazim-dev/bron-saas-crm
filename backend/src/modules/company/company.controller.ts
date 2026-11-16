@@ -3,12 +3,16 @@ import { extractAuditContext } from '../../lib/audit.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody } from '../../middleware/validate.js';
 import type { UpdateCompanyBody } from './company.schemas.js';
-import { getCompanyById, updateCompanyById } from './company.service.js';
+import { getCompanyById, getCompanyCapabilities, updateCompanyById } from './company.service.js';
 
 export const getCompanyController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const company = await getCompanyById(actor.companyId);
   res.status(200).json({ data: company });
+};
+
+export const getCompanyCapabilitiesController: RequestHandler = (_req, res) => {
+  res.status(200).json({ data: getCompanyCapabilities() });
 };
 
 export const updateCompanyController: RequestHandler = async (req, res) => {

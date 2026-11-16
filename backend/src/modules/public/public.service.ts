@@ -19,6 +19,8 @@ import {
   type TransactionClient,
 } from '../appointments/appointments.service.js';
 import { upsertClientInTx } from '../clients/clients.service.js';
+import { scheduleAppointmentReminders } from '../notifications/reminders.service.js';
+import { notifyCompanyStaff } from '../notifications/staff-notify.service.js';
 import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
@@ -486,6 +488,27 @@ async function bookSingleMasterInTransaction(
           manageToken,
           consentAcceptedAt: currentNow,
         },
+      });
+
+      await notifyCompanyStaff(tx, {
+        kind: 'NEW_ONLINE_BOOKING',
+        companyId: company.id,
+        companyName: company.name,
+        timezone: company.timezone,
+        appointmentId: created.id,
+        masterId: master.id,
+        masterName: master.name,
+        serviceName: service.name,
+        clientName: created.clientName,
+        startAt: created.startAt,
+        dedupeSuffix: 'online',
+      });
+
+      await scheduleAppointmentReminders(tx, {
+        appointment: created,
+        company,
+        serviceName: service.name,
+        currentNow,
       });
 
       return {

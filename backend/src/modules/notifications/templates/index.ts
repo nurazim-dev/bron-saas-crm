@@ -219,3 +219,95 @@ registerNotificationTemplate('BILLING_LOCKED', (_locale, payload) => {
     'Данные сохранены. Чтобы возобновить работу и онлайн-запись, оплатите тариф в разделе «Оплата и тариф».',
   ]);
 });
+
+registerNotificationTemplate('NEW_ONLINE_BOOKING', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const serviceName = readString(payload, 'serviceName', '');
+  const masterName = readString(payload, 'masterName', '');
+  const clientName = readString(payload, 'clientName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  return buildSimpleEmailTemplate(`Новая онлайн-запись — ${companyName}`, [
+    `Клиент: ${clientName}`,
+    `Услуга: ${serviceName}`,
+    `Мастер: ${masterName}`,
+    `Время: ${localDateTime}`,
+  ]);
+});
+
+registerNotificationTemplate('CLIENT_CANCELLED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const serviceName = readString(payload, 'serviceName', '');
+  const clientName = readString(payload, 'clientName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  return buildSimpleEmailTemplate(`Клиент отменил запись — ${companyName}`, [
+    `Клиент: ${clientName}`,
+    `Услуга: ${serviceName}`,
+    `Время: ${localDateTime}`,
+  ]);
+});
+
+registerNotificationTemplate('CLIENT_RESCHEDULED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const serviceName = readString(payload, 'serviceName', '');
+  const clientName = readString(payload, 'clientName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  return buildSimpleEmailTemplate(`Клиент перенёс запись — ${companyName}`, [
+    `Клиент: ${clientName}`,
+    `Услуга: ${serviceName}`,
+    `Новое время: ${localDateTime}`,
+  ]);
+});
+
+registerNotificationTemplate('STAFF_BOOKING_FOR_MASTER', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const serviceName = readString(payload, 'serviceName', '');
+  const clientName = readString(payload, 'clientName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  return buildSimpleEmailTemplate(`Новая запись для вас — ${companyName}`, [
+    `Клиент: ${clientName}`,
+    `Услуга: ${serviceName}`,
+    `Время: ${localDateTime}`,
+  ]);
+});
+
+registerNotificationTemplate('PLAN_REMINDER_CAP_REACHED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  return buildSimpleEmailTemplate(`Лимит авто-напоминаний исчерпан — ${companyName}`, [
+    `В этом месяце достигнут лимит автоматических напоминаний для ${companyName}.`,
+    'Вы можете перейти на более высокий тариф в разделе «Оплата и тариф».',
+  ]);
+});
+
+function buildReminderTemplate(
+  locale: Locale,
+  payload: Record<string, unknown>,
+): RenderedNotification {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const serviceName = readString(payload, 'serviceName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  const address = readString(payload, 'address', '');
+  const manageUrl = readString(payload, 'manageUrl', '');
+
+  if (locale === 'KY') {
+    const lines = [
+      `${companyName}: жазылууңузду эскертебиз.`,
+      `Кызмат: ${serviceName}`,
+      `Убактысы: ${localDateTime}`,
+    ];
+    if (address) lines.push(`Дареги: ${address}`);
+    if (manageUrl) lines.push(`Жолугушууну башкаруу: ${manageUrl}`);
+    return buildSimpleEmailTemplate(`${companyName} — жазылуу эскертүүсү`, lines);
+  }
+
+  const lines = [
+    `${companyName}: напоминаем о вашей записи.`,
+    `Услуга: ${serviceName}`,
+    `Дата и время: ${localDateTime}`,
+  ];
+  if (address) lines.push(`Адрес: ${address}`);
+  if (manageUrl) lines.push(`Управление записью: ${manageUrl}`);
+  return buildSimpleEmailTemplate(`Напоминание о записи — ${companyName}`, lines);
+}
+
+registerNotificationTemplate('REMINDER_24H', buildReminderTemplate);
+registerNotificationTemplate('REMINDER_2H', buildReminderTemplate);

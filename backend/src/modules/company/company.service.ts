@@ -1,13 +1,21 @@
 import {
   AuditActor,
+  type Locale,
   Prisma,
+  type ReminderMode,
   type BusinessType,
   type Company,
 } from '../../generated/prisma/client.js';
+import { env } from '../../config/env.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
+import { assertPlanFeature } from '../billing/billing.service.js';
+import {
+  backfillCompanyAutoReminders,
+  cancelAllPendingCompanyReminders,
+} from '../notifications/reminders.service.js';
 import type { UpdateCompanyBody } from './company.schemas.js';
 
 export interface CompanyDto {
@@ -25,8 +33,24 @@ export interface CompanyDto {
   publicBookingEnabled: boolean;
   clientCancelMinHours: number;
   allowClientReschedule: boolean;
+  defaultLocale: Locale;
+  reminderMode: ReminderMode;
+  remind24h: boolean;
+  remind2h: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export function getCompanyCapabilities() {
+  const provider = env.CLIENT_MESSAGE_PROVIDER.toLowerCase();
+  const autoRemindersAvailable =
+    env.NODE_ENV !== 'production' || (provider !== 'off' && provider !== 'log');
+  return {
+    autoRemindersAvailable,
+    clientMessageProvider: provider,
+    telegramConfigured: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_USERNAME),
+    telegramBotUsername: env.TELEGRAM_BOT_USERNAME || null,
+  };
 }
 
 export function serializeCompany(company: Company): CompanyDto {
@@ -45,6 +69,10 @@ export function serializeCompany(company: Company): CompanyDto {
     publicBookingEnabled: company.publicBookingEnabled,
     clientCancelMinHours: company.clientCancelMinHours,
     allowClientReschedule: company.allowClientReschedule,
+    defaultLocale: company.defaultLocale,
+    reminderMode: company.reminderMode,
+    remind24h: company.remind24h,
+    remind2h: company.remind2h,
     createdAt: company.createdAt.toISOString(),
     updatedAt: company.updatedAt.toISOString(),
   };
@@ -95,6 +123,18 @@ export async function updateCompanyById(
     }
   }
 
+  if (input.reminderMode === 'AUTO') {
+    const caps = getCompanyCapabilities();
+    if (!caps.autoRemindersAvailable) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Automatic client reminders are not available without a configured SMS/WhatsApp provider',
+      );
+    }
+    await assertPlanFeature(companyId, 'autoReminders');
+  }
+
   const updateData: Prisma.CompanyUpdateInput = {
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.businessType !== undefined ? { businessType: input.businessType } : {}),
@@ -108,24 +148,52 @@ export async function updateCompanyById(
     ...(input.publicBookingEnabled !== undefined
       ? { publicBookingEnabled: input.publicBookingEnabled }
       : {}),
+    ...(input.clientCancelMinHours !== undefined
+      ? { clientCancelMinHours: input.clientCancelMinHours }
+      : {}),
+    ...(input.allowClientReschedule !== undefined
+      ? { allowClientReschedule: input.allowClientReschedule }
+      : {}),
+    ...(input.defaultLocale !== undefined ? { defaultLocale: input.defaultLocale } : {}),
+    ...(input.reminderMode !== undefined ? { reminderMode: input.reminderMode } : {}),
+    ...(input.remind24h !== undefined ? { remind24h: input.remind24h } : {}),
+    ...(input.remind2h !== undefined ? { remind2h: input.remind2h } : {}),
   };
 
   try {
-    const updated = await prisma.company.update({
-      where: { id: companyId },
-      data: updateData,
-    });
-    await audit(prisma, {
-      actorType: AuditActor.USER,
-      actorId: auditMeta?.actorId ?? null,
-      companyId,
-      action: 'company.update',
-      entityType: 'Company',
-      entityId: companyId,
-      metadata: {
-        updatedFields: Object.keys(updateData),
-      },
-      context: auditMeta?.context,
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.company.update({
+        where: { id: companyId },
+        data: updateData,
+      });
+
+      if (input.reminderMode !== undefined && input.reminderMode !== existing.reminderMode) {
+        await cancelAllPendingCompanyReminders(tx, companyId);
+        if (input.reminderMode === 'AUTO') {
+          await backfillCompanyAutoReminders(tx, companyId);
+        }
+      } else if (
+        row.reminderMode === 'AUTO' &&
+        (input.remind24h !== undefined || input.remind2h !== undefined)
+      ) {
+        await cancelAllPendingCompanyReminders(tx, companyId);
+        await backfillCompanyAutoReminders(tx, companyId);
+      }
+
+      await audit(tx, {
+        actorType: AuditActor.USER,
+        actorId: auditMeta?.actorId ?? null,
+        companyId,
+        action: 'company.update',
+        entityType: 'Company',
+        entityId: companyId,
+        metadata: {
+          updatedFields: Object.keys(updateData),
+        },
+        context: auditMeta?.context,
+      });
+
+      return row;
     });
     return serializeCompany(updated);
   } catch (err) {

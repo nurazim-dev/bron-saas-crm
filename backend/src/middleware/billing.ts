@@ -12,6 +12,7 @@ const LOCKED_ALLOWLIST_PREFIXES = [
   '/api/v1/auth',
   '/api/v1/billing',
   '/api/v1/notifications',
+  '/api/v1/me',
   '/api/v1/health',
   '/api/v1/exports',
 ];

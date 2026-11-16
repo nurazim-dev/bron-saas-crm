@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { now as clockNow } from '../lib/clock.js';
 import { logger } from '../lib/logger.js';
 import { prisma, withAdvisoryLock } from '../lib/prisma.js';
+import { registerReminderOutboxHooks } from '../modules/notifications/reminders.service.js';
 import {
   BILLING_NOTIFICATIONS_LOCK_KEY,
   runBillingNotificationsOnce,
@@ -31,6 +32,7 @@ async function writeHeartbeat(currentNow: Date): Promise<void> {
 }
 
 export async function runWorkerTick(currentNow: Date = clockNow()): Promise<void> {
+  registerReminderOutboxHooks();
   await writeHeartbeat(currentNow);
 
   const lockResult = await withAdvisoryLock(OUTBOX_DISPATCHER_LOCK_KEY, () =>
