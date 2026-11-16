@@ -11,12 +11,14 @@ import {
   getAppointmentController,
   listAppointmentsController,
   markReminderSentController,
+  prepaymentActionController,
   updateAppointmentController,
 } from './appointments.controller.js';
 import {
   appointmentIdParamsSchema,
   createAppointmentBodySchema,
   listAppointmentsQuerySchema,
+  prepaymentActionBodySchema,
   updateAppointmentBodySchema,
   updateAppointmentStatusBodySchema,
 } from './appointments.schemas.js';
@@ -67,6 +69,14 @@ appointmentsRouter.post(
   requireWritableSubscription,
   validate({ params: appointmentIdParamsSchema }),
   markReminderSentController,
+);
+
+appointmentsRouter.post(
+  '/:id/prepayment',
+  authenticate,
+  requireWritableSubscription,
+  validate({ params: appointmentIdParamsSchema, body: prepaymentActionBodySchema }),
+  prepaymentActionController,
 );
 
 appointmentsRouter.delete(

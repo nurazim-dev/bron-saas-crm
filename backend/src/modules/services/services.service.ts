@@ -1,6 +1,7 @@
 import {
   AppointmentStatus,
   AuditActor,
+  type PrepaymentMode,
   Prisma,
   Role,
   type Service,
@@ -9,6 +10,7 @@ import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
+import { assertPlanFeature } from '../billing/billing.service.js';
 import type { CreateServiceBody, UpdateServiceBody } from './services.schemas.js';
 
 export interface ServiceDto {
@@ -18,6 +20,9 @@ export interface ServiceDto {
   description: string | null;
   durationMin: number;
   price: string;
+  requiresPrepayment: boolean;
+  prepaymentMode: PrepaymentMode | null;
+  prepaymentValue: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -31,9 +36,70 @@ export function serializeService(service: Service): ServiceDto {
     description: service.description,
     durationMin: service.durationMin,
     price: service.price.toFixed(2),
+    requiresPrepayment: service.requiresPrepayment,
+    prepaymentMode: service.prepaymentMode,
+    prepaymentValue: service.prepaymentValue ? service.prepaymentValue.toFixed(2) : null,
     isActive: service.isActive,
     createdAt: service.createdAt.toISOString(),
     updatedAt: service.updatedAt.toISOString(),
+  };
+}
+
+async function resolveServicePrepaymentConfig(
+  companyId: string,
+  requiresPrepayment: boolean,
+  mode: PrepaymentMode | null | undefined,
+  value: string | null | undefined,
+): Promise<{
+  requiresPrepayment: boolean;
+  prepaymentMode: PrepaymentMode | null;
+  prepaymentValue: Prisma.Decimal | null;
+}> {
+  if (!requiresPrepayment) {
+    return {
+      requiresPrepayment: false,
+      prepaymentMode: null,
+      prepaymentValue: null,
+    };
+  }
+
+  await assertPlanFeature(companyId, 'prepayment');
+
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { paymentInstructions: true },
+  });
+  if (!company?.paymentInstructions || company.paymentInstructions.trim().length === 0) {
+    throw new AppError(
+      'PAYMENT_INSTRUCTIONS_REQUIRED',
+      409,
+      'Payment instructions must be configured before enabling prepayment',
+    );
+  }
+
+  if (!mode || !value) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      400,
+      'prepaymentMode and prepaymentValue are required when requiresPrepayment is true',
+    );
+  }
+
+  const numVal = Number(value);
+  if (!Number.isFinite(numVal) || numVal <= 0 || (mode === 'PERCENT' && numVal > 100)) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      400,
+      mode === 'PERCENT'
+        ? 'Percent prepayment value must be between 1 and 100'
+        : 'Fixed prepayment value must be greater than 0',
+    );
+  }
+
+  return {
+    requiresPrepayment: true,
+    prepaymentMode: mode,
+    prepaymentValue: new Prisma.Decimal(value),
   };
 }
 
@@ -78,6 +144,13 @@ export async function createServiceForCompany(
       ? null
       : input.description;
 
+  const prepay = await resolveServicePrepaymentConfig(
+    companyId,
+    input.requiresPrepayment,
+    input.prepaymentMode,
+    input.prepaymentValue,
+  );
+
   const created = await prisma.service.create({
     data: {
       companyId,
@@ -85,6 +158,9 @@ export async function createServiceForCompany(
       description,
       durationMin: input.durationMin,
       price: new Prisma.Decimal(input.price),
+      requiresPrepayment: prepay.requiresPrepayment,
+      prepaymentMode: prepay.prepaymentMode,
+      prepaymentValue: prepay.prepaymentValue,
       isActive: input.isActive,
     },
   });
@@ -109,6 +185,23 @@ export async function updateServiceForCompany(
       input.description === null || input.description.length === 0 ? null : input.description;
   }
 
+  const nextRequiresPrepayment = input.requiresPrepayment ?? existing.requiresPrepayment;
+  const nextMode =
+    input.prepaymentMode !== undefined ? input.prepaymentMode : existing.prepaymentMode;
+  const nextValue =
+    input.prepaymentValue !== undefined
+      ? input.prepaymentValue
+      : existing.prepaymentValue
+        ? existing.prepaymentValue.toFixed(2)
+        : null;
+
+  const prepay =
+    input.requiresPrepayment !== undefined ||
+    input.prepaymentMode !== undefined ||
+    input.prepaymentValue !== undefined
+      ? await resolveServicePrepaymentConfig(companyId, nextRequiresPrepayment, nextMode, nextValue)
+      : undefined;
+
   const updated = await prisma.service.update({
     where: { id: serviceId },
     data: {
@@ -116,6 +209,13 @@ export async function updateServiceForCompany(
       ...(normalizedDescription !== undefined ? { description: normalizedDescription } : {}),
       ...(input.durationMin !== undefined ? { durationMin: input.durationMin } : {}),
       ...(input.price !== undefined ? { price: new Prisma.Decimal(input.price) } : {}),
+      ...(prepay
+        ? {
+            requiresPrepayment: prepay.requiresPrepayment,
+            prepaymentMode: prepay.prepaymentMode,
+            prepaymentValue: prepay.prepaymentValue,
+          }
+        : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     },
   });

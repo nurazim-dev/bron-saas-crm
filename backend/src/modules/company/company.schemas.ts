@@ -52,6 +52,19 @@ export const updateCompanyBodySchema = z
     reminderMode: z.enum(['OFF', 'MANUAL', 'AUTO']).optional(),
     remind24h: z.boolean().optional(),
     remind2h: z.boolean().optional(),
+    paymentInstructions: z
+      .union([
+        z.string().trim().max(1000, 'Payment instructions must be at most 1000 characters'),
+        z.null(),
+      ])
+      .optional(),
+    prepaymentHoldMin: z
+      .number()
+      .int()
+      .refine((v) => v === 0 || (v >= 15 && v <= 1440), {
+        message: 'Prepayment hold minutes must be 0 or between 15 and 1440',
+      })
+      .optional(),
   })
   .strict();
 

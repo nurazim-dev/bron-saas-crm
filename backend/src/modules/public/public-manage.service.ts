@@ -6,6 +6,10 @@ import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
 import { assertNoSlotOverlap, lockMastersForUpdate } from '../appointments/appointments.service.js';
 import {
+  buildPublicPrepaymentBlock,
+  type PublicPrepaymentBlock,
+} from '../appointments/prepayment.js';
+import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
 } from '../availability/availability.service.js';
@@ -53,6 +57,7 @@ export interface PublicManageAppointmentDto {
     canReschedule: boolean;
     rescheduleDisabledReason: ManageDisableReason | null;
   };
+  prepayment: PublicPrepaymentBlock | null;
 }
 
 const MAX_CLIENT_RESCHEDULES = 2;
@@ -154,6 +159,7 @@ function serializeManageAppointment(
       allowClientReschedule: appt.company.allowClientReschedule,
     },
     actions: computeActions(appt, appt.company, currentNow),
+    prepayment: buildPublicPrepaymentBlock(appt, appt.company, appt.service.name),
   };
 }
 

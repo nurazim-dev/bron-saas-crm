@@ -16,6 +16,9 @@ import {
   OUTBOX_DISPATCHER_LOCK_KEY,
   runOnce as runOutboxOnce,
 } from './jobs/outbox-dispatcher.job.js';
+import { runPrepaymentExpiryOnce } from './jobs/prepayment-expiry.job.js';
+
+const PREPAYMENT_EXPIRY_LOCK_KEY = 910_021;
 
 export const WORKER_HEARTBEAT_NAME = 'main';
 
@@ -55,6 +58,9 @@ export async function runWorkerTick(currentNow: Date = clockNow()): Promise<void
   await withAdvisoryLock(BILLING_STATE_SYNC_LOCK_KEY, () => runBillingStateSyncOnce(currentNow));
   await withAdvisoryLock(BILLING_NOTIFICATIONS_LOCK_KEY, () =>
     runBillingNotificationsOnce(currentNow),
+  );
+  await withAdvisoryLock(PREPAYMENT_EXPIRY_LOCK_KEY, () =>
+    runPrepaymentExpiryOnce(prisma, currentNow),
   );
 }
 

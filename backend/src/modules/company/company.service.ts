@@ -37,6 +37,8 @@ export interface CompanyDto {
   reminderMode: ReminderMode;
   remind24h: boolean;
   remind2h: boolean;
+  paymentInstructions: string | null;
+  prepaymentHoldMin: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -73,6 +75,8 @@ export function serializeCompany(company: Company): CompanyDto {
     reminderMode: company.reminderMode,
     remind24h: company.remind24h,
     remind2h: company.remind2h,
+    paymentInstructions: company.paymentInstructions,
+    prepaymentHoldMin: company.prepaymentHoldMin,
     createdAt: company.createdAt.toISOString(),
     updatedAt: company.updatedAt.toISOString(),
   };
@@ -158,6 +162,12 @@ export async function updateCompanyById(
     ...(input.reminderMode !== undefined ? { reminderMode: input.reminderMode } : {}),
     ...(input.remind24h !== undefined ? { remind24h: input.remind24h } : {}),
     ...(input.remind2h !== undefined ? { remind2h: input.remind2h } : {}),
+    ...(input.paymentInstructions !== undefined
+      ? { paymentInstructions: input.paymentInstructions }
+      : {}),
+    ...(input.prepaymentHoldMin !== undefined
+      ? { prepaymentHoldMin: input.prepaymentHoldMin }
+      : {}),
   };
 
   try {

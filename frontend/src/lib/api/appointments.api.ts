@@ -5,6 +5,7 @@ import type {
   AppointmentStatus,
   AvailabilityDto,
   PaginatedAppointmentsDto,
+  PrepaymentStatus,
 } from '@/types/api';
 
 export interface ListAppointmentsParams {
@@ -12,6 +13,7 @@ export interface ListAppointmentsParams {
   to: string;
   masterId?: string;
   status?: AppointmentStatus;
+  prepaymentStatus?: PrepaymentStatus;
   page?: number;
   limit?: number;
 }
@@ -75,6 +77,17 @@ export async function changeAppointmentStatus(
   const res = await apiClient.post<ApiSuccessEnvelope<AppointmentDto>>(
     `/appointments/${id}/status`,
     { status },
+  );
+  return res.data.data;
+}
+
+export async function applyPrepaymentAction(
+  id: string,
+  action: 'RECEIVED' | 'WAIVE' | 'REFUND',
+): Promise<AppointmentDto> {
+  const res = await apiClient.post<ApiSuccessEnvelope<AppointmentDto>>(
+    `/appointments/${id}/prepayment`,
+    { action },
   );
   return res.data.data;
 }

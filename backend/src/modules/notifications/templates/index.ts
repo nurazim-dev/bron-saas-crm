@@ -311,3 +311,42 @@ function buildReminderTemplate(
 
 registerNotificationTemplate('REMINDER_24H', buildReminderTemplate);
 registerNotificationTemplate('REMINDER_2H', buildReminderTemplate);
+
+registerNotificationTemplate('PREPAYMENT_PENDING_OWNER', (_locale, payload) => {
+  const clientName = readString(payload, 'clientName', 'Клиент');
+  const serviceName = readString(payload, 'serviceName', '');
+  const amount = readString(payload, 'amount', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  return buildSimpleEmailTemplate(`Ожидается предоплата: ${clientName}`, [
+    `Новая запись с предоплатой ${amount} сом.`,
+    `Клиент: ${clientName}`,
+    `Услуга: ${serviceName}`,
+    `Дата и время: ${localDateTime}`,
+  ]);
+});
+
+registerNotificationTemplate('PREPAYMENT_EXPIRED_STAFF', (_locale, payload) => {
+  const clientName = readString(payload, 'clientName', 'Клиент');
+  const serviceName = readString(payload, 'serviceName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  return buildSimpleEmailTemplate(`Бронь отменена (истекла предоплата): ${clientName}`, [
+    `Запись автоматически отменена, так как предоплата не была подтверждена в срок.`,
+    `Клиент: ${clientName}`,
+    `Услуга: ${serviceName}`,
+    `Дата и время: ${localDateTime}`,
+  ]);
+});
+
+registerNotificationTemplate('PREPAYMENT_EXPIRED_CLIENT', (locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const serviceName = readString(payload, 'serviceName', '');
+  const localDateTime = readString(payload, 'localDateTime', '');
+  if (locale === 'KY') {
+    return buildSimpleEmailTemplate(`${companyName} — жазылуу жокко чыгарылды`, [
+      `Алдын ала төлөм өз убагында тастыкталбагандыктан, "${serviceName}" (${localDateTime}) жазылуусу жокко чыгарылды.`,
+    ]);
+  }
+  return buildSimpleEmailTemplate(`Запись отменена — ${companyName}`, [
+    `Бронь на «${serviceName}» (${localDateTime}) автоматически отменена, так как предоплата не поступила в установленный срок.`,
+  ]);
+});

@@ -40,6 +40,7 @@ import type {
   PublicBookedAppointmentDto,
   PublicCompanyProfileDto,
   PublicMasterDto,
+  PublicPrepaymentBlockDto,
   PublicServiceDto,
 } from '@/types/api';
 
@@ -113,6 +114,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
     null,
   );
   const [manageUrl, setManageUrl] = useState<string | null>(null);
+  const [prepaymentBlock, setPrepaymentBlock] = useState<PublicPrepaymentBlockDto | null>(null);
 
   // Masters that perform the selected service
   const eligibleMasters = useMemo<PublicMasterDto[]>(() => {
@@ -265,6 +267,7 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
 
       setBookedAppointment(result.appointment);
       setManageUrl(result.manageUrl);
+      setPrepaymentBlock(result.prepayment ?? null);
       setStep(5);
     } catch (err) {
       const code = getPublicErrorCode(err);
@@ -360,6 +363,11 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
                     <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                     {formatDurationMin(service.durationMin)}
                   </span>
+                  {service.requiresPrepayment && service.prepaymentAmount && (
+                    <span className="mt-1.5 ml-2 inline-block rounded bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
+                      Предоплата: {formatPriceKgs(service.prepaymentAmount)}
+                    </span>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-base font-bold text-primary">
@@ -732,6 +740,49 @@ export function PublicBookingStepper({ profile }: { profile: PublicCompanyProfil
                 </div>
               )}
             </div>
+
+            {prepaymentBlock && prepaymentBlock.status === 'PENDING' && (
+              <div className="space-y-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-foreground">Требуется предоплата</span>
+                  {prepaymentBlock.amount && (
+                    <span className="text-sm font-bold text-foreground">
+                      {formatPriceKgs(prepaymentBlock.amount)}
+                    </span>
+                  )}
+                </div>
+                {prepaymentBlock.instructions && (
+                  <p className="whitespace-pre-line text-foreground">
+                    {prepaymentBlock.instructions}
+                  </p>
+                )}
+                {prepaymentBlock.holdUntil && (
+                  <p className="text-muted-foreground">
+                    Оплатите до{' '}
+                    {formatDateInCompanyTz(
+                      prepaymentBlock.holdUntil,
+                      bookedAppointment.company.timezone,
+                    )}{' '}
+                    {formatTimeInCompanyTz(
+                      prepaymentBlock.holdUntil,
+                      bookedAppointment.company.timezone,
+                    )}
+                    , иначе бронь автоматически отменится.
+                  </p>
+                )}
+                {prepaymentBlock.whatsappProofUrl && (
+                  <Button asChild size="sm" variant="default" className="w-full gap-2">
+                    <a
+                      href={prepaymentBlock.whatsappProofUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Отправить чек в WhatsApp
+                    </a>
+                  </Button>
+                )}
+              </div>
+            )}
 
             {manageUrl && (
               <div className="space-y-2 rounded-xl border bg-muted/20 p-3.5 text-xs">

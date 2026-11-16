@@ -11,10 +11,12 @@ import type {
   AppointmentIdParams,
   CreateAppointmentBody,
   ListAppointmentsQuery,
+  PrepaymentActionBody,
   UpdateAppointmentBody,
   UpdateAppointmentStatusBody,
 } from './appointments.schemas.js';
 import {
+  applyPrepaymentAction,
   changeAppointmentStatusForActor,
   createStaffAppointmentForActor,
   deleteAppointmentForCompany,
@@ -74,5 +76,13 @@ export const markReminderSentController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const { id } = getValidatedParams<AppointmentIdParams>(req);
   const data = await markManualReminderSent(actor, id);
+  res.status(200).json({ data });
+};
+
+export const prepaymentActionController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<AppointmentIdParams>(req);
+  const { action } = getValidatedBody<PrepaymentActionBody>(req);
+  const data = await applyPrepaymentAction(actor, id, action, extractAuditContext(req));
   res.status(200).json({ data });
 };

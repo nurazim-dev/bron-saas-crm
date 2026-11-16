@@ -16,6 +16,7 @@ import {
   AppointmentDetailsModal,
   AppointmentFormDialog,
   AppointmentStatusBadge,
+  PrepaymentStatusBadge,
 } from '@/components/appointments/appointment-dialogs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,7 @@ import type {
   AppointmentDto,
   AppointmentStatus,
   ManualReminderItemDto,
+  PrepaymentStatus,
   ReminderMode,
   ServiceDto,
   StaffDto,
@@ -64,6 +66,7 @@ export default function AppointmentsPage() {
   const [toDate, setToDate] = useState(() => addDaysToLocalDateInTz(todayLocal, 30, timezone));
   const [masterFilter, setMasterFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [prepaymentFilter, setPrepaymentFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
 
@@ -137,6 +140,9 @@ export default function AppointmentsPage() {
           to: toUtc,
           ...(masterFilter !== 'ALL' ? { masterId: masterFilter } : {}),
           ...(statusFilter !== 'ALL' ? { status: statusFilter as AppointmentStatus } : {}),
+          ...(prepaymentFilter !== 'ALL'
+            ? { prepaymentStatus: prepaymentFilter as PrepaymentStatus }
+            : {}),
           page,
           limit: PAGE_LIMIT,
         });
@@ -166,7 +172,18 @@ export default function AppointmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [fromDate, masterFilter, page, reloadKey, statusFilter, tab, timezone, toDate, user]);
+  }, [
+    fromDate,
+    masterFilter,
+    page,
+    prepaymentFilter,
+    reloadKey,
+    statusFilter,
+    tab,
+    timezone,
+    toDate,
+    user,
+  ]);
 
   function handleSelectTab(nextTab: PeriodTab) {
     setTab(nextTab);
@@ -364,6 +381,27 @@ export default function AppointmentsPage() {
                 ))}
               </select>
             </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="filter-prepayment" className="text-xs">
+                Предоплата
+              </Label>
+              <select
+                id="filter-prepayment"
+                value={prepaymentFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setIsLoading(true);
+                  setPrepaymentFilter(e.target.value);
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="ALL">Любая</option>
+                <option value="PENDING">Ожидает</option>
+                <option value="RECEIVED">Получена</option>
+                <option value="REFUNDED">Возвращена</option>
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -538,7 +576,10 @@ export default function AppointmentsPage() {
                         {formatPriceKgs(appt.price)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <AppointmentStatusBadge status={appt.status} />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <AppointmentStatusBadge status={appt.status} />
+                          <PrepaymentStatusBadge status={appt.prepaymentStatus} />
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <Badge variant="outline" className="text-[11px]">

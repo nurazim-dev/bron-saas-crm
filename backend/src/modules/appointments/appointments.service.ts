@@ -3,6 +3,7 @@ import {
   AppointmentSource,
   AppointmentStatus,
   AuditActor,
+  PrepaymentStatus,
   Prisma,
   Role,
   type Appointment,
@@ -69,6 +70,10 @@ export interface AppointmentDto {
   cancelledBy: string | null;
   cancelReason: string | null;
   rescheduledCount: number;
+  prepaymentStatus: PrepaymentStatus;
+  prepaymentAmount: string | null;
+  prepaymentHoldUntil: string | null;
+  prepaymentReceivedAt: string | null;
   warnings?: AppointmentScheduleWarning[];
   createdAt: string;
   updatedAt: string;
@@ -187,6 +192,12 @@ export function serializeAppointment(
     cancelledBy: appt.cancelledBy,
     cancelReason: appt.cancelReason,
     rescheduledCount: appt.rescheduledCount,
+    prepaymentStatus: appt.prepaymentStatus,
+    prepaymentAmount: appt.prepaymentAmount ? appt.prepaymentAmount.toFixed(2) : null,
+    prepaymentHoldUntil: appt.prepaymentHoldUntil ? appt.prepaymentHoldUntil.toISOString() : null,
+    prepaymentReceivedAt: appt.prepaymentReceivedAt
+      ? appt.prepaymentReceivedAt.toISOString()
+      : null,
     ...(warnings !== undefined ? { warnings } : {}),
     createdAt: appt.createdAt.toISOString(),
     updatedAt: appt.updatedAt.toISOString(),
@@ -328,6 +339,7 @@ export async function listAppointmentsForActor(
     endAt: { gt: query.from },
     ...(effectiveMasterId !== undefined ? { masterId: effectiveMasterId } : {}),
     ...(query.status !== undefined ? { status: query.status } : {}),
+    ...(query.prepaymentStatus !== undefined ? { prepaymentStatus: query.prepaymentStatus } : {}),
   };
 
   const skip = (query.page - 1) * query.limit;
@@ -787,4 +799,104 @@ export async function deleteAppointmentForCompany(
     },
     context: auditMeta?.context,
   });
+}
+
+export async function applyPrepaymentAction(
+  actor: AuthenticatedActor,
+  appointmentId: string,
+  action: 'RECEIVED' | 'WAIVE' | 'REFUND',
+  context?: AuditRequestContext,
+): Promise<AppointmentDto> {
+  const existing = await prisma.appointment.findFirst({
+    where: {
+      id: appointmentId,
+      companyId: actor.companyId,
+      ...(actor.role === Role.MASTER ? { masterId: actor.userId } : {}),
+    },
+    include: appointmentInclude,
+  });
+
+  if (!existing) {
+    throw new AppError('NOT_FOUND', 404, 'Appointment not found');
+  }
+
+  if (action === 'REFUND' && actor.role !== Role.OWNER) {
+    throw new AppError('FORBIDDEN', 403, 'Only the business owner can refund a prepayment');
+  }
+
+  if (existing.status !== AppointmentStatus.SCHEDULED && action !== 'REFUND') {
+    throw new AppError(
+      'INVALID_STATUS_TRANSITION',
+      409,
+      'Prepayment status can only be updated for scheduled appointments',
+    );
+  }
+
+  const currentNow = clockNow();
+  const expectedFrom: PrepaymentStatus =
+    action === 'REFUND' ? PrepaymentStatus.RECEIVED : PrepaymentStatus.PENDING;
+
+  const nextData: Prisma.AppointmentUpdateManyMutationInput =
+    action === 'RECEIVED'
+      ? {
+          prepaymentStatus: PrepaymentStatus.RECEIVED,
+          prepaymentReceivedAt: currentNow,
+          prepaymentHoldUntil: null,
+        }
+      : action === 'WAIVE'
+        ? {
+            prepaymentStatus: PrepaymentStatus.NOT_REQUIRED,
+            prepaymentHoldUntil: null,
+          }
+        : {
+            prepaymentStatus: PrepaymentStatus.REFUNDED,
+          };
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const res = await tx.appointment.updateMany({
+      where: {
+        id: existing.id,
+        companyId: actor.companyId,
+        deletedAt: null,
+        prepaymentStatus: expectedFrom,
+        ...(action !== 'REFUND' ? { status: AppointmentStatus.SCHEDULED } : {}),
+      },
+      data: nextData,
+    });
+
+    if (res.count === 0) {
+      throw new AppError(
+        'INVALID_STATUS_TRANSITION',
+        409,
+        `Cannot apply prepayment action ${action} from status ${existing.prepaymentStatus}`,
+      );
+    }
+
+    const row = await tx.appointment.findUnique({
+      where: { id: existing.id },
+      include: appointmentInclude,
+    });
+    if (!row) {
+      throw new AppError('NOT_FOUND', 404, 'Appointment not found');
+    }
+
+    await audit(tx, {
+      actorType: AuditActor.USER,
+      actorId: actor.userId,
+      companyId: actor.companyId,
+      action: `appointment.prepayment.${action.toLowerCase()}`,
+      entityType: 'Appointment',
+      entityId: existing.id,
+      metadata: {
+        previousStatus: existing.prepaymentStatus,
+        nextStatus: row.prepaymentStatus,
+        amount: row.prepaymentAmount?.toFixed(2) ?? null,
+      },
+      context,
+    });
+
+    return row;
+  });
+
+  return serializeAppointment(updated);
 }

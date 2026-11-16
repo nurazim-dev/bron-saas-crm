@@ -89,8 +89,22 @@ export interface CompanyDto {
   reminderMode?: 'OFF' | 'MANUAL' | 'AUTO';
   remind24h?: boolean;
   remind2h?: boolean;
+  paymentInstructions?: string | null;
+  prepaymentHoldMin?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type PrepaymentMode = 'FIXED' | 'PERCENT';
+export type PrepaymentStatus = 'NOT_REQUIRED' | 'PENDING' | 'RECEIVED' | 'REFUNDED';
+
+export interface PublicPrepaymentBlockDto {
+  status: PrepaymentStatus;
+  amount: string | null;
+  holdUntil: string | null;
+  receivedAt: string | null;
+  instructions: string | null;
+  whatsappProofUrl: string | null;
 }
 
 export type ReminderMode = 'OFF' | 'MANUAL' | 'AUTO';
@@ -165,6 +179,9 @@ export interface ServiceDto {
   description: string | null;
   durationMin: number;
   price: string;
+  requiresPrepayment?: boolean;
+  prepaymentMode?: PrepaymentMode | null;
+  prepaymentValue?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -223,9 +240,13 @@ export interface AppointmentDto {
   service: AppointmentServiceSummaryDto;
   master: AppointmentMasterSummaryDto;
   cancelledAt?: string | null;
-  cancelledBy?: 'CLIENT' | 'STAFF' | null;
+  cancelledBy?: 'CLIENT' | 'STAFF' | 'SYSTEM' | null;
   cancelReason?: string | null;
   rescheduledCount?: number;
+  prepaymentStatus?: PrepaymentStatus;
+  prepaymentAmount?: string | null;
+  prepaymentHoldUntil?: string | null;
+  prepaymentReceivedAt?: string | null;
   warnings?: Array<'OUTSIDE_WORKING_HOURS' | 'DURING_BREAK' | 'DURING_TIME_OFF'>;
   createdAt: string;
   updatedAt: string;
@@ -269,6 +290,8 @@ export interface PublicServiceDto {
   description: string | null;
   durationMin: number;
   price: string;
+  requiresPrepayment?: boolean;
+  prepaymentAmount?: string | null;
 }
 
 export interface PublicMasterDto {
@@ -308,6 +331,7 @@ export interface PublicBookedAppointmentDto {
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
   manageUrl: string;
+  prepayment?: PublicPrepaymentBlockDto | null;
 }
 
 export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'LOCKED';

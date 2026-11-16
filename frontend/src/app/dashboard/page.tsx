@@ -49,6 +49,7 @@ export default function DashboardOverviewPage() {
 
   const [todayAppointments, setTodayAppointments] = useState<AppointmentDto[]>([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentDto[]>([]);
+  const [pendingPrepaymentCount, setPendingPrepaymentCount] = useState(0);
   const [staffList, setStaffList] = useState<StaffDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,7 +75,7 @@ export default function DashboardOverviewPage() {
           timezone,
         );
 
-        const [todayRes, upcomingRes, staffData, servicesData] = await Promise.all([
+        const [todayRes, upcomingRes, pendingPrepRes, staffData, servicesData] = await Promise.all([
           listAppointments({
             from: todayRange.fromUtc,
             to: todayRange.toUtc,
@@ -86,6 +87,13 @@ export default function DashboardOverviewPage() {
             status: 'SCHEDULED',
             limit: 5,
           }),
+          listAppointments({
+            from: new Date().toISOString(),
+            to: next30Range.toUtc,
+            status: 'SCHEDULED',
+            prepaymentStatus: 'PENDING',
+            limit: 1,
+          }),
           listVisibleStaffForRole(userId, userRole),
           listServices(),
         ]);
@@ -93,6 +101,7 @@ export default function DashboardOverviewPage() {
         if (!cancelled) {
           setTodayAppointments(todayRes.data);
           setUpcomingAppointments(upcomingRes.data.slice(0, 5));
+          setPendingPrepaymentCount(pendingPrepRes.meta.total);
           setStaffList(staffData);
           setServices(servicesData);
         }
@@ -177,6 +186,19 @@ export default function DashboardOverviewPage() {
       </div>
 
       {/* Today's Stats KPI Cards */}
+      {!isLoading && pendingPrepaymentCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <div>
+            <span className="font-semibold">Ожидают предоплату: {pendingPrepaymentCount}</span>
+            <span className="ml-2 text-xs text-muted-foreground">
+              Подтвердите получение оплаты до истечения срока удержания слота.
+            </span>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/dashboard/appointments">Открыть записи</Link>
+          </Button>
+        </div>
+      )}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Skeleton className="h-28 w-full rounded-xl" />

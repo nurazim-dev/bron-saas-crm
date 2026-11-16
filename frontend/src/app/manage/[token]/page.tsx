@@ -260,6 +260,48 @@ export default function ManageAppointmentPage() {
             )}
           </div>
 
+          {appt.prepayment && appt.prepayment.status !== 'NOT_REQUIRED' && (
+            <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-foreground">
+                  {appt.prepayment.status === 'PENDING'
+                    ? 'Ожидается предоплата'
+                    : appt.prepayment.status === 'RECEIVED'
+                      ? 'Предоплата получена'
+                      : 'Предоплата возвращена'}
+                </span>
+                {appt.prepayment.amount && (
+                  <span className="font-bold text-foreground">
+                    {formatPriceKgs(appt.prepayment.amount)}
+                  </span>
+                )}
+              </div>
+              {appt.prepayment.status === 'PENDING' && appt.prepayment.instructions && (
+                <p className="whitespace-pre-line text-foreground">
+                  {appt.prepayment.instructions}
+                </p>
+              )}
+              {appt.prepayment.status === 'PENDING' && appt.prepayment.holdUntil && (
+                <p className="text-muted-foreground">
+                  Оплатите до{' '}
+                  {formatDateInCompanyTz(appt.prepayment.holdUntil, appt.company.timezone)}{' '}
+                  {formatTimeInCompanyTz(appt.prepayment.holdUntil, appt.company.timezone)}.
+                </p>
+              )}
+              {appt.prepayment.status === 'PENDING' && appt.prepayment.whatsappProofUrl && (
+                <Button asChild size="sm" className="w-full">
+                  <a
+                    href={appt.prepayment.whatsappProofUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Отправить чек в WhatsApp
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
+
           {appt.status === 'CANCELLED' && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0" />

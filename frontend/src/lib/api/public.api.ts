@@ -7,6 +7,7 @@ import type {
   ErrorCode,
   PublicCompanyProfileDto,
   PublicCreateAppointmentResultDto,
+  PublicPrepaymentBlockDto,
 } from '@/types/api';
 
 const publicHttpClient = axios.create({
@@ -118,6 +119,7 @@ export interface PublicManageAppointmentDto {
     canReschedule: boolean;
     rescheduleDisabledReason: ManageDisableReason | null;
   };
+  prepayment?: PublicPrepaymentBlockDto | null;
 }
 
 export async function getPublicManageAppointment(

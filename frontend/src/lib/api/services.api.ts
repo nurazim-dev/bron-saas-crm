@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import type { ApiSuccessEnvelope, ServiceDto } from '@/types/api';
+import type { ApiSuccessEnvelope, PrepaymentMode, ServiceDto } from '@/types/api';
 
 export interface CreateServicePayload {
   name: string;
@@ -7,6 +7,9 @@ export interface CreateServicePayload {
   durationMin: number;
   price: number | string;
   isActive?: boolean;
+  requiresPrepayment?: boolean;
+  prepaymentMode?: PrepaymentMode | null;
+  prepaymentValue?: number | string | null;
 }
 
 export interface UpdateServicePayload {
@@ -15,6 +18,9 @@ export interface UpdateServicePayload {
   durationMin?: number;
   price?: number | string;
   isActive?: boolean;
+  requiresPrepayment?: boolean;
+  prepaymentMode?: PrepaymentMode | null;
+  prepaymentValue?: number | string | null;
 }
 
 export async function listServices(): Promise<ServiceDto[]> {

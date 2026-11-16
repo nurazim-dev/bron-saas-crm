@@ -26,6 +26,8 @@ export interface UpdateCompanyPayload {
   reminderMode?: ReminderMode;
   remind24h?: boolean;
   remind2h?: boolean;
+  paymentInstructions?: string | null;
+  prepaymentHoldMin?: number;
 }
 
 export async function getCompanyCapabilities(): Promise<CompanyCapabilitiesDto> {

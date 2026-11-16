@@ -54,6 +54,30 @@ const priceSchema = z.union([z.number(), z.string()]).transform((val, ctx): stri
   return num.toFixed(2);
 });
 
+const prepaymentValueSchema = z
+  .union([z.number(), z.string(), z.null()])
+  .transform((val, ctx): string | null => {
+    if (val === null) return null;
+    const str = typeof val === 'number' ? String(val) : val.trim();
+    if (!/^\d+(?:\.\d{1,2})?$/.test(str)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Prepayment value must be a positive number with at most 2 decimal places',
+      });
+      return z.NEVER;
+    }
+    const num = Number(str);
+    if (!Number.isFinite(num) || num <= 0 || num > 1_000_000) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Prepayment value must be greater than 0 and at most 1,000,000',
+      });
+      return z.NEVER;
+    }
+    return num.toFixed(2);
+  })
+  .optional();
+
 export const createServiceBodySchema = z
   .object({
     name: nameSchema,
@@ -61,6 +85,9 @@ export const createServiceBodySchema = z
     durationMin: durationMinSchema,
     price: priceSchema,
     isActive: z.boolean().optional().default(true),
+    requiresPrepayment: z.boolean().optional().default(false),
+    prepaymentMode: z.enum(['FIXED', 'PERCENT']).nullable().optional(),
+    prepaymentValue: prepaymentValueSchema,
   })
   .strict();
 
@@ -73,6 +100,9 @@ export const updateServiceBodySchema = z
     durationMin: durationMinSchema.optional(),
     price: priceSchema.optional(),
     isActive: z.boolean().optional(),
+    requiresPrepayment: z.boolean().optional(),
+    prepaymentMode: z.enum(['FIXED', 'PERCENT']).nullable().optional(),
+    prepaymentValue: prepaymentValueSchema,
   })
   .strict();
 

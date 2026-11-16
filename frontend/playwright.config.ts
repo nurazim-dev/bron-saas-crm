@@ -29,6 +29,7 @@ export default defineConfig({
       timeout: 30000,
       env: {
         RATE_LIMIT_AUTH_MAX: '50',
+        RATE_LIMIT_GLOBAL_MAX: '1000',
       },
     },
     {

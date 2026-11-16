@@ -101,6 +101,19 @@ enum TimeOffKind {
 enum CancelActor {
   CLIENT
   STAFF
+  SYSTEM
+}
+
+enum PrepaymentMode {
+  FIXED
+  PERCENT
+}
+
+enum PrepaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  RECEIVED
+  REFUNDED
 }
 
 enum ReminderMode {
@@ -128,6 +141,8 @@ model Company {
   reminderMode          ReminderMode  @default(MANUAL)
   remind24h             Boolean       @default(true)
   remind2h              Boolean       @default(true)
+  paymentInstructions   String?
+  prepaymentHoldMin     Int           @default(30)
   suspendedAt           DateTime?     @db.Timestamptz(3)
   suspendedReason      String?
   suspendedByAdminId   String?       @db.Uuid
@@ -194,9 +209,12 @@ model Service {
   companyId    String          @db.Uuid
   name         String
   description  String?
-  durationMin  Int
-  price        Decimal         @db.Decimal(10, 2)
-  isActive     Boolean         @default(true)
+  durationMin        Int
+  price              Decimal         @db.Decimal(10, 2)
+  requiresPrepayment Boolean         @default(false)
+  prepaymentMode     PrepaymentMode?
+  prepaymentValue    Decimal?        @db.Decimal(10, 2)
+  isActive           Boolean         @default(true)
   createdAt    DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
   deletedAt    DateTime?       @db.Timestamptz(3)
@@ -289,6 +307,10 @@ model Appointment {
   clientLocale         Locale            @default(RU)
   manualReminderSentAt DateTime?         @db.Timestamptz(3)
   consentAcceptedAt    DateTime?         @db.Timestamptz(3)
+  prepaymentStatus     PrepaymentStatus  @default(NOT_REQUIRED)
+  prepaymentAmount     Decimal?          @db.Decimal(10, 2)
+  prepaymentHoldUntil  DateTime?         @db.Timestamptz(3)
+  prepaymentReceivedAt DateTime?         @db.Timestamptz(3)
   createdAt         DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
   deletedAt         DateTime?         @db.Timestamptz(3)
@@ -301,6 +323,8 @@ model Appointment {
   @@index([masterId, startAt, endAt])
   @@index([companyId, clientPhone])
   @@index([companyId, clientId])
+  @@index([companyId, prepaymentStatus])
+  @@index([status, prepaymentStatus, prepaymentHoldUntil])
 }
 
 model OutboxMessage {

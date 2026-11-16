@@ -381,7 +381,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await expect(ownerPage.getByRole('heading', { name: 'Оплата и тариф' })).toBeVisible();
     await ownerPage
       .getByRole('button', { name: /Продлить|Выбрать и оплатить/ })
-      .first()
+      .last()
       .click();
     await ownerPage.locator('#claim-reference').fill('E2E-CLAIM-777');
     await ownerPage.getByRole('button', { name: 'Отправить заявку' }).click();
@@ -757,6 +757,82 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await expect(row.first().getByRole('link', { name: 'Написать в WhatsApp' })).toBeVisible();
     await row.first().getByRole('button', { name: 'Отправлено' }).click();
     await expect(ownerPage.getByText('Напоминание отмечено как отправленное')).toBeVisible();
+
+    await ownerCtx.close();
+  });
+
+  test('E2E 10: Phase 21 — Light Prepayment: settings instructions -> service prepayment -> public booking block -> owner confirms received', async ({
+    browser,
+  }) => {
+    const ownerCtx = await browser.newContext();
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.locator('#login-email').fill('owner@demo.zapis.kg');
+    await ownerPage.locator('#login-password').fill('Demo12345!');
+    await ownerPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+
+    // 1. Settings -> payment instructions
+    await ownerPage.getByRole('link', { name: 'Настройки', exact: true }).click();
+    await expect(ownerPage.locator('#company-name')).toHaveValue('Demo Barbershop');
+    await ownerPage.locator('#company-payment-instructions').fill('MBank +996 555 123 456 (Demo)');
+    await ownerPage.locator('#company-prepayment-hold').fill('30');
+    await ownerPage.getByRole('button', { name: 'Сохранить настройки' }).click();
+    await expect(ownerPage.getByText('Настройки компании сохранены')).toBeVisible();
+
+    // 2. Services -> enable prepayment on Мужская стрижка
+    await ownerPage.getByRole('link', { name: 'Услуги', exact: true }).click();
+    await ownerPage
+      .locator('div', { hasText: 'Мужская стрижка' })
+      .getByRole('button', { name: /Редактировать|Изменить/i })
+      .first()
+      .click();
+    await ownerPage.locator('#service-requires-prepayment').check();
+    await ownerPage.locator('#service-prepay-mode').selectOption('FIXED');
+    await ownerPage.locator('#service-prepay-value').fill('200');
+    await expect(ownerPage.getByText(/Сумма предоплаты при записи: 200/)).toBeVisible();
+    await ownerPage.getByRole('button', { name: 'Сохранить' }).click();
+    await expect(ownerPage.getByText(/Услуга обновлена/i)).toBeVisible();
+
+    // 3. Public booking -> prepayment notice & success block
+    const clientName = `Клиент Предопл ${Date.now().toString().slice(-5)}`;
+    const clientCtx = await browser.newContext();
+    const clientPage = await clientCtx.newPage();
+    await clientPage.goto('/b/demo-barbershop');
+    await expect(clientPage.getByText(/Предоплата: 200 сом/).first()).toBeVisible();
+    await clientPage
+      .getByRole('button', { name: /Мужская стрижка/i })
+      .first()
+      .click();
+    await clientPage
+      .getByRole('button', { name: /Любой свободный/i })
+      .first()
+      .click();
+    await clientPage.locator('.overflow-x-auto button').nth(1).click();
+    await advanceUntilSlotsAvailable(clientPage);
+    await clientPage
+      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
+      .first()
+      .click();
+    await clientPage.locator('#public-client-name').fill(clientName);
+    await clientPage.locator('#public-client-phone').fill('0555 888 111');
+    await clientPage.locator('#public-consent').check();
+    await clientPage.getByRole('button', { name: 'Записаться' }).click();
+    await expect(clientPage.getByText('Вы успешно записаны!')).toBeVisible();
+    await expect(clientPage.getByText('Требуется предоплата')).toBeVisible();
+    await expect(clientPage.getByText('MBank +996 555 123 456 (Demo)')).toBeVisible();
+    await expect(clientPage.getByRole('link', { name: 'Отправить чек в WhatsApp' })).toBeVisible();
+    await clientCtx.close();
+
+    // 4. Owner overview banner & appointments drawer confirm RECEIVED
+    await ownerPage.getByRole('link', { name: 'Обзор', exact: true }).click();
+    await expect(ownerPage.getByText(/Ожидают предоплату:/)).toBeVisible();
+
+    await ownerPage.getByRole('link', { name: 'Записи', exact: true }).click();
+    await ownerPage.locator('#filter-prepayment').selectOption('PENDING');
+    await ownerPage.getByText(clientName).first().click();
+    await ownerPage.getByRole('button', { name: 'Подтвердить получение' }).click();
+    await expect(ownerPage.getByText('Предоплата подтверждена')).toBeVisible();
 
     await ownerCtx.close();
   });

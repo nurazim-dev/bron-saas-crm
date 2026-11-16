@@ -2,11 +2,11 @@
 
 - **Mode**: `RUNNING`
 - **Branch**: `develop`
-- **Current Phase**: `21`
-- **Next Action**: Implement Phase 21 (Light Prepayment) and run the Phase 21 gate.
+- **Current Phase**: `22`
+- **Next Action**: Implement Phase 22 (Analytics & CSV Export) and run the Phase 22 gate.
 - **Baseline Test Counts**:
-  - `backend_tests`: `127`
-  - `e2e_scenarios`: `9`
+  - `backend_tests`: `131`
+  - `e2e_scenarios`: `10`
 
 ## Preflight Answers (User Confirmed `OK` + Item 1 = Bot Ready at End, Item 2 = MANUAL)
 1. **Telegram Bot**: user has a bot and will fill `TELEGRAM_BOT_TOKEN` & `TELEGRAM_BOT_USERNAME` into `backend/.env` at the end (build full provider + webhook/polling + fake API tests; real Bot API marked `UNVERIFIED` until user enters credentials).
@@ -29,8 +29,8 @@
 | 18 | Breaks & Time Off | `COMPLETE` | `phase-18` | 2026-11-16 |
 | 19 | Client Self-Service | `COMPLETE` | `phase-19` | 2026-11-16 |
 | 20 | Staff Notifications & Client Reminders | `COMPLETE_WITH_NOTES` | `phase-20` | 2026-11-16 |
-| 21 | Light Prepayment | `IN_PROGRESS` | — | — |
-| 22 | Analytics & CSV Export | `PENDING` | — | — |
+| 21 | Light Prepayment | `COMPLETE` | `phase-21` | 2026-11-16 |
+| 22 | Analytics & CSV Export | `IN_PROGRESS` | — | — |
 | 23 | Onboarding & Presets | `PENDING` | — | — |
 | 24 | Kyrgyz Language, Legal Pages & Consent | `PENDING` | — | — |
 | 25 | PWA | `PENDING` | — | — |

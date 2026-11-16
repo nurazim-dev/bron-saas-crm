@@ -76,6 +76,10 @@ function SettingsManagerContent() {
   const [remind2h, setRemind2h] = useState(storeCompany?.remind2h ?? true);
   const [capabilities, setCapabilities] = useState<CompanyCapabilitiesDto | null>(null);
   const [planSupportsAutoReminders, setPlanSupportsAutoReminders] = useState(true);
+  const [paymentInstructions, setPaymentInstructions] = useState(
+    storeCompany?.paymentInstructions ?? '',
+  );
+  const [prepaymentHoldMin, setPrepaymentHoldMin] = useState(storeCompany?.prepaymentHoldMin ?? 30);
 
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -106,6 +110,8 @@ function SettingsManagerContent() {
     setReminderMode(c.reminderMode ?? 'MANUAL');
     setRemind24h(c.remind24h ?? true);
     setRemind2h(c.remind2h ?? true);
+    setPaymentInstructions(c.paymentInstructions ?? '');
+    setPrepaymentHoldMin(c.prepaymentHoldMin ?? 30);
   }, []);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -229,6 +235,9 @@ function SettingsManagerContent() {
         reminderMode,
         remind24h,
         remind2h,
+        paymentInstructions:
+          paymentInstructions.trim().length > 0 ? paymentInstructions.trim() : null,
+        prepaymentHoldMin: Number(prepaymentHoldMin),
       });
       setCompany(updated);
       populateForm(updated);
@@ -639,6 +648,41 @@ function SettingsManagerContent() {
                   </label>
                 </div>
               )}
+            </div>
+
+            <div className="space-y-4 border-t pt-4">
+              <div>
+                <h3 className="text-sm font-semibold">Предоплата</h3>
+                <p className="text-xs text-muted-foreground">
+                  Реквизиты для перевода клиентом и время удержания слота до подтверждения оплаты.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="company-payment-instructions">Реквизиты для предоплаты</Label>
+                <textarea
+                  id="company-payment-instructions"
+                  rows={3}
+                  value={paymentInstructions}
+                  onChange={(e) => setPaymentInstructions(e.target.value)}
+                  placeholder="Например: MBank +996 555 123 456 (Азамат Т.)"
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-2xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                />
+              </div>
+              <div className="space-y-1.5 sm:max-w-xs">
+                <Label htmlFor="company-prepayment-hold">Срок ожидания предоплаты (минут)</Label>
+                <Input
+                  id="company-prepayment-hold"
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={prepaymentHoldMin}
+                  onChange={(e) => setPrepaymentHoldMin(Number(e.target.value))}
+                  className="min-h-11"
+                />
+                <p className="text-xs text-muted-foreground">
+                  0 — не отменять автоматически; от 15 до 1440 минут (обычно 30).
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t pt-4">

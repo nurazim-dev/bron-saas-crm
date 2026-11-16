@@ -2,6 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
+  PrepaymentStatus,
+  Role,
   type BusinessType,
   type Company,
   type Service,
@@ -9,7 +11,12 @@ import {
 } from '../../generated/prisma/client.js';
 import { env } from '../../config/env.js';
 import { now as clockNow } from '../../lib/clock.js';
-import { addMinutesUtc, getLocalDayBoundsUtc, utcToLocalParts } from '../../lib/datetime.js';
+import {
+  addDurationMsUtc,
+  addMinutesUtc,
+  getLocalDayBoundsUtc,
+  utcToLocalParts,
+} from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
@@ -18,7 +25,13 @@ import {
   lockMastersForUpdate,
   type TransactionClient,
 } from '../appointments/appointments.service.js';
+import {
+  buildPublicPrepaymentBlock,
+  computePrepaymentAmount,
+  type PublicPrepaymentBlock,
+} from '../appointments/prepayment.js';
 import { upsertClientInTx } from '../clients/clients.service.js';
+import { enqueue } from '../notifications/outbox.service.js';
 import { scheduleAppointmentReminders } from '../notifications/reminders.service.js';
 import { notifyCompanyStaff } from '../notifications/staff-notify.service.js';
 import {
@@ -51,6 +64,8 @@ export interface PublicServiceDto {
   description: string | null;
   durationMin: number;
   price: string;
+  requiresPrepayment: boolean;
+  prepaymentAmount: string | null;
 }
 
 export interface PublicMasterDto {
@@ -90,6 +105,7 @@ export interface PublicBookedAppointmentDto {
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
   manageUrl: string;
+  prepayment: PublicPrepaymentBlock | null;
 }
 
 function isAnyMasterChoice(
@@ -229,7 +245,7 @@ export async function getPublicCompanyProfileBySlug(
 ): Promise<PublicCompanyProfileDto> {
   const company = await resolveEnabledCompanyBySlug(prisma, slug);
 
-  const [activeServices, candidateUsers] = await Promise.all([
+  const [activeServices, candidateUsers, sub] = await Promise.all([
     prisma.service.findMany({
       where: {
         companyId: company.id,
@@ -261,7 +277,12 @@ export async function getPublicCompanyProfileBySlug(
       },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
     }),
+    prisma.subscription.findUnique({
+      where: { companyId: company.id },
+      include: { plan: { select: { featurePrepayment: true } } },
+    }),
   ]);
+  const planHasPrepayment = sub?.plan.featurePrepayment ?? false;
 
   const activeServiceIdSet = new Set(activeServices.map((s) => s.id));
 
@@ -303,13 +324,26 @@ export async function getPublicCompanyProfileBySlug(
       bookingEnabled: company.publicBookingEnabled,
       maxAdvanceDays: company.maxAdvanceDays,
     },
-    services: activeServices.map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      durationMin: s.durationMin,
-      price: s.price.toFixed(2),
-    })),
+    services: activeServices.map((s) => {
+      const hasPrep =
+        planHasPrepayment &&
+        s.requiresPrepayment &&
+        s.prepaymentMode !== null &&
+        s.prepaymentValue !== null;
+      const prepAmount =
+        hasPrep && s.prepaymentMode && s.prepaymentValue
+          ? computePrepaymentAmount(s.price, s.prepaymentMode, s.prepaymentValue).toFixed(2)
+          : null;
+      return {
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        durationMin: s.durationMin,
+        price: s.price.toFixed(2),
+        requiresPrepayment: hasPrep,
+        prepaymentAmount: prepAmount,
+      };
+    }),
     masters: bookableMasters,
   };
 }
@@ -469,6 +503,28 @@ async function bookSingleMasterInTransaction(
         );
       }
 
+      const sub = await tx.subscription.findUnique({
+        where: { companyId: company.id },
+        include: { plan: { select: { featurePrepayment: true } } },
+      });
+      const prepayEnabled =
+        (sub?.plan.featurePrepayment ?? false) &&
+        service.requiresPrepayment &&
+        service.prepaymentMode !== null &&
+        service.prepaymentValue !== null;
+
+      const prepaymentAmount =
+        prepayEnabled && service.prepaymentMode && service.prepaymentValue
+          ? computePrepaymentAmount(service.price, service.prepaymentMode, service.prepaymentValue)
+          : null;
+      const prepaymentStatus = prepayEnabled
+        ? PrepaymentStatus.PENDING
+        : PrepaymentStatus.NOT_REQUIRED;
+      const prepaymentHoldUntil =
+        prepayEnabled && company.prepaymentHoldMin > 0
+          ? addDurationMsUtc(currentNow, company.prepaymentHoldMin * 60_000)
+          : null;
+
       const manageToken = randomBytes(32).toString('base64url');
       const created = await tx.appointment.create({
         data: {
@@ -486,9 +542,56 @@ async function bookSingleMasterInTransaction(
           status: AppointmentStatus.SCHEDULED,
           source: AppointmentSource.ONLINE,
           manageToken,
+          clientLocale: input.locale ?? company.defaultLocale,
           consentAcceptedAt: currentNow,
+          prepaymentStatus,
+          prepaymentAmount,
+          prepaymentHoldUntil,
         },
       });
+
+      if (prepaymentStatus === PrepaymentStatus.PENDING && prepaymentAmount) {
+        const owner = await tx.user.findFirst({
+          where: {
+            companyId: company.id,
+            role: Role.OWNER,
+            isActive: true,
+            deletedAt: null,
+          },
+          select: { id: true, email: true, notifyEmail: true },
+        });
+        if (owner) {
+          const local = utcToLocalParts(created.startAt, company.timezone);
+          const amountStr = prepaymentAmount.toFixed(2);
+          await tx.inAppNotification.create({
+            data: {
+              companyId: company.id,
+              userId: owner.id,
+              kind: 'PREPAYMENT_PENDING_OWNER',
+              title: `Ожидается предоплата: ${created.clientName}`,
+              body: `${service.name} • ${amountStr} ${company.currency} • ${local.date} ${local.time}`,
+              data: { appointmentId: created.id },
+            },
+          });
+          if (owner.notifyEmail && owner.email) {
+            await enqueue(tx, {
+              companyId: company.id,
+              channel: 'EMAIL',
+              kind: 'PREPAYMENT_PENDING_OWNER',
+              recipient: owner.email,
+              toUserId: owner.id,
+              appointmentId: created.id,
+              payload: {
+                clientName: created.clientName,
+                serviceName: service.name,
+                amount: amountStr,
+                localDateTime: `${local.date} ${local.time}`,
+              },
+              dedupeKey: `prepay-pending:${created.id}:${owner.id}`,
+            });
+          }
+        }
+      }
 
       await notifyCompanyStaff(tx, {
         kind: 'NEW_ONLINE_BOOKING',
@@ -513,6 +616,7 @@ async function bookSingleMasterInTransaction(
 
       return {
         manageUrl: `${env.APP_URL}/manage/${created.manageToken}`,
+        prepayment: buildPublicPrepaymentBlock(created, company, service.name),
         appointment: {
           id: created.id,
           startAt: created.startAt.toISOString(),
@@ -568,6 +672,7 @@ export async function createPublicAppointmentBySlug(
       const fakeEndAt = addMinutesUtc(input.startAt, preflightEntities.service.durationMin);
       return {
         manageUrl: `${env.APP_URL}/manage/${randomBytes(32).toString('base64url')}`,
+        prepayment: null,
         appointment: {
           id: randomUUID(),
           startAt: input.startAt.toISOString(),
@@ -616,6 +721,7 @@ export async function createPublicAppointmentBySlug(
     const fakeEndAt = addMinutesUtc(input.startAt, preflightService.durationMin);
     return {
       manageUrl: `${env.APP_URL}/manage/${randomBytes(32).toString('base64url')}`,
+      prepayment: null,
       appointment: {
         id: randomUUID(),
         startAt: input.startAt.toISOString(),

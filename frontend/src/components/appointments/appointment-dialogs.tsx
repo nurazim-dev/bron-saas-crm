@@ -24,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  applyPrepaymentAction,
   changeAppointmentStatus,
   createAppointment,
   deleteAppointment,
@@ -45,10 +46,30 @@ import type {
   AppointmentDto,
   AppointmentStatus,
   AvailableSlotDto,
+  PrepaymentStatus,
   Role,
   ServiceDto,
   StaffDto,
 } from '@/types/api';
+
+export function PrepaymentStatusBadge({ status }: { status?: PrepaymentStatus }) {
+  if (!status || status === 'NOT_REQUIRED') return null;
+  const styles: Record<Exclude<PrepaymentStatus, 'NOT_REQUIRED'>, string> = {
+    PENDING: 'border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-300',
+    RECEIVED: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
+    REFUNDED: 'border-slate-400/30 bg-slate-500/10 text-muted-foreground',
+  };
+  const labels: Record<Exclude<PrepaymentStatus, 'NOT_REQUIRED'>, string> = {
+    PENDING: 'Ожидает предоплату',
+    RECEIVED: 'Предоплата получена',
+    REFUNDED: 'Предоплата возвращена',
+  };
+  return (
+    <Badge variant="outline" className={styles[status]}>
+      {labels[status]}
+    </Badge>
+  );
+}
 
 export function AppointmentStatusBadge({ status }: { status: AppointmentStatus }) {
   const styles: Record<AppointmentStatus, string> = {
@@ -114,6 +135,26 @@ function AppointmentDetailsModalInner({
       const updated = await changeAppointmentStatus(appointment.id, nextStatus);
       onUpdated(updated);
       toast.success(ru.appointmentDialog.statusChangedSuccess);
+    } catch (err) {
+      setActionError(getApiErrorMessage(err));
+    } finally {
+      setIsChangingStatus(false);
+    }
+  }
+
+  async function handlePrepaymentAction(action: 'RECEIVED' | 'WAIVE' | 'REFUND') {
+    setIsChangingStatus(true);
+    setActionError(null);
+    try {
+      const updated = await applyPrepaymentAction(appointment.id, action);
+      onUpdated(updated);
+      toast.success(
+        action === 'RECEIVED'
+          ? 'Предоплата подтверждена'
+          : action === 'WAIVE'
+            ? 'Требование предоплаты снято'
+            : 'Предоплата отмечена как возвращённая',
+      );
     } catch (err) {
       setActionError(getApiErrorMessage(err));
     } finally {
@@ -260,13 +301,78 @@ function AppointmentDetailsModalInner({
                 <div className="flex items-center justify-between">
                   <span>Отменил:</span>
                   <span className="font-medium">
-                    {appointment.cancelledBy === 'CLIENT' ? 'Клиент' : 'Персонал'}
+                    {appointment.cancelledBy === 'CLIENT'
+                      ? 'Клиент'
+                      : appointment.cancelledBy === 'SYSTEM'
+                        ? 'Система (авто)'
+                        : 'Персонал'}
                   </span>
                 </div>
                 {appointment.cancelReason && <div>Причина: {appointment.cancelReason}</div>}
               </div>
             )}
           </div>
+
+          {/* Prepayment block */}
+          {appointment.prepaymentStatus && appointment.prepaymentStatus !== 'NOT_REQUIRED' && (
+            <div className="space-y-3 rounded-xl border p-4 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Предоплата</span>
+                <PrepaymentStatusBadge status={appointment.prepaymentStatus} />
+              </div>
+              {appointment.prepaymentAmount && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Сумма:</span>
+                  <span className="font-semibold">
+                    {formatPriceKgs(appointment.prepaymentAmount)}
+                  </span>
+                </div>
+              )}
+              {appointment.prepaymentHoldUntil && appointment.prepaymentStatus === 'PENDING' && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Оплатить до:</span>
+                  <span className="font-medium">
+                    {formatDateInCompanyTz(appointment.prepaymentHoldUntil, timezone)}{' '}
+                    {formatTimeInCompanyTz(appointment.prepaymentHoldUntil, timezone)}
+                  </span>
+                </div>
+              )}
+              {appointment.status === 'SCHEDULED' && appointment.prepaymentStatus === 'PENDING' && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isChangingStatus}
+                    onClick={() => void handlePrepaymentAction('RECEIVED')}
+                  >
+                    Подтвердить получение
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isChangingStatus}
+                    onClick={() => void handlePrepaymentAction('WAIVE')}
+                  >
+                    Снять требование
+                  </Button>
+                </div>
+              )}
+              {callerRole === 'OWNER' && appointment.prepaymentStatus === 'RECEIVED' && (
+                <div className="pt-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isChangingStatus}
+                    onClick={() => void handlePrepaymentAction('REFUND')}
+                  >
+                    Возврат предоплаты
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes */}
           {(appointment.clientNote || appointment.internalNote) && (
