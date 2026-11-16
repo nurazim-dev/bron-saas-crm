@@ -5,8 +5,9 @@ export interface AuthState {
   accessToken: string | null;
   user: AuthUserDto | null;
   company: CompanyDto | null;
+  isImpersonating: boolean;
   isInitialized: boolean;
-  setSession: (session: AuthSessionDto) => void;
+  setSession: (session: AuthSessionDto & { isImpersonating?: boolean }) => void;
   setUserAndCompany: (user: AuthUserDto, company: CompanyDto) => void;
   setCompany: (company: CompanyDto) => void;
   clearSession: () => void;
@@ -21,12 +22,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   user: null,
   company: null,
+  isImpersonating: false,
   isInitialized: false,
   setSession: (session) =>
     set({
       accessToken: session.accessToken,
       user: session.user,
       company: session.company,
+      isImpersonating: Boolean(session.isImpersonating),
       isInitialized: true,
     }),
   setUserAndCompany: (user, company) =>
@@ -43,6 +46,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       accessToken: null,
       user: null,
       company: null,
+      isImpersonating: false,
       isInitialized: true,
     }),
   setInitialized: (initialized) =>

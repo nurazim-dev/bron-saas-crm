@@ -33,6 +33,7 @@ const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function SettingsManagerContent() {
   const storeCompany = useAuthStore((s) => s.company);
+  const isImpersonating = useAuthStore((s) => s.isImpersonating);
   const [company, setCompany] = useState<CompanyDto | null>(storeCompany);
   const [isLoading, setIsLoading] = useState(!storeCompany);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -496,8 +497,17 @@ function SettingsManagerContent() {
               </div>
             </div>
 
-            <div className="flex justify-end border-t pt-4">
-              <Button type="submit" disabled={isSavingSettings} className="min-h-11">
+            <div className="flex items-center justify-end gap-3 border-t pt-4">
+              {isImpersonating && (
+                <span className="text-xs text-muted-foreground">
+                  Режим имперсонации: изменения отключены
+                </span>
+              )}
+              <Button
+                type="submit"
+                disabled={isSavingSettings || isImpersonating}
+                className="min-h-11"
+              >
                 {isSavingSettings ? ru.common.saving : ru.settingsPage.saveSettings}
               </Button>
             </div>

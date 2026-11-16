@@ -1,4 +1,32 @@
+import { createHmac } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
+
+function generateTotp(base32Secret: string, stepOffset = 0): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const cleaned = base32Secret.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
+  let bits = '';
+  for (const ch of cleaned) {
+    const idx = alphabet.indexOf(ch);
+    if (idx === -1) continue;
+    bits += idx.toString(2).padStart(5, '0');
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(Number.parseInt(bits.slice(i, i + 8), 2));
+  }
+  const key = Buffer.from(bytes);
+  const counter = Math.floor(Date.now() / 1000 / 30) + stepOffset;
+  const counterBuf = Buffer.alloc(8);
+  counterBuf.writeBigUInt64BE(BigInt(counter));
+  const hmac = createHmac('sha1', key).update(counterBuf).digest();
+  const offset = (hmac[hmac.length - 1] ?? 0) & 0x0f;
+  const code =
+    (((hmac[offset] ?? 0) & 0x7f) << 24) |
+    (((hmac[offset + 1] ?? 0) & 0xff) << 16) |
+    (((hmac[offset + 2] ?? 0) & 0xff) << 8) |
+    ((hmac[offset + 3] ?? 0) & 0xff);
+  return String(code % 1_000_000).padStart(6, '0');
+}
 
 async function advanceUntilSlotsAvailable(page: Page): Promise<number> {
   const slotButtons = page.getByRole('button', { name: /^\d{2}:\d{2}$/ });
@@ -331,5 +359,122 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await request.delete('http://localhost:8025/api/v1/messages');
     await ctx.close();
+  });
+
+  test('E2E 5: Admin logs in with TOTP -> confirms owner payment claim -> suspends company (owner gets 403) -> unsuspends & impersonates read-only -> sees audit entries', async ({
+    browser,
+    request,
+  }) => {
+    // 1. Owner logs in and submits a payment claim via API/UI
+    const ownerCtx = await browser.newContext();
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.locator('#login-email').fill('owner@demo.zapis.kg');
+    await ownerPage.locator('#login-password').fill('Demo12345!');
+    await ownerPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+
+    await ownerPage.goto('/dashboard/billing');
+    await expect(ownerPage.getByRole('heading', { name: 'Оплата и тариф' })).toBeVisible();
+    await ownerPage
+      .getByRole('button', { name: /Продлить|Выбрать и оплатить/ })
+      .first()
+      .click();
+    await ownerPage.locator('#claim-reference').fill('E2E-CLAIM-777');
+    await ownerPage.getByRole('button', { name: 'Отправить заявку' }).click();
+    await expect(ownerPage.getByText('E2E-CLAIM-777')).toBeVisible();
+
+    // 2. Ensure admin@demo.zapis.kg has 2FA enrolled so we test real TOTP login
+    const adminLoginApi = await request.post('http://localhost:4000/api/v1/admin/auth/login', {
+      data: { email: 'admin@demo.zapis.kg', password: 'AdminDemo12345!' },
+    });
+    expect(adminLoginApi.status()).toBe(200);
+    const adminLoginJson = (await adminLoginApi.json()) as {
+      data: { status: string; accessToken?: string; mfaToken?: string };
+    };
+    const tokenForEnroll = adminLoginJson.data.accessToken ?? adminLoginJson.data.mfaToken ?? '';
+    expect(tokenForEnroll).toBeTruthy();
+
+    const enrollRes = await request.post('http://localhost:4000/api/v1/admin/auth/2fa/enroll', {
+      headers: { Authorization: `Bearer ${tokenForEnroll}` },
+      data: {},
+    });
+    expect(enrollRes.status()).toBe(200);
+    const enrollJson = (await enrollRes.json()) as { data: { secret: string } };
+    const totpSecret = enrollJson.data.secret;
+
+    const verifyEnrollRes = await request.post(
+      'http://localhost:4000/api/v1/admin/auth/2fa/verify-enroll',
+      {
+        headers: { Authorization: `Bearer ${tokenForEnroll}` },
+        data: { code: generateTotp(totpSecret, -1) },
+      },
+    );
+    expect(verifyEnrollRes.status()).toBe(200);
+
+    // 3. Admin logs in via /admin/login with TOTP
+    const adminCtx = await browser.newContext();
+    const adminPage = await adminCtx.newPage();
+    await adminPage.goto('/admin/login');
+    await adminPage.locator('#admin-email').fill('admin@demo.zapis.kg');
+    await adminPage.locator('#admin-password').fill('AdminDemo12345!');
+    await adminPage.getByRole('button', { name: 'Войти' }).click();
+
+    await expect(adminPage.getByText('Двухфакторная аутентификация')).toBeVisible();
+    await adminPage.getByPlaceholder('000000').fill(generateTotp(totpSecret));
+    await adminPage.getByRole('button', { name: 'Подтвердить' }).click();
+    await expect(adminPage).toHaveURL(/\/admin$/);
+    await expect(adminPage.getByRole('heading', { name: 'Обзор платформы' })).toBeVisible();
+
+    // 4. Confirm the owner's payment claim in /admin/payments
+    await adminPage.goto('/admin/payments');
+    await expect(adminPage.getByText('E2E-CLAIM-777')).toBeVisible();
+    await adminPage.getByRole('button', { name: 'Подтвердить' }).first().click();
+    await adminPage.getByRole('dialog').getByRole('button', { name: 'Подтвердить' }).click();
+    await expect(adminPage.getByText('Платёж подтверждён, подписка продлена')).toBeVisible();
+
+    // 5. Suspend Demo Barbershop and verify owner's session gets 403
+    await adminPage.goto('/admin/companies');
+    await adminPage.getByRole('link', { name: 'Demo Barbershop' }).click();
+    await expect(adminPage).toHaveURL(/\/admin\/companies\/.+$/);
+
+    await adminPage.getByRole('button', { name: 'Заблокировать' }).click();
+    await adminPage.locator('#suspend-reason').fill('E2E suspension check');
+    await adminPage.getByRole('dialog').getByRole('button', { name: 'Заблокировать' }).click();
+    await expect(adminPage.getByText('Компания заблокирована')).toBeVisible();
+
+    const [suspendedRes] = await Promise.all([
+      ownerPage.waitForResponse((r) => r.url().includes('/api/v1/') && r.status() === 403),
+      ownerPage.getByRole('link', { name: 'Услуги' }).click(),
+    ]);
+    expect(suspendedRes.status()).toBe(403);
+    await expect(ownerPage.getByText(/приостановлен/i)).toBeVisible();
+
+    // 6. Unsuspend & impersonate read-only
+    await adminPage.getByRole('button', { name: 'Разблокировать' }).click();
+    await expect(adminPage.getByText('Блокировка снята')).toBeVisible();
+
+    await adminPage.getByRole('button', { name: 'Имперсонация (read-only)' }).click();
+    await adminPage.locator('#imp-reason').fill('E2E support inspection');
+    await adminPage.getByRole('dialog').getByRole('button', { name: 'Открыть кабинет' }).click();
+    await expect(adminPage).toHaveURL(/\/dashboard$/);
+    await expect(adminPage.getByText(/Режим просмотра|только чтение/i)).toBeVisible();
+
+    await adminPage.getByRole('link', { name: 'Настройки', exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/dashboard\/settings$/);
+    await expect(adminPage.getByText('Режим имперсонации: изменения отключены')).toBeVisible();
+
+    await adminPage.getByRole('button', { name: 'Выйти из режима поддержки' }).click();
+    await expect(adminPage).toHaveURL(/\/admin$/);
+
+    // 7. Verify audit entries in /admin/audit
+    await adminPage.goto('/admin/audit');
+    await expect(adminPage.getByText('admin.company_suspend')).toBeVisible();
+    await expect(adminPage.getByText('admin.company_unsuspend')).toBeVisible();
+    await expect(adminPage.getByText('admin.impersonation_start')).toBeVisible();
+    await expect(adminPage.getByText('admin.impersonation_exit')).toBeVisible();
+
+    await ownerCtx.close();
+    await adminCtx.close();
   });
 });

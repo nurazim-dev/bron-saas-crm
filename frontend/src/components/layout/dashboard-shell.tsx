@@ -24,7 +24,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { logoutSession } from '@/lib/api/auth.api';
+import { exitImpersonation, logoutSession } from '@/lib/api/auth.api';
 import { getBillingOverview, getPublicPlatform } from '@/lib/api/billing.api';
 import { ru } from '@/lib/i18n/ru';
 import { cn } from '@/lib/utils';
@@ -88,6 +88,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const company = useAuthStore((s) => s.company);
+  const isImpersonating = useAuthStore((s) => s.isImpersonating);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [billingOverview, setBillingOverview] = useState<BillingOverviewDto | null>(null);
@@ -148,6 +149,16 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       await logoutSession();
       toast.success(ru.auth.logoutSuccess);
       router.replace('/login');
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
+  async function handleExitImpersonation() {
+    setIsLoggingOut(true);
+    try {
+      await exitImpersonation();
+      router.replace('/admin');
     } finally {
       setIsLoggingOut(false);
     }
@@ -323,6 +334,30 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </Button>
           </div>
         </header>
+
+        {isImpersonating && company && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-400/40 bg-indigo-950 px-4 py-2 text-xs font-medium text-indigo-50 sm:px-6 sm:text-sm"
+          >
+            <div className="flex items-center gap-2">
+              <Lock className="h-4 w-4 shrink-0 text-indigo-300" aria-hidden="true" />
+              <span>
+                Сессия поддержки (только чтение): <strong>{company.name}</strong> — изменения
+                отключены.
+              </span>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={isLoggingOut}
+              onClick={() => void handleExitImpersonation()}
+            >
+              Выйти из режима поддержки
+            </Button>
+          </div>
+        )}
 
         {platformInfo?.announcement.enabled && platformInfo.announcement.text && (
           <div className="border-b bg-primary/10 px-4 py-2 text-xs font-medium text-foreground sm:px-6">

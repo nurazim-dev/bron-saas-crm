@@ -83,3 +83,35 @@ export async function resetPassword(payload: {
 }): Promise<void> {
   await apiClient.post('/auth/reset-password', payload);
 }
+
+export async function exchangeImpersonationCode(code: string): Promise<{
+  accessToken: string;
+  user: AuthSessionDto['user'];
+  company: AuthSessionDto['company'];
+  impersonating: boolean;
+}> {
+  const res = await apiClient.post<
+    ApiSuccessEnvelope<{
+      accessToken: string;
+      user: AuthSessionDto['user'];
+      company: AuthSessionDto['company'];
+      impersonating: boolean;
+    }>
+  >('/auth/impersonate/exchange', { code });
+  const data = res.data.data;
+  useAuthStore.getState().setSession({
+    accessToken: data.accessToken,
+    user: data.user,
+    company: data.company,
+    isImpersonating: true,
+  });
+  return data;
+}
+
+export async function exitImpersonation(): Promise<void> {
+  try {
+    await apiClient.post('/auth/impersonate/exit', {});
+  } finally {
+    useAuthStore.getState().clearSession();
+  }
+}
