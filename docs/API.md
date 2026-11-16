@@ -591,5 +591,45 @@ Marks all unread notifications for the current user as read.
 - **Responses**:
   - `200 OK`: `{ "data": { "updatedCount": 3 } }`
 
+---
+
+## 9. Billing & Public Platform (`/api/v1/billing`, `/api/v1/public/platform`)
+
+### `GET /api/v1/public/platform`
+Returns public active plans, support contacts, platform announcement, and `registrationOpen` flag (cached for 60 seconds).
+- **Auth**: None
+- **Responses**:
+  - `200 OK`: `{ "data": { "plans": [PlanDto, ...], "support": { "phone", "whatsapp", "email" }, "announcement": { "enabled", "text" }, "registrationOpen": true } }`
+
+### `GET /api/v1/billing`
+Returns the current company's subscription state (`TRIAL | ACTIVE | PAST_DUE | LOCKED`), days left, active staff usage vs. `maxStaff`, pending payment claim, and payment instructions.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Responses**:
+  - `200 OK`: `{ "data": BillingOverviewDto }`
+
+### `GET /api/v1/billing/plans`
+Lists active public subscription plans ordered by `sortOrder`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+
+### `GET /api/v1/billing/payments`
+Lists paginated payment claims and confirmed payments for the company.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+
+### `POST /api/v1/billing/payments`
+Creates a manual payment claim (`PENDING`). Amount is computed server-side (`priceMonthly * months`). Only one `PENDING` claim per company is permitted.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body**: `{ "planId": "uuid", "months": 1 | 3 | 6 | 12, "method": "MBANK", "reference"?: "...", "comment"?: "..." }`
+- **Responses**:
+  - `201 Created`: `{ "data": SubscriptionPaymentDto }`
+  - `409 PAYMENT_CLAIM_PENDING`
+
+### `DELETE /api/v1/billing/payments/:id`
+Cancels the company's own `PENDING` payment claim.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Responses**:
+  - `200 OK`: `{ "data": SubscriptionPaymentDto }`
+  - `404 NOT_FOUND`
+  - `409 ALREADY_REVIEWED`
+
 
 

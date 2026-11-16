@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Role } from '../../generated/prisma/client.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireWritableSubscription } from '../../middleware/billing.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -29,6 +30,7 @@ staffRouter.get('/', authenticate, requireRole(Role.OWNER), listStaffController)
 staffRouter.post(
   '/',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ body: createStaffBodySchema }),
   createStaffController,
@@ -45,6 +47,7 @@ staffRouter.get(
 staffRouter.patch(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: updateStaffBodySchema }),
   updateStaffController,
@@ -53,6 +56,7 @@ staffRouter.patch(
 staffRouter.delete(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema }),
   deleteStaffController,
@@ -61,6 +65,7 @@ staffRouter.delete(
 staffRouter.put(
   '/:id/services',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: replaceStaffServicesBodySchema }),
   replaceStaffServicesController,
@@ -69,6 +74,7 @@ staffRouter.put(
 staffRouter.put(
   '/:id/working-hours',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: replaceWorkingHoursBodySchema }),
   replaceStaffWorkingHoursController,
@@ -77,6 +83,7 @@ staffRouter.put(
 staffRouter.post(
   '/:id/password-reset-link',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: createStaffPasswordResetLinkBodySchema }),
   createStaffPasswordResetLinkController,

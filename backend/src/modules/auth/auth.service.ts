@@ -12,7 +12,9 @@ import { hashPassword, verifyDummyPassword, verifyPassword } from '../../lib/pas
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
 import { generateUniqueCompanySlug } from '../../lib/slug.js';
+import { createTrialSubscriptionForCompany } from '../billing/billing.service.js';
 import { type CompanyDto, serializeCompany } from '../company/company.service.js';
+import { getPlatformSettings } from '../platform/platform-settings.service.js';
 import type { ChangePasswordBody, LoginBody, RegisterBody } from './auth.schemas.js';
 
 export interface AuthUserDto {
@@ -66,6 +68,11 @@ function issueSessionTokens(user: User, company: Company): AuthSessionResult {
 }
 
 export async function registerOwnerAndCompany(input: RegisterBody): Promise<AuthSessionResult> {
+  const platformSettings = await getPlatformSettings();
+  if (!platformSettings.registrationOpen) {
+    throw new AppError('REGISTRATION_CLOSED', 403, 'New registrations are currently closed');
+  }
+
   const normalizedPhone =
     input.phone !== undefined && input.phone.length > 0
       ? normalizePhoneE164(input.phone, 'phone')
@@ -114,6 +121,8 @@ export async function registerOwnerAndCompany(input: RegisterBody): Promise<Auth
           isBookable: true,
         },
       });
+
+      await createTrialSubscriptionForCompany(tx, createdCompany.id);
 
       return { company: createdCompany, owner: createdOwner };
     });

@@ -151,3 +151,71 @@ registerNotificationTemplate('PASSWORD_RESET', (locale, payload) => {
     telegramHtml: `<b>${escapeTelegramHtml(subject)}</b>\n${escapeTelegramHtml(resetUrl)}`,
   };
 });
+
+function buildSimpleEmailTemplate(subject: string, lines: string[]): RenderedNotification {
+  const text = lines.join('\n');
+  const html = lines
+    .map((line) => (line.length === 0 ? '<br/>' : `<p>${escapeHtml(line)}</p>`))
+    .join('');
+  return {
+    subject,
+    text,
+    html,
+    telegramHtml: `<b>${escapeTelegramHtml(subject)}</b>\n${escapeTelegramHtml(text)}`,
+  };
+}
+
+registerNotificationTemplate('BILLING_PAYMENT_CONFIRMED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const planName = readString(payload, 'planName', '');
+  const periodEndIso = readString(payload, 'periodEndIso', '').slice(0, 10);
+  const amount = readString(payload, 'amount', '');
+  return buildSimpleEmailTemplate(`Оплата подписки подтверждена — ${companyName}`, [
+    `Тариф «${planName}» для ${companyName} активирован до ${periodEndIso}.`,
+    amount ? `Сумма: ${amount} KGS.` : '',
+  ]);
+});
+
+registerNotificationTemplate('BILLING_PAYMENT_REJECTED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const planName = readString(payload, 'planName', '');
+  const reason = readString(payload, 'reason', 'Не указана');
+  return buildSimpleEmailTemplate(`Заявка на оплату отклонена — ${companyName}`, [
+    `Заявка на тариф «${planName}» для ${companyName} отклонена.`,
+    `Причина: ${reason}`,
+  ]);
+});
+
+registerNotificationTemplate('BILLING_TRIAL_EXPIRING', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const daysLeftRaw = payload.daysLeft;
+  const daysLeft = typeof daysLeftRaw === 'number' ? daysLeftRaw : 3;
+  return buildSimpleEmailTemplate(`Подписка заканчивается через ${daysLeft} дн. — ${companyName}`, [
+    `Срок действия текущего периода подписки для ${companyName} истекает через ${daysLeft} дн.`,
+    'Продлите тариф в разделе «Оплата и тариф», чтобы избежать ограничений.',
+  ]);
+});
+
+registerNotificationTemplate('BILLING_PERIOD_ENDED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  return buildSimpleEmailTemplate(`Период подписки завершён — ${companyName}`, [
+    `Оплаченный период подписки для ${companyName} завершился.`,
+    'Включён льготный период. Пожалуйста, оформите продление в разделе «Оплата и тариф».',
+  ]);
+});
+
+registerNotificationTemplate('BILLING_GRACE_ENDING', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  return buildSimpleEmailTemplate(`Льготный период заканчивается — ${companyName}`, [
+    `Льготный период подписки для ${companyName} подходит к концу.`,
+    'После окончания льготного периода кабинет перейдёт в режим только чтения.',
+  ]);
+});
+
+registerNotificationTemplate('BILLING_LOCKED', (_locale, payload) => {
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  return buildSimpleEmailTemplate(`Кабинет переведён в режим только чтения — ${companyName}`, [
+    `Подписка для ${companyName} не продлена, и льготный период истёк.`,
+    'Данные сохранены. Чтобы возобновить работу и онлайн-запись, оплатите тариф в разделе «Оплата и тариф».',
+  ]);
+});

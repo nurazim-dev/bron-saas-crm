@@ -24,6 +24,7 @@ import {
   type AvailableSlotDto,
   type DbClient,
 } from '../availability/availability.service.js';
+import { isCompanyBookingLocked } from '../billing/billing.service.js';
 import type { CreatePublicAppointmentBody, GetPublicAvailabilityQuery } from './public.schemas.js';
 
 const MAX_UPCOMING_APPOINTMENTS_PER_PHONE = 3;
@@ -101,7 +102,7 @@ async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<
     throw new AppError('NOT_FOUND', 404, 'Company not found');
   }
 
-  if (!company.publicBookingEnabled) {
+  if (!company.publicBookingEnabled || (await isCompanyBookingLocked(company.id, db))) {
     throw new AppError(
       'BOOKING_DISABLED',
       403,

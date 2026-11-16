@@ -1,12 +1,16 @@
 'use client';
 
 import {
+  AlertTriangle,
   Briefcase,
   CalendarDays,
   ClipboardList,
+  CreditCard,
   ExternalLink,
   LayoutDashboard,
+  Lock,
   LogOut,
+  Megaphone,
   Menu,
   Scissors,
   Settings,
@@ -16,15 +20,16 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { logoutSession } from '@/lib/api/auth.api';
+import { getBillingOverview, getPublicPlatform } from '@/lib/api/billing.api';
 import { ru } from '@/lib/i18n/ru';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
-import type { Role } from '@/types/api';
+import type { BillingOverviewDto, PublicPlatformDto, Role } from '@/types/api';
 
 interface NavItem {
   href: string;
@@ -65,6 +70,12 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['OWNER'],
   },
   {
+    href: '/dashboard/billing',
+    label: ru.nav.billing,
+    icon: CreditCard,
+    roles: ['OWNER'],
+  },
+  {
     href: '/dashboard/settings',
     label: ru.nav.settings,
     icon: Settings,
@@ -79,6 +90,46 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const company = useAuthStore((s) => s.company);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [billingOverview, setBillingOverview] = useState<BillingOverviewDto | null>(null);
+  const [platformInfo, setPlatformInfo] = useState<PublicPlatformDto | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPublicPlatform()
+      .then((data) => {
+        if (!cancelled) setPlatformInfo(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (user?.role !== 'OWNER') {
+      return;
+    }
+    let cancelled = false;
+    const loadBilling = () => {
+      void getBillingOverview()
+        .then((data) => {
+          if (!cancelled) setBillingOverview(data);
+        })
+        .catch(() => undefined);
+    };
+    loadBilling();
+
+    const handle402 = () => {
+      toast.error(ru.errors.SUBSCRIPTION_REQUIRED);
+      loadBilling();
+    };
+    window.addEventListener('zapis:billing-402', handle402);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('zapis:billing-402', handle402);
+    };
+  }, [user?.role, pathname]);
 
   const visibleNavItems = NAV_ITEMS.filter((item) =>
     user ? item.roles.includes(user.role) : false,
@@ -272,6 +323,68 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </Button>
           </div>
         </header>
+
+        {platformInfo?.announcement.enabled && platformInfo.announcement.text && (
+          <div className="border-b bg-primary/10 px-4 py-2 text-xs font-medium text-foreground sm:px-6">
+            <div className="flex items-center gap-2">
+              <Megaphone className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <span>{platformInfo.announcement.text}</span>
+            </div>
+          </div>
+        )}
+
+        {user?.role === 'OWNER' && billingOverview?.subscription.state === 'LOCKED' && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive sm:px-6"
+          >
+            <div className="flex items-center gap-2">
+              <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                Подписка истекла — кабинет в режиме только чтения, онлайн-запись отключена. Ваши
+                данные сохранены.
+              </span>
+            </div>
+            <Button asChild size="sm" variant="destructive">
+              <Link href="/dashboard/billing">Продлить тариф</Link>
+            </Button>
+          </div>
+        )}
+
+        {user?.role === 'OWNER' && billingOverview?.subscription.state === 'PAST_DUE' && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 sm:px-6"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                Оплаченный период завершился (льготный период до{' '}
+                {billingOverview.subscription.graceEndsAt.slice(0, 10)}). Оформите продление, чтобы
+                избежать блокировки.
+              </span>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/dashboard/billing">Оплатить</Link>
+            </Button>
+          </div>
+        )}
+
+        {user?.role === 'OWNER' &&
+          billingOverview?.subscription.state === 'TRIAL' &&
+          billingOverview.subscription.daysLeft <= 3 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 sm:px-6">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>
+                  Пробный период заканчивается через {billingOverview.subscription.daysLeft} дн.
+                </span>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/dashboard/billing">Выбрать тариф</Link>
+              </Button>
+            </div>
+          )}
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
       </div>

@@ -45,6 +45,12 @@ Templates are registered per `kind` and rendered per `Locale` (`RU` | `KY`) into
 | `SYSTEM_TEST` | Infrastructure smoke test / admin test email | `RU`, `KY` |
 | `GENERIC` | Fallback structured `{ subject, text, html? }` message | `RU`, `KY` |
 | `PASSWORD_RESET` | Single-use password reset link (`APP_URL/reset-password?token=...`, 60 min TTL) | `RU`, `KY` |
+| `BILLING_TRIAL_EXPIRING` | Trial/subscription expiring within 3 days (T-3) | `RU` |
+| `BILLING_PERIOD_ENDED` | Paid/trial period ended; grace period active (T-0) | `RU` |
+| `BILLING_GRACE_ENDING` | Grace period ending within 24 hours | `RU` |
+| `BILLING_LOCKED` | Company transitioned to `LOCKED` read-only mode | `RU` |
+| `BILLING_PAYMENT_CONFIRMED` | Payment claim or offline payment confirmed | `RU` |
+| `BILLING_PAYMENT_REJECTED` | Payment claim rejected with reason | `RU` |
 
 Additional templates (`PASSWORD_RESET`, `BOOKING_CREATED`, `BOOKING_REMINDER`, `SUBSCRIPTION_EXPIRING`, etc.) are registered by their respective feature phases.
 

@@ -4,6 +4,7 @@ import {
   getValidatedParams,
   getValidatedQuery,
 } from '../../middleware/validate.js';
+import { getPublicPlatformInfo } from '../platform/platform-settings.service.js';
 import type {
   CompanySlugParams,
   CreatePublicAppointmentBody,
@@ -14,6 +15,11 @@ import {
   getPublicAvailabilityBySlug,
   getPublicCompanyProfileBySlug,
 } from './public.service.js';
+
+export const getPublicPlatformController: RequestHandler = async (_req, res) => {
+  const data = await getPublicPlatformInfo();
+  res.status(200).json({ data });
+};
 
 export const getPublicCompanyController: RequestHandler = async (req, res) => {
   const { slug } = getValidatedParams<CompanySlugParams>(req);

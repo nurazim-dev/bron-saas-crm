@@ -83,6 +83,15 @@ apiClient.interceptors.response.use(
       }
     }
 
+    if (error.response?.status === 402 && typeof window !== 'undefined') {
+      const code = error.response.data?.error?.code;
+      window.dispatchEvent(
+        new CustomEvent('zapis:billing-402', {
+          detail: { code },
+        }),
+      );
+    }
+
     return Promise.reject(error);
   },
 );

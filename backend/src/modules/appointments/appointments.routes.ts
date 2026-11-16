@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Role } from '../../generated/prisma/client.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireWritableSubscription } from '../../middleware/billing.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -31,6 +32,7 @@ appointmentsRouter.get(
 appointmentsRouter.post(
   '/',
   authenticate,
+  requireWritableSubscription,
   validate({ body: createAppointmentBodySchema }),
   createAppointmentController,
 );
@@ -45,6 +47,7 @@ appointmentsRouter.get(
 appointmentsRouter.patch(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   validate({ params: appointmentIdParamsSchema, body: updateAppointmentBodySchema }),
   updateAppointmentController,
 );
@@ -52,6 +55,7 @@ appointmentsRouter.patch(
 appointmentsRouter.post(
   '/:id/status',
   authenticate,
+  requireWritableSubscription,
   validate({ params: appointmentIdParamsSchema, body: updateAppointmentStatusBodySchema }),
   changeAppointmentStatusController,
 );
@@ -59,6 +63,7 @@ appointmentsRouter.post(
 appointmentsRouter.delete(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: appointmentIdParamsSchema }),
   deleteAppointmentController,

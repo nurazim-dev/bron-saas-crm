@@ -14,6 +14,7 @@ import { hashPassword } from '../../lib/password.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
 import type { AuthenticatedActor } from '../../types/express.js';
+import { assertWithinStaffLimit } from '../billing/billing.service.js';
 import type {
   CreateStaffBody,
   ReplaceStaffServicesBody,
@@ -144,6 +145,9 @@ export async function createStaffForCompany(
         existingByEmail.deletedAt !== null &&
         existingByEmail.role === Role.MASTER
       ) {
+        if (input.isActive !== false) {
+          await assertWithinStaffLimit(companyId, 1);
+        }
         await prismaUnfiltered.$transaction([
           prismaUnfiltered.masterService.deleteMany({ where: { userId: existingByEmail.id } }),
           prismaUnfiltered.workingHours.deleteMany({ where: { userId: existingByEmail.id } }),
@@ -181,6 +185,10 @@ export async function createStaffForCompany(
 
       throw new AppError('CONFLICT', 409, 'Email is already in use');
     }
+  }
+
+  if (input.isActive !== false) {
+    await assertWithinStaffLimit(companyId, 1);
   }
 
   try {
@@ -291,6 +299,10 @@ export async function updateStaffForCompany(
     input.password !== undefined ||
     nextEmail === null ||
     (input.isActive === false && existing.isActive);
+
+  if (!existing.isActive && input.isActive === true) {
+    await assertWithinStaffLimit(companyId, 1);
+  }
 
   try {
     const updated = await prisma.user.update({

@@ -1,5 +1,9 @@
 import { ArrowRight, CalendarCheck2, Scissors, Smartphone, Users } from 'lucide-react';
 import Link from 'next/link';
+import {
+  LandingAnnouncementBanner,
+  LandingPricingSection,
+} from '@/components/landing/platform-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +14,7 @@ const BENEFIT_ICONS = [CalendarCheck2, Smartphone, Users] as const;
 export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <LandingAnnouncementBanner />
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
@@ -87,6 +92,8 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        <LandingPricingSection />
       </main>
 
       <footer className="border-t py-8">

@@ -18,6 +18,12 @@ export type ErrorCode =
   | 'INVALID_STATUS_TRANSITION'
   | 'SLOT_NOT_AVAILABLE'
   | 'INVALID_OR_EXPIRED_TOKEN'
+  | 'SUBSCRIPTION_REQUIRED'
+  | 'PLAN_LIMIT_REACHED'
+  | 'FEATURE_NOT_IN_PLAN'
+  | 'PAYMENT_CLAIM_PENDING'
+  | 'ALREADY_REVIEWED'
+  | 'REGISTRATION_CLOSED'
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR';
 
@@ -228,4 +234,81 @@ export interface PublicBookedAppointmentDto {
 
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
+}
+
+export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'LOCKED';
+export type PaymentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED';
+export type PaymentMethod =
+  'MBANK' | 'OPTIMA' | 'DEMIR' | 'BAKAI' | 'ELCART' | 'CASH' | 'BANK_TRANSFER' | 'OTHER';
+export type PaymentSource = 'CLAIM' | 'ADMIN_MANUAL';
+
+export interface PlanDto {
+  id: string;
+  code: string;
+  name: string;
+  priceMonthly: string;
+  currency: string;
+  maxStaff: number;
+  maxRemindersPerMonth: number | null;
+  featureAnalytics: boolean;
+  featureAutoReminders: boolean;
+  featurePrepayment: boolean;
+  isActive?: boolean;
+  isPublic?: boolean;
+  sortOrder: number;
+}
+
+export interface SubscriptionPaymentDto {
+  id: string;
+  companyId: string;
+  planId: string;
+  planCode: string;
+  planName: string;
+  status: PaymentStatus;
+  amount: string;
+  currency: string;
+  months: number;
+  method: PaymentMethod;
+  reference: string | null;
+  comment: string | null;
+  rejectReason: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  source: PaymentSource;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface BillingOverviewDto {
+  subscription: {
+    id: string;
+    state: SubscriptionStatus;
+    isTrial: boolean;
+    daysLeft: number;
+    periodStartsAt: string;
+    periodEndsAt: string;
+    graceEndsAt: string;
+    plan: PlanDto;
+  };
+  usage: {
+    activeStaffCount: number;
+    maxStaff: number;
+    isOverStaffLimit: boolean;
+  };
+  pendingClaim: SubscriptionPaymentDto | null;
+  paymentInstructions: string;
+}
+
+export interface PublicPlatformDto {
+  plans: PlanDto[];
+  support: {
+    phone: string;
+    whatsapp: string;
+    email: string;
+  };
+  announcement: {
+    enabled: boolean;
+    text: string;
+  };
+  registrationOpen: boolean;
 }

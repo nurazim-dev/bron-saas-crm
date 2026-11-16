@@ -5,6 +5,7 @@ import {
   createPublicAppointmentController,
   getPublicAvailabilityController,
   getPublicCompanyController,
+  getPublicPlatformController,
 } from './public.controller.js';
 import {
   companySlugParamsSchema,
@@ -13,6 +14,8 @@ import {
 } from './public.schemas.js';
 
 export const publicRouter = Router();
+
+publicRouter.get('/platform', getPublicPlatformController);
 
 publicRouter.get(
   '/companies/:slug',

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Role } from '../../generated/prisma/client.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireWritableSubscription } from '../../middleware/billing.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -23,6 +24,7 @@ servicesRouter.get('/', authenticate, listServicesController);
 servicesRouter.post(
   '/',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ body: createServiceBodySchema }),
   createServiceController,
@@ -38,6 +40,7 @@ servicesRouter.get(
 servicesRouter.patch(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: serviceIdParamsSchema, body: updateServiceBodySchema }),
   updateServiceController,
@@ -46,6 +49,7 @@ servicesRouter.patch(
 servicesRouter.delete(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: serviceIdParamsSchema }),
   deleteServiceController,

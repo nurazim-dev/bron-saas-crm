@@ -8,7 +8,8 @@ import {
   Prisma,
   Role,
 } from '../src/generated/prisma/client.js';
-import { disconnectPrisma, prismaUnfiltered } from '../src/lib/prisma.js';
+import { disconnectPrisma, prisma, prismaUnfiltered } from '../src/lib/prisma.js';
+import { createTrialSubscriptionForCompany } from '../src/modules/billing/billing.service.js';
 
 const DEMO_PASSWORD = 'Demo12345!';
 const BISHKEK_TZ = 'Asia/Bishkek';
@@ -35,6 +36,8 @@ async function runSeed(): Promise<void> {
   const passwordHash = await argon2.hash(DEMO_PASSWORD, { type: argon2.argon2id });
 
   await prismaUnfiltered.$transaction([
+    prismaUnfiltered.subscriptionPayment.deleteMany(),
+    prismaUnfiltered.subscription.deleteMany(),
     prismaUnfiltered.appointment.deleteMany(),
     prismaUnfiltered.workingHours.deleteMany(),
     prismaUnfiltered.masterService.deleteMany(),
@@ -58,6 +61,8 @@ async function runSeed(): Promise<void> {
       publicBookingEnabled: true,
     },
   });
+
+  await createTrialSubscriptionForCompany(prisma, company.id);
 
   const owner = await prismaUnfiltered.user.create({
     data: {

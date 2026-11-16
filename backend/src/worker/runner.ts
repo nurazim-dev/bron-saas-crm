@@ -3,6 +3,14 @@ import { now as clockNow } from '../lib/clock.js';
 import { logger } from '../lib/logger.js';
 import { prisma, withAdvisoryLock } from '../lib/prisma.js';
 import {
+  BILLING_NOTIFICATIONS_LOCK_KEY,
+  runBillingNotificationsOnce,
+} from './jobs/billing-notifications.job.js';
+import {
+  BILLING_STATE_SYNC_LOCK_KEY,
+  runBillingStateSyncOnce,
+} from './jobs/billing-state-sync.job.js';
+import {
   OUTBOX_DISPATCHER_JOB_NAME,
   OUTBOX_DISPATCHER_LOCK_KEY,
   runOnce as runOutboxOnce,
@@ -41,6 +49,11 @@ export async function runWorkerTick(currentNow: Date = clockNow()): Promise<void
       'Outbox dispatcher batch complete',
     );
   }
+
+  await withAdvisoryLock(BILLING_STATE_SYNC_LOCK_KEY, () => runBillingStateSyncOnce(currentNow));
+  await withAdvisoryLock(BILLING_NOTIFICATIONS_LOCK_KEY, () =>
+    runBillingNotificationsOnce(currentNow),
+  );
 }
 
 export function startWorker(intervalMs: number = env.WORKER_INTERVAL_MS): WorkerHandle {

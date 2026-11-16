@@ -62,6 +62,36 @@ enum PasswordResetCreator {
   ADMIN
 }
 
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  LOCKED
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  MBANK
+  OPTIMA
+  DEMIR
+  BAKAI
+  ELCART
+  CASH
+  BANK_TRANSFER
+  OTHER
+}
+
+enum PaymentSource {
+  CLAIM
+  ADMIN_MANUAL
+}
+
 model Company {
   id                   String        @id @default(uuid()) @db.Uuid
   name                 String
@@ -82,6 +112,8 @@ model Company {
   services             Service[]
   appointments         Appointment[]
   inAppNotifications   InAppNotification[]
+  subscription         Subscription?
+  subscriptionPayments SubscriptionPayment[]
 }
 
 model User {
@@ -250,4 +282,74 @@ model AuditLog {
 model WorkerHeartbeat {
   name   String   @id
   beatAt DateTime @db.Timestamptz(3)
+}
+
+model Plan {
+  id                   String                @id @default(uuid()) @db.Uuid
+  code                 String                @unique
+  name                 String
+  priceMonthly         Decimal               @db.Decimal(10, 2)
+  currency             String                @default("KGS")
+  maxStaff             Int
+  maxRemindersPerMonth Int?
+  featureAnalytics     Boolean               @default(false)
+  featureAutoReminders Boolean               @default(false)
+  featurePrepayment    Boolean               @default(false)
+  isActive             Boolean               @default(true)
+  isPublic             Boolean               @default(true)
+  sortOrder            Int                   @default(0)
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  subscriptions        Subscription[]
+  payments             SubscriptionPayment[]
+}
+
+model Subscription {
+  id             String             @id @default(uuid()) @db.Uuid
+  companyId      String             @unique @db.Uuid
+  planId         String             @db.Uuid
+  isTrial        Boolean            @default(true)
+  periodStartsAt DateTime           @db.Timestamptz(3)
+  periodEndsAt   DateTime           @db.Timestamptz(3)
+  status         SubscriptionStatus @default(TRIAL)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+  company        Company            @relation(fields: [companyId], references: [id])
+  plan           Plan               @relation(fields: [planId], references: [id])
+
+  @@index([status, periodEndsAt])
+}
+
+model SubscriptionPayment {
+  id                String        @id @default(uuid()) @db.Uuid
+  companyId         String        @db.Uuid
+  planId            String        @db.Uuid
+  status            PaymentStatus @default(PENDING)
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("KGS")
+  months            Int
+  method            PaymentMethod
+  reference         String?
+  comment           String?
+  claimedByUserId   String?       @db.Uuid
+  reviewedByAdminId String?       @db.Uuid
+  reviewedAt        DateTime?     @db.Timestamptz(3)
+  rejectReason      String?
+  periodStart       DateTime?     @db.Timestamptz(3)
+  periodEnd         DateTime?     @db.Timestamptz(3)
+  source            PaymentSource @default(CLAIM)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+  company           Company       @relation(fields: [companyId], references: [id])
+  plan              Plan          @relation(fields: [planId], references: [id])
+
+  @@index([companyId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model PlatformSetting {
+  key              String   @id
+  value            Json
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+  updatedByAdminId String?  @db.Uuid
 }
