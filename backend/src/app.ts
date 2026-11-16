@@ -12,6 +12,7 @@ import { globalRateLimiter } from './middleware/rate-limit.js';
 import { REQUEST_ID_HEADER, requestId } from './middleware/request-id.js';
 import { adminAuthRouter } from './modules/admin/admin-auth.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
+import { analyticsRouter, exportRouter } from './modules/analytics/analytics.routes.js';
 import { appointmentsRouter } from './modules/appointments/appointments.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { availabilityRouter } from './modules/availability/availability.routes.js';
@@ -91,6 +92,8 @@ export function createApp(): Express {
   app.use(`${API_PREFIX}/me`, meNotificationsRouter);
   app.use(`${API_PREFIX}/telegram`, telegramWebhookRouter);
   app.use(`${API_PREFIX}/reminders`, remindersRouter);
+  app.use(`${API_PREFIX}/analytics`, analyticsRouter);
+  app.use(`${API_PREFIX}/export`, exportRouter);
   app.use(`${API_PREFIX}/public`, publicRouter);
 
   app.use(notFound);

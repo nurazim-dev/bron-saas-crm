@@ -23,7 +23,7 @@
 - [x] **Phase 19**: Client Self-Service (`/manage/[token]` View, Cancel, Reschedule)
 - [x] **Phase 20**: Staff Notifications & Client Reminders (Telegram Bot, Email, WhatsApp Queue)
 - [x] **Phase 21**: Light Prepayment (Manual Transfer Flow, Hold Expiry, Staff Confirm)
-- [ ] **Phase 22**: Analytics & CSV Export (Owner + Master Scoped)
+- [x] **Phase 22**: Analytics & CSV Export (Owner + Master Scoped)
 - [ ] **Phase 23**: Onboarding Checklist & Service Presets (`BARBERSHOP`, `BEAUTY_SALON`)
 - [ ] **Phase 24**: Kyrgyz Language (`RU`/`KY`), Legal Pages (`/privacy`, `/terms`) & Consent
 - [ ] **Phase 25**: PWA (Manifest, Service Worker, Icons, Install Prompt, 360px Mobile Pass)

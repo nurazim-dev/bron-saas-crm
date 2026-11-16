@@ -836,4 +836,33 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await ownerCtx.close();
   });
+
+  test('E2E 11: Phase 22 — Analytics dashboard renders KPIs, charts, heatmap, and downloads CSV export', async ({
+    browser,
+  }) => {
+    const ownerCtx = await browser.newContext({ acceptDownloads: true });
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.locator('#login-email').fill('owner@demo.zapis.kg');
+    await ownerPage.locator('#login-password').fill('Demo12345!');
+    await ownerPage.getByRole('button', { name: 'Войти' }).click();
+    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+
+    await ownerPage.getByRole('link', { name: 'Аналитика', exact: true }).click();
+    await expect(ownerPage.getByRole('heading', { name: 'Аналитика' })).toBeVisible();
+    await expect(ownerPage.getByText('Выручка (завершённые)')).toBeVisible();
+    await expect(ownerPage.getByText('Топ услуг')).toBeVisible();
+    await expect(ownerPage.getByText('Мастера и загрузка')).toBeVisible();
+    await expect(ownerPage.getByText('Тепловая карта записи (дни недели × часы)')).toBeVisible();
+
+    await ownerPage.getByRole('button', { name: '7 дней' }).click();
+    await expect(ownerPage.getByText('Выручка (завершённые)')).toBeVisible();
+
+    const downloadPromise = ownerPage.waitForEvent('download');
+    await ownerPage.getByRole('button', { name: 'Экспорт CSV' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/^appointments-.*\.csv$/);
+
+    await ownerCtx.close();
+  });
 });

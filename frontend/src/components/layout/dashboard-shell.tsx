@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  BarChart3,
   Briefcase,
   CalendarDays,
   ClipboardList,
@@ -64,6 +65,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Клиенты',
     icon: Users,
     roles: ['OWNER', 'MASTER'],
+  },
+  {
+    href: '/dashboard/analytics',
+    label: 'Аналитика',
+    icon: BarChart3,
+    roles: ['OWNER'],
   },
   {
     href: '/dashboard/services',
