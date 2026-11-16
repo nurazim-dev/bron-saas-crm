@@ -143,3 +143,15 @@ export const replaceWorkingHoursBodySchema = z
   .strict();
 
 export type ReplaceWorkingHoursBody = z.infer<typeof replaceWorkingHoursBodySchema>;
+
+export const createStaffPasswordResetLinkBodySchema = z
+  .object({
+    sendEmail: z.boolean().optional().default(false),
+  })
+  .strict()
+  .optional()
+  .default({ sendEmail: false });
+
+export type CreateStaffPasswordResetLinkBody = z.infer<
+  typeof createStaffPasswordResetLinkBodySchema
+>;

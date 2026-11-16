@@ -3,8 +3,15 @@ import { env } from '../../config/env.js';
 import { extractAuditContext } from '../../lib/audit.js';
 import { parseDurationToMs, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH } from '../../lib/jwt.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
-import { getValidatedBody } from '../../middleware/validate.js';
-import type { ChangePasswordBody, LoginBody, RegisterBody } from './auth.schemas.js';
+import { getValidatedBody, getValidatedQuery } from '../../middleware/validate.js';
+import type {
+  ChangePasswordBody,
+  ForgotPasswordBody,
+  LoginBody,
+  RegisterBody,
+  ResetPasswordBody,
+  ValidateResetTokenQuery,
+} from './auth.schemas.js';
 import {
   changeUserPassword,
   getAuthenticatedProfile,
@@ -12,6 +19,11 @@ import {
   refreshAuthSession,
   registerOwnerAndCompany,
 } from './auth.service.js';
+import {
+  requestPasswordResetByEmail,
+  resetPasswordWithToken,
+  validatePasswordResetToken,
+} from './password-reset.service.js';
 
 function buildRefreshCookieOptions(): CookieOptions {
   return {
@@ -104,4 +116,22 @@ export const changePasswordController: RequestHandler = async (req, res) => {
       company: result.company,
     },
   });
+};
+
+export const forgotPasswordController: RequestHandler = async (req, res) => {
+  const body = getValidatedBody<ForgotPasswordBody>(req);
+  const result = await requestPasswordResetByEmail(body.email, extractAuditContext(req));
+  res.status(202).json({ data: result });
+};
+
+export const validateResetPasswordTokenController: RequestHandler = async (req, res) => {
+  const query = getValidatedQuery<ValidateResetTokenQuery>(req);
+  const result = await validatePasswordResetToken(query.token);
+  res.status(200).json({ data: result });
+};
+
+export const resetPasswordController: RequestHandler = async (req, res) => {
+  const body = getValidatedBody<ResetPasswordBody>(req);
+  await resetPasswordWithToken(body.token, body.newPassword, extractAuditContext(req));
+  res.status(204).send();
 };

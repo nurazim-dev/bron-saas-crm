@@ -44,6 +44,7 @@ Templates are registered per `kind` and rendered per `Locale` (`RU` | `KY`) into
 | --- | --- | --- |
 | `SYSTEM_TEST` | Infrastructure smoke test / admin test email | `RU`, `KY` |
 | `GENERIC` | Fallback structured `{ subject, text, html? }` message | `RU`, `KY` |
+| `PASSWORD_RESET` | Single-use password reset link (`APP_URL/reset-password?token=...`, 60 min TTL) | `RU`, `KY` |
 
 Additional templates (`PASSWORD_RESET`, `BOOKING_CREATED`, `BOOKING_REMINDER`, `SUBSCRIPTION_EXPIRING`, etc.) are registered by their respective feature phases.
 

@@ -60,3 +60,26 @@ export async function changePassword(payload: ChangePasswordPayload): Promise<Au
   useAuthStore.getState().setSession(session);
   return session;
 }
+
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  const res = await apiClient.post<ApiSuccessEnvelope<{ message: string }>>(
+    '/auth/forgot-password',
+    { email },
+  );
+  return res.data.data;
+}
+
+export async function validateResetToken(token: string): Promise<{ valid: boolean }> {
+  const res = await apiClient.get<ApiSuccessEnvelope<{ valid: boolean }>>(
+    '/auth/reset-password/validate',
+    { params: { token } },
+  );
+  return res.data.data;
+}
+
+export async function resetPassword(payload: {
+  token: string;
+  newPassword: string;
+}): Promise<void> {
+  await apiClient.post('/auth/reset-password', payload);
+}

@@ -254,4 +254,82 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await masterContext.close();
   });
+
+  test('E2E 4: Password recovery — forgot -> Mailpit -> reset (URL scrubbed) -> old token fails -> login works', async ({
+    browser,
+    request,
+  }) => {
+    const email = `e2e-reset-${Date.now()}@zapis.test`;
+    const regRes = await request.post('http://localhost:4000/api/v1/auth/register', {
+      data: {
+        ownerName: 'E2E Reset Owner',
+        email,
+        password: 'OldPassword123',
+        companyName: 'E2E Reset Salon',
+        businessType: 'BARBERSHOP',
+      },
+    });
+    expect(regRes.status()).toBe(201);
+
+    await request.delete('http://localhost:8025/api/v1/messages');
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+
+    await page.goto('/login');
+    await page.getByRole('link', { name: 'Забыли пароль?' }).click();
+    await expect(page).toHaveURL(/\/forgot-password$/);
+
+    await page.locator('#forgot-email').fill(email);
+    await page.getByRole('button', { name: 'Отправить ссылку' }).click();
+    await expect(page.getByText('Письмо отправлено')).toBeVisible();
+
+    let messageId = '';
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get('http://localhost:8025/api/v1/messages?limit=10');
+          if (res.status() !== 200) return '';
+          const body = (await res.json()) as {
+            messages?: Array<{ ID: string; To?: Array<{ Address: string }> }>;
+          };
+          const found = body.messages?.find((m) => m.To?.some((t) => t.Address === email));
+          messageId = found?.ID ?? '';
+          return messageId;
+        },
+        { timeout: 15_000, intervals: [500, 1000] },
+      )
+      .not.toBe('');
+
+    const msgRes = await request.get(`http://localhost:8025/api/v1/message/${messageId}`);
+    expect(msgRes.status()).toBe(200);
+    const msgJson = (await msgRes.json()) as { Text?: string };
+    const match = /\/reset-password\?token=([A-Za-z0-9_-]+)/.exec(msgJson.Text ?? '');
+    expect(match?.[1]).toBeTruthy();
+    const resetPath = `/reset-password?token=${match?.[1] ?? ''}`;
+
+    // Visit reset page; URL must be scrubbed of ?token=
+    await page.goto(resetPath);
+    await expect(page.locator('#reset-new-password')).toBeVisible();
+    await expect(page).toHaveURL(/\/reset-password$/);
+
+    await page.locator('#reset-new-password').fill('NewE2EPassword123');
+    await page.locator('#reset-confirm-password').fill('NewE2EPassword123');
+    await page.getByRole('button', { name: 'Сохранить новый пароль' }).click();
+    await expect(page.getByRole('main').getByText('Пароль обновлён')).toBeVisible();
+
+    // Reusing old token fails
+    await page.goto(resetPath);
+    await expect(page.getByText('Ссылка недействительна или устарела')).toBeVisible();
+
+    // Login with new password succeeds
+    await page.goto('/login');
+    await page.locator('#login-email').fill(email);
+    await page.locator('#login-password').fill('NewE2EPassword123');
+    await page.getByRole('button', { name: 'Войти' }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    await request.delete('http://localhost:8025/api/v1/messages');
+    await ctx.close();
+  });
 });

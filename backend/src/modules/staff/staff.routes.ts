@@ -5,6 +5,7 @@ import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createStaffController,
+  createStaffPasswordResetLinkController,
   deleteStaffController,
   getStaffController,
   listStaffController,
@@ -14,6 +15,7 @@ import {
 } from './staff.controller.js';
 import {
   createStaffBodySchema,
+  createStaffPasswordResetLinkBodySchema,
   replaceStaffServicesBodySchema,
   replaceWorkingHoursBodySchema,
   staffIdParamsSchema,
@@ -70,4 +72,12 @@ staffRouter.put(
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: replaceWorkingHoursBodySchema }),
   replaceStaffWorkingHoursController,
+);
+
+staffRouter.post(
+  '/:id/password-reset-link',
+  authenticate,
+  requireRole(Role.OWNER),
+  validate({ params: staffIdParamsSchema, body: createStaffPasswordResetLinkBodySchema }),
+  createStaffPasswordResetLinkController,
 );

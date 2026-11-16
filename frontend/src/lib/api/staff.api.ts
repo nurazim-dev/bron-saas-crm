@@ -70,3 +70,19 @@ export async function replaceStaffWorkingHours(
   });
   return res.data.data;
 }
+
+export interface StaffPasswordResetLinkDto {
+  url: string;
+  expiresAt: string;
+}
+
+export async function createStaffPasswordResetLink(
+  id: string,
+  options: { sendEmail?: boolean } = {},
+): Promise<StaffPasswordResetLinkDto> {
+  const res = await apiClient.post<ApiSuccessEnvelope<StaffPasswordResetLinkDto>>(
+    `/staff/${id}/password-reset-link`,
+    { sendEmail: Boolean(options.sendEmail) },
+  );
+  return res.data.data;
+}

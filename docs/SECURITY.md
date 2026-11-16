@@ -20,9 +20,11 @@ This living document tracks all security controls, rate limits, cryptographic pr
 |----------|-------|------------------------|--------------|
 | `POST /api/v1/auth/register` | Per IP | `10` requests / `1` minute | `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_AUTH_WINDOW_MS` |
 | `POST /api/v1/auth/login` | Per IP | `10` requests / `1` minute | `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_AUTH_WINDOW_MS` |
+| `POST /api/v1/auth/forgot-password` | Per IP / Per email hash | `5` / `1` hour (IP), `3` / `1` hour (email) | — |
+| `POST /api/v1/auth/reset-password` | Per IP | `10` requests / `1` minute | `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_AUTH_WINDOW_MS` |
 | `POST /api/v1/public/companies/:slug/appointments` | Per IP | `10` requests / `1` hour | `RATE_LIMIT_PUBLIC_BOOKING_MAX`, `RATE_LIMIT_PUBLIC_BOOKING_WINDOW_MS` |
 
-*(Additional rate limiters for password recovery, manage links, and `/api/v1/admin/*` are added in Phases 13, 15, and 19.)*
+*(Additional rate limiters for manage links and `/api/v1/admin/*` are added in Phases 15 and 19.)*
 
 ---
 
@@ -46,6 +48,8 @@ This living document tracks all security controls, rate limits, cryptographic pr
 
 ## 5. Logging Redaction & Secret Hygiene
 
-- Structured JSON logging (`pino` in `backend/src/lib/logger.ts`) redacts sensitive paths (`req.headers.authorization`, `req.headers.cookie`, `res.headers["set-cookie"]`, `password`, `currentPassword`, `newPassword`, `token`, `secret`).
+- Structured JSON logging (`pino` in `backend/src/lib/logger.ts`) redacts sensitive paths (`req.headers.authorization`, `req.headers.cookie`, `res.headers["set-cookie"]`, `password`, `currentPassword`, `newPassword`, `token`, `resetToken`, `manageToken`, `mfaToken`, `recoveryCode`, `totp`, `secret`, `req.query.token`, `req.headers.referer`), and `scrubSensitiveUrl` strips `?token=` / `resetToken=` query parameters from logged request URLs.
+- Password reset tokens are generated as 32 random bytes (`base64url`), stored at rest exclusively as SHA-256 hex digests (`PasswordResetToken.tokenHash`), expire in 60 minutes, are single-use, and are invalidated when a newer token is issued or password reset completes.
+- `/reset-password` responds with `Referrer-Policy: no-referrer` and scrubs the `token` query parameter immediately via `history.replaceState`.
 - Security tokens (password reset tokens, manage links, impersonation codes, TOTP secrets) are never logged and never echoed in error responses.
 - Production startup (`NODE_ENV=production` in `backend/src/config/env.ts`) refuses weak or default secrets.

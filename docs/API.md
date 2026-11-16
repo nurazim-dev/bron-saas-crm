@@ -151,6 +151,29 @@ Updates the authenticated owner's company profile and booking settings.
   - `403 FORBIDDEN`: Caller is not `OWNER`.
   - `409 CONFLICT`: `slug` is already taken by another company.
 
+### `POST /api/v1/auth/forgot-password`
+Requests a password reset email. Always returns `202 Accepted` with an identical body regardless of whether the email exists or is active (prevents account enumeration, BR-13). Rate-limited to `5/hour/IP` and `3/hour/email`.
+- **Auth**: None
+- **Request Body**: `{ "email": "owner@lord.kg" }`
+- **Responses**:
+  - `202 Accepted`: `{ "data": { "message": "If an account with that email exists, we have sent password reset instructions." } }`
+  - `429 RATE_LIMITED`
+
+### `GET /api/v1/auth/reset-password/validate?token=...`
+Validates a password reset token without consuming it.
+- **Auth**: None
+- **Responses**:
+  - `200 OK`: `{ "data": { "valid": true | false } }`
+
+### `POST /api/v1/auth/reset-password`
+Resets the user's password using a single-use token (60-minute TTL), invalidates all other tokens of the user, increments `tokenVersion` (revoking all active sessions), and records an audit log entry.
+- **Auth**: None
+- **Request Body**: `{ "token": "...", "newPassword": "NewPassword123!" }`
+- **Responses**:
+  - `204 No Content`
+  - `400 INVALID_OR_EXPIRED_TOKEN`: Missing, used, or expired token.
+  - `400 VALIDATION_ERROR`: Password policy violation.
+
 ---
 
 ## 4. Services (`/api/v1/services`)
@@ -299,6 +322,15 @@ Replaces the weekly working-hours schedule for a staff member (BR-10). `dayOfWee
   - `200 OK`: `{ "data": StaffDto }`
   - `400 VALIDATION_ERROR`
   - `404 NOT_FOUND`
+
+### `POST /api/v1/staff/:id/password-reset-link`
+Generates a single-use password reset link (60-minute TTL) for an active `MASTER` with a login in the same company. Token is shown only in this response and audit-logged.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
+- **Request Body** (optional): `{ "sendEmail": false }` (`true` also enqueues `PASSWORD_RESET` email)
+- **Responses**:
+  - `200 OK`: `{ "data": { "url": "http://localhost:3000/reset-password?token=...", "expiresAt": "2026-11-16T11:00:00.000Z" } }`
+  - `403 FORBIDDEN`: Caller is not `OWNER`.
+  - `404 NOT_FOUND`: Staff member not found, cross-tenant, inactive, not `MASTER`, or has no login.
 
 ---
 

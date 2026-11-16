@@ -6,6 +6,8 @@ import {
   CheckSquare,
   Copy,
   KeyRound,
+  Mail,
+  MessageCircle,
   Pencil,
   Plus,
   Sparkles,
@@ -26,11 +28,13 @@ import { getApiErrorMessage } from '@/lib/api/client';
 import { listServices } from '@/lib/api/services.api';
 import {
   createStaff,
+  createStaffPasswordResetLink,
   deleteStaff,
   listStaff,
   replaceStaffServices,
   replaceStaffWorkingHours,
   updateStaff,
+  type StaffPasswordResetLinkDto,
 } from '@/lib/api/staff.api';
 import { formatDurationMin, formatPriceKgs, ru } from '@/lib/i18n/ru';
 import { formatPhoneDisplay, normalizePhoneE164OrNull } from '@/lib/phone';
@@ -100,6 +104,11 @@ function StaffManagerContent() {
   const [staffIsActive, setStaffIsActive] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [sendResetEmail, setSendResetEmail] = useState(false);
+  const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
+  const [generatedResetLink, setGeneratedResetLink] = useState<StaffPasswordResetLinkDto | null>(
+    null,
+  );
 
   // Services checklist modal state
   const [servicesStaff, setServicesStaff] = useState<StaffDto | null>(null);
@@ -180,7 +189,40 @@ function StaffManagerContent() {
     setStaffIsBookable(member.isBookable);
     setStaffIsActive(member.isActive);
     setProfileError(null);
+    setSendResetEmail(false);
+    setGeneratedResetLink(null);
     setIsProfileOpen(true);
+  }
+
+  async function handleGenerateResetLink() {
+    if (!editingStaff) return;
+    setProfileError(null);
+    setIsGeneratingResetLink(true);
+    try {
+      const link = await createStaffPasswordResetLink(editingStaff.id, {
+        sendEmail: sendResetEmail,
+      });
+      setGeneratedResetLink(link);
+      toast.success(
+        sendResetEmail
+          ? 'Одноразовая ссылка создана и поставлена в очередь на email'
+          : 'Одноразовая ссылка для сброса пароля создана',
+      );
+    } catch (err) {
+      setProfileError(getApiErrorMessage(err));
+    } finally {
+      setIsGeneratingResetLink(false);
+    }
+  }
+
+  async function handleCopyResetLink() {
+    if (!generatedResetLink) return;
+    try {
+      await navigator.clipboard.writeText(generatedResetLink.url);
+      toast.success('Ссылка скопирована');
+    } catch {
+      toast.error('Не удалось скопировать ссылку');
+    }
   }
 
   async function handleSaveProfile(e: React.FormEvent) {
@@ -677,6 +719,81 @@ function StaffManagerContent() {
                       </div>
                     </div>
                   )}
+
+                  {editingStaff &&
+                    editingStaff.role === 'MASTER' &&
+                    editingStaff.hasLogin &&
+                    editingStaff.isActive && (
+                      <div className="space-y-2.5 border-t pt-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={sendResetEmail}
+                              onChange={(e) => setSendResetEmail(e.target.checked)}
+                              className="h-3.5 w-3.5 rounded border-input accent-primary"
+                            />
+                            <Mail className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>Отправить также на email</span>
+                          </label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleGenerateResetLink()}
+                            disabled={isGeneratingResetLink}
+                            className="gap-1.5"
+                          >
+                            <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                            {isGeneratingResetLink ? 'Создаём...' : 'Сбросить пароль'}
+                          </Button>
+                        </div>
+
+                        {generatedResetLink && (
+                          <div className="space-y-2 rounded-md bg-muted/50 p-2.5 text-xs">
+                            <p className="font-medium text-foreground">
+                              Одноразовая ссылка (действует 60 минут):
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                readOnly
+                                value={generatedResetLink.url}
+                                className="h-9 text-xs font-mono"
+                                aria-label="Ссылка для сброса пароля"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleCopyResetLink()}
+                                className="h-9 shrink-0 gap-1"
+                              >
+                                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                                Копировать
+                              </Button>
+                            </div>
+                            <Button
+                              asChild
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-full gap-1.5"
+                            >
+                              <a
+                                href={`https://wa.me/?text=${encodeURIComponent(
+                                  `Ссылка для сброса пароля Zapis.kg (действует 60 минут): ${generatedResetLink.url}`,
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                                Поделиться в WhatsApp
+                              </a>
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t pt-4">

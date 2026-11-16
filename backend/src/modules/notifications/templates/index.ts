@@ -85,3 +85,69 @@ registerNotificationTemplate('GENERIC', (_locale, payload) => {
     telegramHtml: `<b>${escapeTelegramHtml(subject)}</b>\n${escapeTelegramHtml(text)}`,
   };
 });
+
+registerNotificationTemplate('PASSWORD_RESET', (locale, payload) => {
+  const resetUrl = readString(payload, 'resetUrl', '');
+  const userName = readString(payload, 'userName', '');
+  const companyName = readString(payload, 'companyName', 'Zapis.kg');
+  const expiresRaw = payload.expiresInMinutes;
+  const expiresMin = typeof expiresRaw === 'number' && expiresRaw > 0 ? expiresRaw : 60;
+
+  if (locale === 'KY') {
+    const subject = `Сырсөздү калыбына келтирүү — ${companyName}`;
+    const greeting = userName ? `Саламатсызбы, ${userName}!` : 'Саламатсызбы!';
+    const text = [
+      greeting,
+      '',
+      `${companyName} (Zapis.kg) аккаунтуңуздун сырсөзүн калыбына келтирүү сурамы алынды.`,
+      `Жаңы сырсөз орнотуу үчүн төмөнкү шилтемеге өтүңүз (шилтеме ${expiresMin} мүнөт жарактуу):`,
+      resetUrl,
+      '',
+      'Эгер сиз бул сурамды жөнөтпөгөн болсоңуз, бул катты этибарга албаңыз.',
+    ].join('\n');
+
+    const html = [
+      `<p>${escapeHtml(greeting)}</p>`,
+      `<p><strong>${escapeHtml(companyName)}</strong> (Zapis.kg) аккаунтуңуздун сырсөзүн калыбына келтирүү сурамы алынды.</p>`,
+      `<p>Шилтеме ${expiresMin} мүнөт жарактуу:</p>`,
+      `<p><a href="${escapeHtml(resetUrl)}">Сырсөздү жаңылоо</a></p>`,
+      `<p>Же шилтемени көчүрүңүз: ${escapeHtml(resetUrl)}</p>`,
+      '<p>Эгер сиз бул сурамды жөнөтпөгөн болсоңуз, бул катты этибарга албаңыз.</p>',
+    ].join('');
+
+    return {
+      subject,
+      text,
+      html,
+      telegramHtml: `<b>${escapeTelegramHtml(subject)}</b>\n${escapeTelegramHtml(resetUrl)}`,
+    };
+  }
+
+  const subject = `Сброс пароля — ${companyName}`;
+  const greeting = userName ? `Здравствуйте, ${userName}!` : 'Здравствуйте!';
+  const text = [
+    greeting,
+    '',
+    `Мы получили запрос на сброс пароля для вашего аккаунта в ${companyName} (Zapis.kg).`,
+    `Чтобы задать новый пароль, перейдите по ссылке (действует ${expiresMin} минут):`,
+    resetUrl,
+    '',
+    'Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.',
+  ].join('\n');
+
+  const html = [
+    `<p>${escapeHtml(greeting)}</p>`,
+    `<p>Мы получили запрос на сброс пароля для вашего аккаунта в <strong>${escapeHtml(companyName)}</strong> (Zapis.kg).</p>`,
+    `<p>Ссылка действует ${expiresMin} минут:</p>`,
+    `<p><a href="${escapeHtml(resetUrl)}">Сбросить пароль</a></p>`,
+    `<p>Или скопируйте ссылку: ${escapeHtml(resetUrl)}</p>`,
+    '<p>Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.</p>',
+  ].join('');
+
+  return {
+    subject,
+    text,
+    html,
+    telegramHtml: `<b>${escapeTelegramHtml(subject)}</b>\n${escapeTelegramHtml(resetUrl)}`,
+  };
+});

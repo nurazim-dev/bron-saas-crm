@@ -2,8 +2,10 @@ import type { RequestHandler } from 'express';
 import { extractAuditContext } from '../../lib/audit.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody, getValidatedParams } from '../../middleware/validate.js';
+import { generateStaffPasswordResetLink } from '../auth/password-reset.service.js';
 import type {
   CreateStaffBody,
+  CreateStaffPasswordResetLinkBody,
   ReplaceStaffServicesBody,
   ReplaceWorkingHoursBody,
   StaffIdParams,
@@ -77,4 +79,18 @@ export const replaceStaffWorkingHoursController: RequestHandler = async (req, re
   const body = getValidatedBody<ReplaceWorkingHoursBody>(req);
   const staff = await replaceStaffWorkingHoursForCompany(actor.companyId, id, body);
   res.status(200).json({ data: staff });
+};
+
+export const createStaffPasswordResetLinkController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<StaffIdParams>(req);
+  const body = getValidatedBody<CreateStaffPasswordResetLinkBody>(req);
+  const result = await generateStaffPasswordResetLink(
+    actor.companyId,
+    actor.userId,
+    id,
+    body.sendEmail,
+    extractAuditContext(req),
+  );
+  res.status(200).json({ data: result });
 };

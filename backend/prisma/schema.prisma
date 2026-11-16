@@ -56,6 +56,12 @@ enum AuditActor {
   SYSTEM
 }
 
+enum PasswordResetCreator {
+  SELF
+  OWNER
+  ADMIN
+}
+
 model Company {
   id                   String        @id @default(uuid()) @db.Uuid
   name                 String
@@ -95,10 +101,25 @@ model User {
   company      Company         @relation(fields: [companyId], references: [id])
   services           MasterService[]
   workingHours       WorkingHours[]
-  appointments       Appointment[]
-  inAppNotifications InAppNotification[]
+  appointments        Appointment[]
+  inAppNotifications  InAppNotification[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([companyId, deletedAt])
+}
+
+model PasswordResetToken {
+  id          String               @id @default(uuid()) @db.Uuid
+  userId      String               @db.Uuid
+  tokenHash   String               @unique
+  expiresAt   DateTime             @db.Timestamptz(3)
+  usedAt      DateTime?            @db.Timestamptz(3)
+  createdBy   PasswordResetCreator
+  createdById String?              @db.Uuid
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt, expiresAt])
 }
 
 model Service {

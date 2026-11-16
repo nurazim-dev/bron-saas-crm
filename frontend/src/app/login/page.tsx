@@ -110,7 +110,15 @@ function LoginFormContent() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="login-password">{ru.auth.passwordLabel}</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="login-password">{ru.auth.passwordLabel}</Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  {ru.auth.forgotPasswordLink}
+                </Link>
+              </div>
               <Input
                 id="login-password"
                 type="password"

@@ -5,7 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
 import { env } from './config/env.js';
-import { logger } from './lib/logger.js';
+import { logger, scrubSensitiveUrl } from './lib/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFound } from './middleware/not-found.js';
 import { globalRateLimiter } from './middleware/rate-limit.js';
@@ -32,6 +32,14 @@ export function createApp(): Express {
   app.use(
     pinoHttp({
       logger,
+      serializers: {
+        req: (req: { id?: unknown; method?: string; url?: string; remoteAddress?: string }) => ({
+          id: req.id,
+          method: req.method,
+          url: scrubSensitiveUrl(req.url),
+          remoteAddress: req.remoteAddress,
+        }),
+      },
       genReqId: (_req, res) => {
         const id = res.getHeader(REQUEST_ID_HEADER);
         return typeof id === 'string' ? id : 'unknown';

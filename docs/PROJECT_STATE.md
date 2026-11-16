@@ -14,7 +14,7 @@
 - [x] **Phase 10**: Hardening, E2E & Release Readiness
 - [x] **Phase 11**: Audit, Baseline & Niche Narrowing (v2 Foundation, `lib/clock.ts`, BR-12 Any-Master Concurrency, `BusinessType = BARBERSHOP | BEAUTY_SALON`)
 - [x] **Phase 12**: Notification Infrastructure (Outbox, Worker, Email, In-App, Audit Log)
-- [ ] **Phase 13**: Password Recovery (Email + Owner-Generated Reset Links)
+- [x] **Phase 13**: Password Recovery (Email + Owner-Generated Reset Links)
 - [ ] **Phase 14**: Billing Core (Plans, Subscriptions, Trial, Grace, Locked, Manual Payments)
 - [ ] **Phase 15**: Admin Panel Backend (`PlatformAdmin`, 2FA TOTP, Companies, Payments, Impersonation)
 - [ ] **Phase 16**: Admin Panel Frontend (`/admin/**`)
@@ -101,4 +101,4 @@ npm run test:e2e     # Runs Playwright Chromium E2E suite
 - `frontend/.env` (from `frontend/.env.example`): `NEXT_PUBLIC_APP_URL`, `BACKEND_INTERNAL_URL`
 
 ## Known Issues / Risks
-- None. Phases 0–12 are complete and verified. Ready for Phase 13.
+- None. Phases 0–13 are complete and verified. Ready for Phase 14.

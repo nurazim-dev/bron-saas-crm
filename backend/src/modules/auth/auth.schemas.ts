@@ -50,3 +50,22 @@ export const changePasswordBodySchema = z.object({
 });
 
 export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;
+
+export const forgotPasswordBodySchema = z.object({
+  email: emailSchema,
+});
+
+export type ForgotPasswordBody = z.infer<typeof forgotPasswordBodySchema>;
+
+export const validateResetTokenQuerySchema = z.object({
+  token: z.string().max(256).optional(),
+});
+
+export type ValidateResetTokenQuery = z.infer<typeof validateResetTokenQuerySchema>;
+
+export const resetPasswordBodySchema = z.object({
+  token: z.string().min(1, 'Reset token is required').max(256),
+  newPassword: passwordSchema,
+});
+
+export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;
