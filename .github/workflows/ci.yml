@@ -30,6 +30,12 @@ jobs:
           --health-timeout=5s
           --health-retries=10
 
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1025:1025
+          - 8025:8025
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -73,8 +79,14 @@ jobs:
       - name: TypeScript typecheck
         run: npm run typecheck
 
+      - name: i18n parity check
+        run: node frontend/scripts/check-i18n-parity.mjs
+
       - name: Run backend integration tests
         run: npm run test
+
+      - name: Autopilot / Quality Guard
+        run: npm run guard
 
       - name: Production build
         run: npm run build

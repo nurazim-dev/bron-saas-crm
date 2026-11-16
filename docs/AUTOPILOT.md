@@ -1,11 +1,11 @@
 # Autopilot Control (Phases 17–26)
 
-- **Mode**: `RUNNING`
+- **Mode**: `COMPLETE`
 - **Branch**: `develop`
 - **Current Phase**: `26`
-- **Next Action**: Implement Phase 26 (Hardening, Full v2 E2E Suite, Security/Performance Audit & Final Release).
+- **Next Action**: None — all phases 17–26 complete.
 - **Baseline Test Counts**:
-  - `backend_tests`: `139`
+  - `backend_tests`: `145`
   - `e2e_scenarios`: `14`
 
 ## Preflight Answers (User Confirmed `OK` + Item 1 = Bot Ready at End, Item 2 = MANUAL)
@@ -34,7 +34,7 @@
 | 23 | Onboarding & Presets | `COMPLETE` | `phase-23` | 2026-11-16 |
 | 24 | Kyrgyz Language, Legal Pages & Consent | `COMPLETE_WITH_NOTES` | `phase-24` | 2026-11-16 |
 | 25 | PWA | `COMPLETE` | `phase-25` | 2026-11-16 |
-| 26 | Hardening, E2E & Release Readiness | `IN_PROGRESS` | — | — |
+| 26 | Hardening, E2E & Release Readiness | `COMPLETE` | `phase-26` | 2026-11-16 |
 
 ## Links
 - [BLOCKERS.md](./BLOCKERS.md)

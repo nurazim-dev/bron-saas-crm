@@ -2,7 +2,7 @@
 
 Multi-tenant SaaS CRM and online-booking platform for barbershops and beauty salons in Kyrgyzstan.
 
-- **Market defaults**: Timezone `Asia/Bishkek` (UTC+6, IANA), Currency `KGS` (`сом`), Phones normalized to E.164 (`+996...`), Russian UI (`frontend/src/lib/i18n/ru.ts`), English codebase & API reference.
+- **Market defaults**: Timezone `Asia/Bishkek` (UTC+6, IANA), Currency `KGS` (`сом`), Phones normalized to E.164 (`+996...`), Russian staff UI & bilingual client-facing UI (`RU` / `KY`), English codebase & API reference.
 - **Core guarantees**:
   - **Strict Tenant Isolation**: Every query and mutation is scoped by `companyId` from verified JWT (staff) or resolved company slug (public). Cross-tenant access returns `404 NOT_FOUND`.
   - **Zero Double-Booking (BR-1)**: Enforced both inside `prisma.$transaction` (`SELECT ... FOR UPDATE` row lock on the master + half-open `[startAt, endAt)` overlap check) and at the PostgreSQL engine level via `EXCLUDE USING gist ("masterId" WITH =, tstzrange("startAt", "endAt", '[)') WITH &&)`.
@@ -23,19 +23,21 @@ Multi-tenant SaaS CRM and online-booking platform for barbershops and beauty sal
 
 ## Monorepo Structure
 
-- `backend/` — Express 5 + Prisma + PostgreSQL REST API (`/api/v1`)
+- `backend/` — Express 5 + Prisma + PostgreSQL REST API (`/api/v1`) & Outbox Worker (`dist/worker/index.js`)
   - `prisma/` — Prisma schema, migrations (including GiST exclusion & CHECK constraints), and idempotent demo seed
-  - `src/modules/` — `health`, `auth`, `company`, `services`, `staff`, `appointments`, `availability`, `public`
+  - `src/modules/` — `health`, `auth`, `company`, `services`, `staff`, `time-off`, `appointments`, `availability`, `clients`, `billing`, `admin`, `notifications`, `analytics`, `onboarding`, `public`
   - `tests/` — Unit and integration test suites (`zapis_test` database)
-  - `Dockerfile` — Multi-stage production container image
-- `frontend/` — Next.js App Router web application
-  - `src/app/` — Landing (`/`), Auth (`/login`, `/register`), Staff CRM (`/dashboard/*`), Public Booking (`/b/[slug]`)
+  - `Dockerfile` — Multi-stage production container image (API & Worker)
+- `frontend/` — Next.js App Router web application (PWA-enabled)
+  - `src/app/` — Landing (`/`), Auth (`/login`, `/register`, `/forgot-password`, `/reset-password`), Staff CRM (`/dashboard/*`), Platform Admin (`/admin/*`), Public Booking (`/b/[slug]`, `/manage/[token]`), Legal (`/privacy`, `/terms`)
   - `e2e/` — Playwright end-to-end test suite
   - `Dockerfile` — Multi-stage production container image
 - `docs/` — Living project documentation:
   - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — Phase checklist, installed versions, ports, and operational summary
   - [`docs/DECISIONS.md`](docs/DECISIONS.md) — Architectural and technical decision log
   - [`docs/API.md`](docs/API.md) — Complete REST API v1 specification
+  - [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — Operations, backup/restore, outbox, and secret rotation runbook
+  - [`docs/ADMIN.md`](docs/ADMIN.md), [`docs/BILLING.md`](docs/BILLING.md), [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md), [`docs/SECURITY.md`](docs/SECURITY.md), [`docs/FEATURES.md`](docs/FEATURES.md)
 
 ---
 

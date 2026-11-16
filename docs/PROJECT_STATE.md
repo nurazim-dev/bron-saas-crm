@@ -27,7 +27,7 @@
 - [x] **Phase 23**: Onboarding Checklist & Service Presets (`BARBERSHOP`, `BEAUTY_SALON`)
 - [x] **Phase 24**: Kyrgyz Language (`RU`/`KY`), Legal Pages (`/privacy`, `/terms`) & Consent
 - [x] **Phase 25**: PWA (Manifest, Service Worker, Icons, Install Prompt, 360px Mobile Pass)
-- [ ] **Phase 26**: Hardening, Full v2 E2E Suite, Security/Performance Audit & Final Release
+- [x] **Phase 26**: Hardening, Full v2 E2E Suite, Security/Performance Audit & Final Release
 
 ## Installed Versions (Phase 10 — Release Ready)
 - **Node.js**: v24.22.0 (`.nvmrc`: `24`)
