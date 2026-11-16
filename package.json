@@ -22,6 +22,7 @@
     "test": "npm run test -w backend",
     "test:e2e": "npm run test:e2e -w frontend",
     "format": "npm run format -w backend && npm run format -w frontend",
+    "guard": "node scripts/autopilot-guard.mjs",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate -w backend",
