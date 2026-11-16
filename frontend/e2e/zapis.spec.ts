@@ -65,7 +65,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     await ownerPage.locator('#reg-password').fill('Password123!');
     await ownerPage.getByRole('button', { name: 'Создать аккаунт' }).click();
 
-    await expect(ownerPage).toHaveURL(/\/dashboard$/);
+    await expect(ownerPage).toHaveURL(/\/dashboard\/onboarding$/);
     await expect(ownerPage.getByText(companyName).first()).toBeVisible();
 
     // 2. Navigate to Services via sidebar link (SPA navigation preserves in-memory JWT) and create a service
@@ -863,6 +863,67 @@ test.describe('Zapis.kg End-to-End Suite', () => {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/^appointments-.*\.csv$/);
 
+    await ownerCtx.close();
+  });
+
+  test('E2E 12: Phase 23 — Fresh barbershop owner completes onboarding wizard to a bookable public page', async ({
+    browser,
+  }) => {
+    const uniqueSuffix = Date.now().toString().slice(-6);
+    const companyName = `Барбер Онборд ${uniqueSuffix}`;
+    const ownerEmail = `onb.${uniqueSuffix}@zapis.kg`;
+
+    const ownerCtx = await browser.newContext();
+    const ownerPage = await ownerCtx.newPage();
+    await ownerPage.goto('/register');
+    await ownerPage.locator('#reg-company-name').fill(companyName);
+    await ownerPage.locator('#reg-owner-name').fill('Талант');
+    await ownerPage.locator('#reg-email').fill(ownerEmail);
+    await ownerPage.locator('#reg-phone').fill('');
+    await ownerPage.locator('#reg-password').fill('Password123!');
+    await ownerPage.getByRole('button', { name: 'Создать аккаунт' }).click();
+
+    await expect(ownerPage).toHaveURL(/\/dashboard\/onboarding$/);
+
+    // Step 1: Contacts
+    await ownerPage.locator('#onb-phone').fill('+996 555 321 654');
+    await ownerPage.locator('#onb-address').fill('г. Бишкек, ул. Чуй 55');
+    await ownerPage.getByRole('button', { name: 'Далее' }).click();
+
+    // Step 2: Presets
+    await expect(ownerPage.getByText('2. Выберите услуги и цены')).toBeVisible();
+    await ownerPage.getByRole('button', { name: 'Далее' }).click();
+
+    // Step 3: Owner serves clients + default hours
+    await expect(ownerPage.getByText('3. Мастера и график работы')).toBeVisible();
+    await ownerPage.getByRole('button', { name: 'Далее' }).click();
+
+    // Step 4: Public link -> preview href -> complete
+    await expect(ownerPage.getByText('4. Ваша публичная ссылка')).toBeVisible();
+    const previewHref =
+      (await ownerPage.getByRole('link', { name: 'Предпросмотр страницы' }).getAttribute('href')) ??
+      '';
+    const publicPath = previewHref.startsWith('http') ? new URL(previewHref).pathname : previewHref;
+    await ownerPage.getByRole('button', { name: 'Скопировать и завершить' }).click();
+    await expect(ownerPage.getByText('Готово! Онлайн-запись работает')).toBeVisible();
+
+    // Verify public page is immediately bookable
+    const clientCtx = await browser.newContext();
+    const clientPage = await clientCtx.newPage();
+    await clientPage.goto(publicPath);
+    await expect(clientPage.getByRole('heading', { name: companyName })).toBeVisible();
+    await clientPage
+      .getByRole('button', { name: /Мужская стрижка/i })
+      .first()
+      .click();
+    await clientPage
+      .getByRole('button', { name: /Любой свободный/i })
+      .first()
+      .click();
+    await advanceUntilSlotsAvailable(clientPage);
+    await expect(clientPage.getByRole('button', { name: /^\d{2}:\d{2}$/ }).first()).toBeVisible();
+
+    await clientCtx.close();
     await ownerCtx.close();
   });
 });

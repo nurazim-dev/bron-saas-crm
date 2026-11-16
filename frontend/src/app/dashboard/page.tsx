@@ -27,6 +27,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { listAppointments } from '@/lib/api/appointments.api';
+import {
+  dismissOnboarding,
+  getOnboardingState,
+  type OnboardingStateDto,
+} from '@/lib/api/onboarding.api';
 import { listServices } from '@/lib/api/services.api';
 import { listVisibleStaffForRole } from '@/lib/api/staff.api';
 import {
@@ -50,6 +55,7 @@ export default function DashboardOverviewPage() {
   const [todayAppointments, setTodayAppointments] = useState<AppointmentDto[]>([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentDto[]>([]);
   const [pendingPrepaymentCount, setPendingPrepaymentCount] = useState(0);
+  const [onboardingState, setOnboardingState] = useState<OnboardingStateDto | null>(null);
   const [staffList, setStaffList] = useState<StaffDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,33 +81,36 @@ export default function DashboardOverviewPage() {
           timezone,
         );
 
-        const [todayRes, upcomingRes, pendingPrepRes, staffData, servicesData] = await Promise.all([
-          listAppointments({
-            from: todayRange.fromUtc,
-            to: todayRange.toUtc,
-            limit: 200,
-          }),
-          listAppointments({
-            from: new Date().toISOString(),
-            to: next30Range.toUtc,
-            status: 'SCHEDULED',
-            limit: 5,
-          }),
-          listAppointments({
-            from: new Date().toISOString(),
-            to: next30Range.toUtc,
-            status: 'SCHEDULED',
-            prepaymentStatus: 'PENDING',
-            limit: 1,
-          }),
-          listVisibleStaffForRole(userId, userRole),
-          listServices(),
-        ]);
+        const [todayRes, upcomingRes, pendingPrepRes, onbState, staffData, servicesData] =
+          await Promise.all([
+            listAppointments({
+              from: todayRange.fromUtc,
+              to: todayRange.toUtc,
+              limit: 200,
+            }),
+            listAppointments({
+              from: new Date().toISOString(),
+              to: next30Range.toUtc,
+              status: 'SCHEDULED',
+              limit: 5,
+            }),
+            listAppointments({
+              from: new Date().toISOString(),
+              to: next30Range.toUtc,
+              status: 'SCHEDULED',
+              prepaymentStatus: 'PENDING',
+              limit: 1,
+            }),
+            userRole === 'OWNER' ? getOnboardingState().catch(() => null) : Promise.resolve(null),
+            listVisibleStaffForRole(userId, userRole),
+            listServices(),
+          ]);
 
         if (!cancelled) {
           setTodayAppointments(todayRes.data);
           setUpcomingAppointments(upcomingRes.data.slice(0, 5));
           setPendingPrepaymentCount(pendingPrepRes.meta.total);
+          setOnboardingState(onbState);
           setStaffList(staffData);
           setServices(servicesData);
         }
@@ -186,6 +195,47 @@ export default function DashboardOverviewPage() {
       </div>
 
       {/* Today's Stats KPI Cards */}
+      {!isLoading && isOwner && onboardingState?.showChecklist && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader className="flex flex-row items-start justify-between gap-4 pb-2">
+            <div>
+              <CardTitle className="text-base">
+                Запуск онлайн-записи ({onboardingState.completedCount} из{' '}
+                {onboardingState.totalSteps})
+              </CardTitle>
+              <CardDescription>
+                Завершите настройку, чтобы клиенты могли записываться к вам онлайн.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const updated = await dismissOnboarding();
+                  setOnboardingState(updated);
+                } catch {
+                  // Ignore
+                }
+              }}
+            >
+              Скрыть
+            </Button>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span>{onboardingState.steps.profileComplete ? '✓' : '○'} Контакты</span>
+              <span>{onboardingState.steps.hasServices ? '✓' : '○'} Услуги</span>
+              <span>{onboardingState.steps.hasBookableMaster ? '✓' : '○'} Мастер и график</span>
+              <span>{onboardingState.steps.linkShared ? '✓' : '○'} Ссылка</span>
+            </div>
+            <Button asChild size="sm">
+              <Link href="/dashboard/onboarding">Продолжить настройку</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       {!isLoading && pendingPrepaymentCount > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
           <div>

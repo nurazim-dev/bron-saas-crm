@@ -79,7 +79,7 @@ function RegisterFormContent() {
         password: values.password,
       });
       toast.success(ru.auth.registrationSuccess);
-      router.replace('/dashboard');
+      router.replace('/dashboard/onboarding');
     } catch (err) {
       setServerError(getApiErrorMessage(err));
     }

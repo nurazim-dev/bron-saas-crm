@@ -141,9 +141,12 @@ model Company {
   reminderMode          ReminderMode  @default(MANUAL)
   remind24h             Boolean       @default(true)
   remind2h              Boolean       @default(true)
-  paymentInstructions   String?
-  prepaymentHoldMin     Int           @default(30)
-  suspendedAt           DateTime?     @db.Timestamptz(3)
+  paymentInstructions      String?
+  prepaymentHoldMin        Int       @default(30)
+  onboardingLinkSharedAt   DateTime? @db.Timestamptz(3)
+  onboardingCompletedAt    DateTime? @db.Timestamptz(3)
+  onboardingDismissedAt    DateTime? @db.Timestamptz(3)
+  suspendedAt              DateTime? @db.Timestamptz(3)
   suspendedReason      String?
   suspendedByAdminId   String?       @db.Uuid
   createdAt            DateTime      @default(now()) @db.Timestamptz(3)

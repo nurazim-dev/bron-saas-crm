@@ -27,6 +27,7 @@ import {
   telegramWebhookRouter,
 } from './modules/notifications/phase20.routes.js';
 import { registerReminderOutboxHooks } from './modules/notifications/reminders.service.js';
+import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { servicesRouter } from './modules/services/services.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
@@ -94,6 +95,7 @@ export function createApp(): Express {
   app.use(`${API_PREFIX}/reminders`, remindersRouter);
   app.use(`${API_PREFIX}/analytics`, analyticsRouter);
   app.use(`${API_PREFIX}/export`, exportRouter);
+  app.use(`${API_PREFIX}/onboarding`, onboardingRouter);
   app.use(`${API_PREFIX}/public`, publicRouter);
 
   app.use(notFound);
