@@ -11,6 +11,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "gate": "node scripts/gate.mjs",
+    "gate:full": "node scripts/gate.mjs --full",
     "dev": "concurrently --kill-others-on-fail --names backend,frontend --prefix-colors blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "worker": "npm run worker -w backend",
     "admin:create": "npm run admin:create -w backend --",
