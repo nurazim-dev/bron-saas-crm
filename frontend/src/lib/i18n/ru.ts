@@ -100,9 +100,12 @@ export const ru = {
   roles: {
     OWNER: 'Владелец',
     MASTER: 'Мастер',
+    MANAGER: 'Менеджер',
   } satisfies Record<Role, string>,
   appointmentStatuses: {
     SCHEDULED: 'Запланирована',
+    CONFIRMED: 'Подтверждена',
+    IN_PROGRESS: 'В процессе',
     COMPLETED: 'Завершена',
     CANCELLED: 'Отменена',
     NO_SHOW: 'Не пришёл',
@@ -199,10 +202,14 @@ export const ru = {
     callClient: 'Позвонить',
     openWhatsApp: 'Написать в WhatsApp',
     statusActionsLabel: 'Изменить статус визита',
+    markConfirmed: 'Подтвердить визит',
+    markInProgress: 'Начать визит',
     markCompleted: 'Завершить визит',
     markNoShow: 'Не пришёл',
     markCancelled: 'Отменить запись',
     markScheduled: 'Вернуть в запланированные',
+    packageLabel: 'Комплекс услуг',
+    packageSelectPlaceholder: 'Без комплекса (выбрать услуги вручную)',
   },
   nav: {
     overview: 'Обзор',
@@ -270,6 +277,25 @@ export const ru = {
     createSuccess: 'Услуга добавлена',
     updateSuccess: 'Услуга обновлена',
     deactivateInstead: 'Скрыть услугу вместо удаления',
+    packagesSectionTitle: 'Пакеты и комплексы услуг',
+    packagesSectionSubtitle:
+      'Объединяйте 2 и более услуг в комплекс по специальной цене и одной длительности.',
+    addPackage: 'Создать пакет',
+    packagesEmpty: 'Пакетов пока нет. Создайте комплекс из нескольких услуг.',
+    packageCreateTitle: 'Новый пакет услуг',
+    packageEditTitle: 'Редактировать пакет услуг',
+    packageNameLabel: 'Название пакета',
+    packageNamePlaceholder: 'Например: Комбо дня',
+    packagePriceLabel: 'Цена пакета (сом)',
+    packageServicesLabel: 'Услуги в составе пакета (минимум 2)',
+    packageTotalCatalogPrice: 'Сумма по прайсу',
+    packageTotalDuration: 'Общая длительность',
+    packageCreateSuccess: 'Пакет услуг создан',
+    packageUpdateSuccess: 'Пакет услуг обновлён',
+    packageDeleteSuccess: 'Пакет услуг удалён',
+    packageDeleteConfirmTitle: 'Удалить пакет услуг?',
+    packageDeleteConfirmText:
+      'Пакет будет скрыт из онлайн-записи. История прошлых записей сохранится.',
   },
   staffPage: {
     title: 'Сотрудники и график работы',
@@ -305,6 +331,9 @@ export const ru = {
     selectAllServices: 'Выбрать все',
     clearAllServices: 'Снять выбор',
     noServicesInCompany: 'Сначала создайте услуги в разделе «Услуги».',
+    overridePriceLabel: 'Своя цена (сом)',
+    overrideDurationLabel: 'Длит. (мин)',
+    overrideDefaultPlaceholder: 'По прайсу',
     hoursModalTitle: 'Еженедельный график работы',
     hoursModalSubtitle:
       'Укажите рабочие дни и часы смен в часовом поясе компании. В выходные дни запись недоступна.',
@@ -494,6 +523,9 @@ export const ru = {
     BOOKING_NOT_ALLOWED:
       'Онлайн-запись для этого номера телефона недоступна. Пожалуйста, свяжитесь с компанией напрямую.',
     IMPERSONATION_READ_ONLY: 'Сессия поддержки работает в режиме только чтения.',
+    SHARED_IDENTITY:
+      'Эта учётная запись используется в другой компании. Изменить email или пароль может только её владелец.',
+    COMPANY_LIMIT_REACHED: 'Достигнуто максимальное количество компаний для одной учётной записи.',
     MFA_REQUIRED: 'Требуется подтверждение двухфакторной аутентификации.',
     RATE_LIMITED: 'Слишком много запросов. Пожалуйста, подождите немного и попробуйте снова.',
     INTERNAL_ERROR: 'Внутренняя ошибка сервера. Пожалуйста, попробуйте позже.',

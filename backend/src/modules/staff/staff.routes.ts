@@ -5,18 +5,22 @@ import { requireWritableSubscription } from '../../middleware/billing.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
+  inviteStaffController,
   createStaffController,
   createStaffPasswordResetLinkController,
+  createStaffTelegramLinkCodeController,
   deleteStaffController,
   getStaffController,
   listStaffController,
   replaceStaffServicesController,
   replaceStaffWorkingHoursController,
+  unlinkStaffTelegramController,
   updateStaffController,
 } from './staff.controller.js';
 import {
   createStaffBodySchema,
   createStaffPasswordResetLinkBodySchema,
+  inviteStaffBodySchema,
   replaceStaffServicesBodySchema,
   replaceWorkingHoursBodySchema,
   staffIdParamsSchema,
@@ -24,8 +28,16 @@ import {
 } from './staff.schemas.js';
 
 export const staffRouter = Router();
+staffRouter.post(
+  '/invite',
+  authenticate,
+  requireRole(Role.OWNER),
+  requireWritableSubscription,
+  validate({ body: inviteStaffBodySchema }),
+  inviteStaffController,
+);
 
-staffRouter.get('/', authenticate, requireRole(Role.OWNER), listStaffController);
+staffRouter.get('/', authenticate, requireRole(Role.OWNER, Role.MANAGER), listStaffController);
 
 staffRouter.post(
   '/',
@@ -36,7 +48,6 @@ staffRouter.post(
   createStaffController,
 );
 
-// Both OWNER and MASTER may call GET /staff/:id (service enforces MASTER own-record check -> 404).
 staffRouter.get(
   '/:id',
   authenticate,
@@ -87,4 +98,22 @@ staffRouter.post(
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: createStaffPasswordResetLinkBodySchema }),
   createStaffPasswordResetLinkController,
+);
+
+staffRouter.post(
+  '/:id/telegram-link-code',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: staffIdParamsSchema }),
+  createStaffTelegramLinkCodeController,
+);
+
+staffRouter.delete(
+  '/:id/telegram',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: staffIdParamsSchema }),
+  unlinkStaffTelegramController,
 );

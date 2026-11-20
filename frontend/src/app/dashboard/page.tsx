@@ -91,13 +91,11 @@ export default function DashboardOverviewPage() {
             listAppointments({
               from: new Date().toISOString(),
               to: next30Range.toUtc,
-              status: 'SCHEDULED',
-              limit: 5,
+              limit: 20,
             }),
             listAppointments({
               from: new Date().toISOString(),
               to: next30Range.toUtc,
-              status: 'SCHEDULED',
               prepaymentStatus: 'PENDING',
               limit: 1,
             }),
@@ -108,7 +106,11 @@ export default function DashboardOverviewPage() {
 
         if (!cancelled) {
           setTodayAppointments(todayRes.data);
-          setUpcomingAppointments(upcomingRes.data.slice(0, 5));
+          setUpcomingAppointments(
+            upcomingRes.data
+              .filter((a) => ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS'].includes(a.status))
+              .slice(0, 5),
+          );
           setPendingPrepaymentCount(pendingPrepRes.meta.total);
           setOnboardingState(onbState);
           setStaffList(staffData);
@@ -137,7 +139,11 @@ export default function DashboardOverviewPage() {
     let revenue = 0;
 
     for (const appt of todayAppointments) {
-      if (appt.status === 'SCHEDULED') {
+      if (
+        appt.status === 'SCHEDULED' ||
+        appt.status === 'CONFIRMED' ||
+        appt.status === 'IN_PROGRESS'
+      ) {
         scheduled++;
         revenue += Number(appt.price) || 0;
       } else if (appt.status === 'COMPLETED') {

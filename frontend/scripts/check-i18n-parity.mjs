@@ -21,31 +21,34 @@ function extractKeys(blockName) {
   return entries;
 }
 
-const ruEntries = extractKeys('ru');
-const kyEntries = extractKeys('ky');
-const ruMap = new Map(ruEntries);
-const kyMap = new Map(kyEntries);
+const ruMap = new Map(extractKeys('ru'));
+const kyMap = new Map(extractKeys('ky'));
+const enMap = new Map(extractKeys('en'));
 
-for (const [k, v] of ruMap) {
-  if (!kyMap.has(k)) {
-    process.stderr.write(`Key missing in ky: ${k}\n`);
-    process.exit(1);
+function assertParity(targetName, targetMap) {
+  for (const [k, v] of ruMap) {
+    if (!targetMap.has(k)) {
+      process.stderr.write(`Key missing in ${targetName}: ${k}\n`);
+      process.exit(1);
+    }
+    if (!v || !v.trim()) {
+      process.stderr.write(`Empty value in ru for key: ${k}\n`);
+      process.exit(1);
+    }
   }
-  if (!v || !v.trim()) {
-    process.stderr.write(`Empty value in ru for key: ${k}\n`);
-    process.exit(1);
+  for (const [k, v] of targetMap) {
+    if (!ruMap.has(k)) {
+      process.stderr.write(`Extra key in ${targetName}: ${k}\n`);
+      process.exit(1);
+    }
+    if (!v || !v.trim()) {
+      process.stderr.write(`Empty value in ${targetName} for key: ${k}\n`);
+      process.exit(1);
+    }
   }
 }
 
-for (const [k, v] of kyMap) {
-  if (!ruMap.has(k)) {
-    process.stderr.write(`Extra key in ky: ${k}\n`);
-    process.exit(1);
-  }
-  if (!v || !v.trim()) {
-    process.stderr.write(`Empty value in ky for key: ${k}\n`);
-    process.exit(1);
-  }
-}
+assertParity('ky', kyMap);
+assertParity('en', enMap);
 
-process.stdout.write(`i18n parity OK (${ruMap.size} keys in ru and ky)\n`);
+process.stdout.write(`i18n parity OK (${ruMap.size} keys in ru, ky, and en)\n`);

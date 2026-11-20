@@ -13,7 +13,7 @@ COPY frontend/package.json ./frontend/
 RUN npm ci
 
 COPY backend ./backend
-RUN npx prisma generate --config backend/prisma.config.ts
+RUN DATABASE_URL=postgresql://build:build@localhost/build npx prisma generate --config backend/prisma.config.ts
 RUN npm run build -w backend
 
 FROM node:24-alpine AS runner
@@ -22,6 +22,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV TZ=UTC
 ENV PORT=4000
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
+ENV FFPROBE_PATH=/usr/bin/ffprobe
+RUN apk add --no-cache ffmpeg
 
 COPY --from=builder /app/package.json /app/package-lock.json ./
 COPY --from=builder /app/node_modules ./node_modules

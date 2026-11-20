@@ -1,3 +1,4 @@
+import { serviceIdsSchema } from './service-selection.js';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { AppointmentStatus, PrepaymentStatus } from '../../generated/prisma/client.js';
@@ -120,7 +121,9 @@ const priceSchema = z.union([z.number(), z.string()]).transform((val, ctx): stri
 export const createAppointmentBodySchema = z
   .object({
     masterId: z.uuid({ message: 'masterId must be a valid UUID' }),
-    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsSchema.optional(),
+    packageId: z.uuid({ message: 'packageId must be a valid UUID' }).optional(),
     startAt: startAtSchema,
     clientName: clientNameSchema,
     clientPhone: clientPhoneSchema,
@@ -128,7 +131,23 @@ export const createAppointmentBodySchema = z
     internalNote: noteSchema,
     price: priceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!data.serviceId && !data.packageId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['serviceId'],
+        message: 'Either serviceId or packageId is required',
+      });
+    }
+    if (data.packageId && (data.serviceId !== undefined || data.serviceIds !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['packageId'],
+        message: 'Cannot combine packageId with serviceId or serviceIds',
+      });
+    }
+  });
 
 export type CreateAppointmentBody = z.infer<typeof createAppointmentBodySchema>;
 
@@ -136,6 +155,7 @@ export const updateAppointmentBodySchema = z
   .object({
     masterId: z.uuid({ message: 'masterId must be a valid UUID' }).optional(),
     serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsSchema.optional(),
     startAt: startAtSchema.optional(),
     clientName: clientNameSchema.optional(),
     clientPhone: clientPhoneSchema.optional(),

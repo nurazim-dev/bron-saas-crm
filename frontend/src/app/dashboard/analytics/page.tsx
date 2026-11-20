@@ -13,12 +13,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  type AnalyticsCrmDto,
   type AnalyticsHeatmapCellDto,
   type AnalyticsMasterRowDto,
   type AnalyticsServiceRowDto,
   type AnalyticsSummaryDto,
   type AnalyticsTimeseriesDto,
   downloadAppointmentsCsv,
+  downloadPaymentsCsv,
+  getAnalyticsCrm,
   getAnalyticsHeatmap,
   getAnalyticsMasters,
   getAnalyticsServices,
@@ -26,6 +29,11 @@ import {
   getAnalyticsTimeseries,
 } from '@/lib/api/analytics.api';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/api/client';
+import { downloadClientsCsv } from '@/lib/api/clients.api';
+import {
+  type BusinessPaymentsSummaryDto,
+  getBusinessPaymentsSummary,
+} from '@/lib/api/payments.api';
 import { listStaff } from '@/lib/api/staff.api';
 import { addDaysToLocalDateInTz, getTodayLocalDateInTz } from '@/lib/datetime';
 import { formatPriceKgs } from '@/lib/i18n/ru';
@@ -59,10 +67,14 @@ function AnalyticsContent() {
   const [services, setServices] = useState<AnalyticsServiceRowDto[]>([]);
   const [masters, setMasters] = useState<AnalyticsMasterRowDto[]>([]);
   const [heatmap, setHeatmap] = useState<AnalyticsHeatmapCellDto[]>([]);
+  const [crmReport, setCrmReport] = useState<AnalyticsCrmDto | null>(null);
+  const [paymentsSummary, setPaymentsSummary] = useState<BusinessPaymentsSummaryDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPlanLocked, setIsPlanLocked] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingClients, setIsExportingClients] = useState(false);
+  const [isExportingPayments, setIsExportingPayments] = useState(false);
 
   useEffect(() => {
     void listStaff()
@@ -82,12 +94,14 @@ function AnalyticsContent() {
         ...(masterId !== 'ALL' ? { masterId } : {}),
       };
       try {
-        const [sumRes, tsRes, svcRes, mstRes, heatRes] = await Promise.all([
+        const [sumRes, tsRes, svcRes, mstRes, heatRes, crmRes, paySumRes] = await Promise.all([
           getAnalyticsSummary(params),
           getAnalyticsTimeseries({ ...params, granularity: 'day' }),
           getAnalyticsServices(params),
           getAnalyticsMasters(params),
           getAnalyticsHeatmap(params),
+          getAnalyticsCrm(params),
+          getBusinessPaymentsSummary({ from: fromDate, to: toDate }),
         ]);
         if (!cancelled) {
           setSummary(sumRes);
@@ -95,6 +109,8 @@ function AnalyticsContent() {
           setServices(svcRes);
           setMasters(mstRes);
           setHeatmap(heatRes);
+          setCrmReport(crmRes);
+          setPaymentsSummary(paySumRes);
         }
       } catch (err) {
         if (!cancelled) {
@@ -154,6 +170,30 @@ function AnalyticsContent() {
     }
   }
 
+  async function handleExportClientsCsv() {
+    setIsExportingClients(true);
+    try {
+      await downloadClientsCsv({});
+      toast.success('База клиентов CSV выгружена');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setIsExportingClients(false);
+    }
+  }
+
+  async function handleExportPaymentsCsv() {
+    setIsExportingPayments(true);
+    try {
+      await downloadPaymentsCsv({ from: fromDate, to: toDate });
+      toast.success('Журнал платежей CSV выгружен');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setIsExportingPayments(false);
+    }
+  }
+
   const chartData = useMemo(
     () =>
       (timeseries?.points ?? []).map((p) => ({
@@ -186,16 +226,38 @@ function AnalyticsContent() {
             Выручка, загрузка мастеров, популярные услуги и пиковые часы.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={isExporting}
-          onClick={() => void handleExportCsv()}
-          className="min-h-11 gap-2 self-start sm:self-auto"
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-          {isExporting ? 'Экспорт...' : 'Экспорт CSV'}
-        </Button>
+        <div className="flex flex-wrap gap-2 self-start sm:self-auto">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isExporting}
+            onClick={() => void handleExportCsv()}
+            className="min-h-11 gap-2"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {isExporting ? 'Экспорт...' : 'Экспорт записей CSV'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isExportingClients}
+            onClick={() => void handleExportClientsCsv()}
+            className="min-h-11 gap-2"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {isExportingClients ? 'Экспорт...' : 'Экспорт клиентов CSV'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isExportingPayments}
+            onClick={() => void handleExportPaymentsCsv()}
+            className="min-h-11 gap-2"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {isExportingPayments ? 'Экспорт...' : 'Экспорт платежей CSV'}
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -294,14 +356,33 @@ function AnalyticsContent() {
       ) : summary ? (
         <>
           {/* KPIs */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Выручка (завершённые)</CardDescription>
+                <CardDescription>Подтверждённые поступления</CardDescription>
+                <CardTitle data-testid="analytics-confirmed-revenue" className="text-2xl">
+                  {formatPriceKgs(paymentsSummary?.netConfirmedRevenue ?? '0.00')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Оплаты: {formatPriceKgs(paymentsSummary?.confirmedPayments ?? '0.00')} • Возвраты:{' '}
+                  {formatPriceKgs(paymentsSummary?.confirmedRefunds ?? '0.00')}
+                </p>
+                <p className="text-[11px]">
+                  Ожидают проверки: {formatPriceKgs(paymentsSummary?.pendingAmount ?? '0.00')} (
+                  {paymentsSummary?.pendingCount ?? 0})
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Оценка по завершённым визитам</CardDescription>
                 <CardTitle className="text-2xl">{formatPriceKgs(summary.revenue)}</CardTitle>
               </CardHeader>
-              <CardContent className="text-xs text-muted-foreground">
-                К прошлому периоду: {formatDelta(summary.deltas.revenuePct)}
+              <CardContent className="space-y-1 text-xs text-muted-foreground">
+                <p>К прошлому периоду: {formatDelta(summary.deltas.revenuePct)}</p>
+                <p className="text-[11px]">Сумма завершённых визитов (не подтверждённые платежи)</p>
               </CardContent>
             </Card>
             <Card>
@@ -464,6 +545,117 @@ function AnalyticsContent() {
               </div>
             </CardContent>
           </Card>
+
+          {/* CRM Segmentation & Top Clients */}
+          {crmReport && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">CRM-аналитика и сегменты базы</CardTitle>
+                  <CardDescription>
+                    Повторные визиты, удержание за период и распределение клиентов по сегментам.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Активных клиентов</p>
+                      <p className="mt-1 text-xl font-bold">{crmReport.segments.totalActive}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Доля повторных</p>
+                      <p className="mt-1 text-xl font-bold">{crmReport.repeatRate}%</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Удержание за период</p>
+                      <p className="mt-1 text-xl font-bold">{crmReport.retentionRate}%</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">VIP / В зоне риска</p>
+                      <p className="mt-1 text-xl font-bold">
+                        {crmReport.segments.vipClients} / {crmReport.segments.atRiskClients}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <Badge variant="outline">Новые: {crmReport.segments.newClients}</Badge>
+                    <Badge variant="outline">Постоянные: {crmReport.segments.repeatClients}</Badge>
+                    <Badge variant="outline">Потерянные: {crmReport.segments.lostClients}</Badge>
+                    <Badge variant="outline">
+                      Риск неявок: {crmReport.segments.noShowRiskClients}
+                    </Badge>
+                    <Badge variant="outline">
+                      Заблокированы: {crmReport.segments.blockedClients}
+                    </Badge>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">Топ клиенты за период</p>
+                      {crmReport.topClients.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Нет завершённых визитов.</p>
+                      ) : (
+                        <div className="divide-y rounded-lg border text-sm">
+                          {crmReport.topClients.map((c) => (
+                            <div
+                              key={c.id}
+                              className="flex items-center justify-between gap-2 px-3 py-2"
+                            >
+                              <div className="min-w-0">
+                                <Link
+                                  href={`/dashboard/clients/${c.id}`}
+                                  className="truncate font-medium hover:underline"
+                                >
+                                  {c.name}
+                                </Link>
+                                <p className="text-xs text-muted-foreground">Визитов: {c.visits}</p>
+                              </div>
+                              <span className="shrink-0 font-semibold">
+                                {formatPriceKgs(c.completedValue)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">Разбивка по тегам</p>
+                      {crmReport.byTag.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Теги ещё не созданы.</p>
+                      ) : (
+                        <div className="divide-y rounded-lg border text-sm">
+                          {crmReport.byTag.map((tag) => (
+                            <div
+                              key={tag.tagId}
+                              className="flex items-center justify-between gap-2 px-3 py-2"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="h-2.5 w-2.5 rounded-full"
+                                  style={{ backgroundColor: tag.color }}
+                                />
+                                <div>
+                                  <p className="font-medium">{tag.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Клиентов: {tag.clientCount} • Визитов: {tag.visitsInPeriod}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="shrink-0 font-semibold">
+                                {formatPriceKgs(tag.completedValueInPeriod)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </>
       ) : null}
     </div>

@@ -101,7 +101,7 @@ export function GuestGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isInitialized && user && accessToken) {
-      router.replace('/dashboard');
+      router.replace(user.role === 'MANAGER' ? '/dashboard/schedule' : '/dashboard');
     }
   }, [accessToken, isInitialized, router, user]);
 
@@ -114,7 +114,7 @@ export function GuestGuard({ children }: { children: ReactNode }) {
 
 /**
  * Protects OWNER-only dashboard pages (/dashboard/services, /dashboard/staff, /dashboard/settings):
- * redirects MASTER users to /dashboard/schedule.
+ * redirects employees to /dashboard/schedule.
  */
 export function OwnerGuard({ children }: { children: ReactNode }) {
   const router = useRouter();

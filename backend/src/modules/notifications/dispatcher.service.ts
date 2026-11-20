@@ -137,12 +137,26 @@ async function deliverMessage(
         html: rendered.html,
       });
       return;
-    case NotificationChannel.TELEGRAM:
+    case NotificationChannel.TELEGRAM: {
+      const replyMarkup =
+        typeof payloadObj.replyMarkup === 'object' &&
+        payloadObj.replyMarkup !== null &&
+        !Array.isArray(payloadObj.replyMarkup)
+          ? (payloadObj.replyMarkup as {
+              inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>>;
+            })
+          : undefined;
+      const customTelegramHtml =
+        typeof payloadObj.telegramHtml === 'string' && payloadObj.telegramHtml.trim().length > 0
+          ? payloadObj.telegramHtml
+          : rendered.telegramHtml;
       await registry.telegram.send({
         chatId: msg.recipient,
-        html: rendered.telegramHtml,
+        html: customTelegramHtml,
+        replyMarkup,
       });
       return;
+    }
     case NotificationChannel.SMS:
       await registry.clientMessage.send({
         channel: 'SMS',

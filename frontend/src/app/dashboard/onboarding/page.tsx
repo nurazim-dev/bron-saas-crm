@@ -397,7 +397,8 @@ function OnboardingWizardContent() {
           <CardHeader>
             <CardTitle>4. Ваша публичная ссылка</CardTitle>
             <CardDescription>
-              Отправьте её клиентам в WhatsApp, добавьте в шапку профиля Instagram и 2ГИС.
+              Отправьте её клиентам в WhatsApp, добавьте в шапку профиля Instagram и 2ГИС. Фото и
+              описание мастеров можно добавить в разделе «Сотрудники → Профиль и портфолио».
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

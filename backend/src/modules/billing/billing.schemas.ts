@@ -8,6 +8,13 @@ export const paymentIdParamsSchema = z.object({
 
 export type PaymentIdParams = z.infer<typeof paymentIdParamsSchema>;
 
+export const paymentProofParamsSchema = z.object({
+  id: z.uuid({ message: 'Payment ID must be a valid UUID' }),
+  proofId: z.uuid({ message: 'Proof ID must be a valid UUID' }),
+});
+
+export type PaymentProofParams = z.infer<typeof paymentProofParamsSchema>;
+
 export const createPaymentClaimBodySchema = z
   .object({
     planId: z.uuid({ message: 'planId must be a valid UUID' }),

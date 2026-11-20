@@ -4,7 +4,13 @@ import { env } from '../config/env.js';
 import { Prisma, PrismaClient } from '../generated/prisma/client.js';
 import { now as clockNow } from './clock.js';
 
-export const SOFT_DELETE_MODELS = ['Company', 'User', 'Service', 'Appointment'] as const;
+export const SOFT_DELETE_MODELS = [
+  'Company',
+  'User',
+  'Service',
+  'ServicePackage',
+  'Appointment',
+] as const;
 export type SoftDeleteModelName = (typeof SOFT_DELETE_MODELS)[number];
 
 const SOFT_DELETE_MODEL_SET = new Set<string>(SOFT_DELETE_MODELS);

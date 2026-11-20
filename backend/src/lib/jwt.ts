@@ -11,6 +11,7 @@ export interface AccessTokenClaims {
   role: Role;
   tv: number;
   typ: 'access';
+  sid?: string;
   imp?: string;
 }
 
@@ -21,6 +22,7 @@ export interface RefreshTokenClaims {
   tv: number;
   jti: string;
   typ: 'refresh';
+  sid?: string;
 }
 
 export const REFRESH_COOKIE_NAME = 'zapis_rt';
@@ -51,9 +53,11 @@ export function signAccessToken(payload: {
   companyId: string;
   role: Role;
   tv: number;
+  sid?: string;
 }): string {
   const iat = Math.floor(clockNow().getTime() / 1000);
   const claims: AccessTokenClaims & { iat: number } = {
+    ...(payload.sid ? { sid: payload.sid } : {}),
     sub: payload.sub,
     companyId: payload.companyId,
     role: payload.role,
@@ -96,9 +100,11 @@ export function signRefreshToken(payload: {
   companyId: string;
   role: Role;
   tv: number;
+  sid?: string;
 }): string {
   const iat = Math.floor(clockNow().getTime() / 1000);
   const claims: RefreshTokenClaims & { iat: number } = {
+    ...(payload.sid ? { sid: payload.sid } : {}),
     sub: payload.sub,
     companyId: payload.companyId,
     role: payload.role,
@@ -115,7 +121,7 @@ export function signRefreshToken(payload: {
 }
 
 function isValidRole(value: unknown): value is Role {
-  return value === 'OWNER' || value === 'MASTER';
+  return value === 'OWNER' || value === 'MASTER' || value === 'MANAGER';
 }
 
 export function verifyAccessToken(token: string): AccessTokenClaims {
@@ -138,6 +144,7 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid access token claims');
     }
     return {
+      ...(typeof record.sid === 'string' ? { sid: record.sid } : {}),
       sub: record.sub,
       companyId: record.companyId,
       role: record.role,
@@ -172,6 +179,7 @@ export function verifyRefreshToken(token: string): RefreshTokenClaims {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid refresh token claims');
     }
     return {
+      ...(typeof record.sid === 'string' ? { sid: record.sid } : {}),
       sub: record.sub,
       companyId: record.companyId,
       role: record.role,

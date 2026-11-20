@@ -12,6 +12,7 @@ import { utcToLocalParts } from '../../lib/datetime.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../lib/prisma.js';
 import { getCompanyCapabilities } from '../../modules/company/company.service.js';
+import { REMINDABLE_STATUSES } from '../../modules/appointments/status-transitions.js';
 import { enqueue } from '../../modules/notifications/outbox.service.js';
 import { cancelPendingReminders } from '../../modules/notifications/reminders.service.js';
 
@@ -22,7 +23,7 @@ export async function runPrepaymentExpiryOnce(
   const candidates = await db.appointment.findMany({
     where: {
       deletedAt: null,
-      status: AppointmentStatus.SCHEDULED,
+      status: { in: [...REMINDABLE_STATUSES] },
       prepaymentStatus: PrepaymentStatus.PENDING,
       prepaymentHoldUntil: { lt: currentNow },
     },
@@ -43,7 +44,7 @@ export async function runPrepaymentExpiryOnce(
           id: appt.id,
           companyId: appt.companyId,
           deletedAt: null,
-          status: AppointmentStatus.SCHEDULED,
+          status: { in: [...REMINDABLE_STATUSES] },
           prepaymentStatus: PrepaymentStatus.PENDING,
           prepaymentHoldUntil: { lt: currentNow },
         },

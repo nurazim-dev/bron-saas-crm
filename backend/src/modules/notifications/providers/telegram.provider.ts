@@ -25,6 +25,7 @@ export class HttpTelegramProvider implements TelegramProvider {
         text: params.html,
         parse_mode: 'HTML',
         disable_web_page_preview: true,
+        ...(params.replyMarkup ? { reply_markup: params.replyMarkup } : {}),
       }),
     });
 

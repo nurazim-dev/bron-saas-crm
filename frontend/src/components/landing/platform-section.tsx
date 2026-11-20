@@ -75,9 +75,18 @@ export function LandingPricingSection() {
             >
               <CardHeader>
                 <CardTitle className="text-xl font-bold">{plan.name}</CardTitle>
+                {plan.description && (
+                  <p className="text-xs text-muted-foreground">{plan.description}</p>
+                )}
                 <p className="mt-2 text-3xl font-extrabold">
-                  {formatPriceKgs(plan.priceMonthly)}
-                  <span className="text-sm font-normal text-muted-foreground"> / мес</span>
+                  {Number(plan.priceMonthly) === 0 ? (
+                    'Бесплатно'
+                  ) : (
+                    <>
+                      {formatPriceKgs(plan.priceMonthly)}
+                      <span className="text-sm font-normal text-muted-foreground"> / мес</span>
+                    </>
+                  )}
                 </p>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col justify-between space-y-6">
@@ -87,12 +96,38 @@ export function LandingPricingSection() {
                     До {plan.maxStaff} сотрудников
                   </li>
                   <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    {plan.maxServices ? `До ${plan.maxServices} услуг` : 'Безлимит услуг'}
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    {plan.maxAppointmentsPerMonth
+                      ? `До ${plan.maxAppointmentsPerMonth} записей/мес`
+                      : 'Безлимит записей'}
+                  </li>
+                  <li className="flex items-center gap-2">
                     {plan.featureAnalytics ? (
                       <Check className="h-4 w-4 text-primary" aria-hidden="true" />
                     ) : (
                       <X className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
                     )}
                     Аналитика и CSV-экспорт
+                  </li>
+                  <li className="flex items-center gap-2">
+                    {plan.featureCrmAdvanced !== false ? (
+                      <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    ) : (
+                      <X className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
+                    )}
+                    Теги, объединение и импорт CRM
+                  </li>
+                  <li className="flex items-center gap-2">
+                    {plan.featureManualPayments !== false ? (
+                      <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    ) : (
+                      <X className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
+                    )}
+                    Журнал оплат и чеки
                   </li>
                   <li className="flex items-center gap-2">
                     {plan.featureAutoReminders ? (
@@ -109,6 +144,14 @@ export function LandingPricingSection() {
                       <X className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
                     )}
                     Предоплата при записи
+                  </li>
+                  <li className="flex items-center gap-2">
+                    {plan.featureMultiCompany !== false ? (
+                      <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    ) : (
+                      <X className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
+                    )}
+                    Несколько филиалов / компаний
                   </li>
                 </ul>
 

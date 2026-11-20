@@ -9,6 +9,7 @@ import {
   cancelPublicManageAppointmentController,
   createPublicAppointmentController,
   getPublicAvailabilityController,
+  getPublicCompanyByDomainController,
   getPublicCompanyController,
   getPublicManageAppointmentController,
   getPublicManageAvailabilityController,
@@ -16,6 +17,7 @@ import {
   reschedulePublicManageAppointmentController,
 } from './public.controller.js';
 import {
+  companyDomainParamsSchema,
   companySlugParamsSchema,
   createPublicAppointmentBodySchema,
   getPublicAvailabilityQuerySchema,
@@ -28,6 +30,12 @@ import {
 export const publicRouter = Router();
 
 publicRouter.get('/platform', getPublicPlatformController);
+
+publicRouter.get(
+  '/domains/:domain',
+  validate({ params: companyDomainParamsSchema }),
+  getPublicCompanyByDomainController,
+);
 
 publicRouter.get(
   '/companies/:slug',

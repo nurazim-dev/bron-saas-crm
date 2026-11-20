@@ -13,6 +13,7 @@ import {
   reschedulePublicManageAppointment,
 } from './public-manage.service.js';
 import type {
+  CompanyDomainParams,
   CompanySlugParams,
   CreatePublicAppointmentBody,
   GetPublicAvailabilityQuery,
@@ -24,6 +25,7 @@ import type {
 import {
   createPublicAppointmentBySlug,
   getPublicAvailabilityBySlug,
+  getPublicCompanyProfileByDomain,
   getPublicCompanyProfileBySlug,
 } from './public.service.js';
 
@@ -35,6 +37,12 @@ export const getPublicPlatformController: RequestHandler = async (_req, res) => 
 export const getPublicCompanyController: RequestHandler = async (req, res) => {
   const { slug } = getValidatedParams<CompanySlugParams>(req);
   const profile = await getPublicCompanyProfileBySlug(slug);
+  res.status(200).json({ data: profile });
+};
+
+export const getPublicCompanyByDomainController: RequestHandler = async (req, res) => {
+  const { domain } = getValidatedParams<CompanyDomainParams>(req);
+  const profile = await getPublicCompanyProfileByDomain(domain);
   res.status(200).json({ data: profile });
 };
 

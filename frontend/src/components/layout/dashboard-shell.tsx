@@ -1,4 +1,5 @@
 'use client';
+import { NavigationDrawer } from '@/components/ui/navigation-drawer';
 
 import {
   AlertTriangle,
@@ -13,22 +14,35 @@ import {
   LogOut,
   Megaphone,
   Menu,
+  Moon,
   Scissors,
   Settings,
+  Sun,
   User,
   Users,
+  Wallet,
   X,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CompanySwitcher } from '@/components/layout/company-switcher';
+import { GlobalSearch } from '@/components/layout/global-search';
 import { NotificationBell } from '@/components/layout/notification-bell';
 import { exitImpersonation, logoutSession } from '@/lib/api/auth.api';
 import { getBillingOverview, getPublicPlatform } from '@/lib/api/billing.api';
+import {
+  DASHBOARD_NAV_BY_HREF,
+  DASHBOARD_ROLE_LABELS,
+  DASHBOARD_SHELL_TEXT,
+  type DashboardLang,
+  useDashboardLangStore,
+} from '@/lib/i18n/dashboard-lang';
 import { ru } from '@/lib/i18n/ru';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
@@ -52,24 +66,30 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/schedule',
     label: ru.nav.schedule,
     icon: CalendarDays,
-    roles: ['OWNER', 'MASTER'],
+    roles: ['OWNER', 'MANAGER', 'MASTER'],
   },
   {
     href: '/dashboard/appointments',
     label: ru.nav.appointments,
     icon: ClipboardList,
-    roles: ['OWNER', 'MASTER'],
+    roles: ['OWNER', 'MANAGER', 'MASTER'],
   },
   {
     href: '/dashboard/clients',
     label: 'Клиенты',
     icon: Users,
-    roles: ['OWNER', 'MASTER'],
+    roles: ['OWNER', 'MANAGER', 'MASTER'],
   },
   {
     href: '/dashboard/analytics',
     label: 'Аналитика',
     icon: BarChart3,
+    roles: ['OWNER'],
+  },
+  {
+    href: '/dashboard/payments',
+    label: 'Платежи',
+    icon: Wallet,
     roles: ['OWNER'],
   },
   {
@@ -100,20 +120,30 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/profile',
     label: 'Профиль',
     icon: User,
-    roles: ['OWNER', 'MASTER'],
+    roles: ['OWNER', 'MANAGER', 'MASTER'],
   },
 ];
 
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { resolvedTheme, setTheme } = useTheme();
+  const dashLang = useDashboardLangStore((s) => s.lang);
+  const setDashLang = useDashboardLangStore((s) => s.setLang);
+  const shellText = DASHBOARD_SHELL_TEXT[dashLang];
   const user = useAuthStore((s) => s.user);
   const company = useAuthStore((s) => s.company);
   const isImpersonating = useAuthStore((s) => s.isImpersonating);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [billingOverview, setBillingOverview] = useState<BillingOverviewDto | null>(null);
+  const [scopedBilling, setScopedBilling] = useState<{
+    companyId: string;
+    data: BillingOverviewDto;
+  } | null>(null);
   const [platformInfo, setPlatformInfo] = useState<PublicPlatformDto | null>(null);
+
+  const billingOverview =
+    company?.id && scopedBilling?.companyId === company.id ? scopedBilling.data : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -128,14 +158,15 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== 'OWNER') {
+    const activeCompanyId = company?.id;
+    if (user?.role !== 'OWNER' || !activeCompanyId) {
       return;
     }
     let cancelled = false;
     const loadBilling = () => {
       void getBillingOverview()
         .then((data) => {
-          if (!cancelled) setBillingOverview(data);
+          if (!cancelled) setScopedBilling({ companyId: activeCompanyId, data });
         })
         .catch(() => undefined);
     };
@@ -151,7 +182,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       cancelled = true;
       window.removeEventListener('zapis:billing-402', handle402);
     };
-  }, [user?.role, pathname]);
+  }, [company?.id, user?.role, pathname]);
 
   const visibleNavItems = NAV_ITEMS.filter((item) =>
     user ? item.roles.includes(user.role) : false,
@@ -186,12 +217,12 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-muted/20">
+    <div className="workspace-shell flex min-h-screen bg-muted/20">
       {/* Desktop Sidebar */}
       <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar md:flex">
         <div className="flex h-16 items-center gap-2.5 border-b px-5">
           <Link
-            href={user?.role === 'MASTER' ? '/dashboard/schedule' : '/dashboard'}
+            href={user?.role === 'OWNER' ? '/dashboard' : '/dashboard/schedule'}
             className="flex items-center gap-2.5 font-semibold"
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -209,6 +240,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
                   'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   active
@@ -217,7 +249,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{item.label}</span>
+                <span>{DASHBOARD_NAV_BY_HREF[item.href]?.[dashLang] ?? item.label}</span>
               </Link>
             );
           })}
@@ -231,81 +263,67 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               rel="noopener noreferrer"
               className="flex min-h-11 items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              <span className="truncate">{ru.nav.publicPageLink}</span>
+              <span className="truncate">{shellText.publicPageLink}</span>
               <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             </Link>
           </div>
         )}
       </aside>
 
-      {/* Mobile Sheet Navigation */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden" role="dialog" aria-modal="true">
-          <div
-            className="fixed inset-0 bg-black/50 transition-opacity"
+      <NavigationDrawer
+        open={mobileMenuOpen}
+        onOpenChange={setMobileMenuOpen}
+        title="Меню кабинета"
+      >
+        <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
+          <span className="text-lg font-bold">{ru.brand.name}</span>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setMobileMenuOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="relative z-10 flex w-72 max-w-[85vw] flex-col bg-sidebar shadow-xl">
-            <div className="flex h-16 items-center justify-between border-b px-4">
-              <div className="flex items-center gap-2.5 font-semibold">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Scissors className="h-4 w-4" aria-hidden="true" />
-                </span>
-                <span className="text-lg font-bold">{ru.brand.name}</span>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="min-h-11 min-w-11"
-                onClick={() => setMobileMenuOpen(false)}
-                aria-label={ru.nav.closeMenu}
-              >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </Button>
-            </div>
-
-            <nav className="flex-1 space-y-1 p-3" aria-label="Мобильная навигация">
-              {visibleNavItems.map((item) => {
-                const Icon = item.icon;
-                const active = isActivePath(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={cn(
-                      'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                      active
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
-                    )}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </nav>
-
-            {company && (
-              <div className="border-t p-3">
-                <Link
-                  href={`/b/${company.slug}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex min-h-11 items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <span className="truncate">{ru.nav.publicPageLink}</span>
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                </Link>
-              </div>
-            )}
-          </div>
+            aria-label={ru.nav.closeMenu}
+          >
+            <X aria-hidden="true" className="h-5 w-5" />
+          </Button>
         </div>
-      )}
+        <nav className="flex-1 space-y-1 p-3" aria-label="Мобильная навигация">
+          {visibleNavItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActivePath(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  active
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60',
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{DASHBOARD_NAV_BY_HREF[item.href]?.[dashLang] ?? item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        {company && (
+          <div className="border-t p-3">
+            <Link
+              href={`/b/${company.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex min-h-11 items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs font-medium"
+            >
+              <span>{shellText.publicPageLink}</span>
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+        )}
+      </NavigationDrawer>
 
       {/* Main Column */}
       <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
@@ -322,8 +340,8 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
             {company && (
-              <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-semibold sm:text-base">{company.name}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <CompanySwitcher />
                 <Badge variant="outline" className="hidden sm:inline-flex">
                   {company.timezone}
                 </Badge>
@@ -331,16 +349,52 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-            <NotificationBell />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <GlobalSearch key={`search-${company?.id ?? 'none'}`} />
+            <select
+              data-testid="dashboard-lang-select"
+              aria-label={shellText.langLabel}
+              value={dashLang}
+              onChange={(e) => setDashLang(e.target.value as DashboardLang)}
+              className="h-9 rounded-md border border-input bg-background px-1.5 text-xs font-medium"
+            >
+              <option value="ru">RU</option>
+              <option value="ky">KY</option>
+              <option value="en">EN</option>
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              data-testid="theme-toggle"
+              aria-label={shellText.themeToggle}
+              onClick={() => {
+                const isCurrentlyDark =
+                  resolvedTheme === 'dark' ||
+                  (typeof document !== 'undefined' &&
+                    document.documentElement.classList.contains('dark'));
+                const next = isCurrentlyDark ? 'light' : 'dark';
+                setTheme(next);
+                if (typeof document !== 'undefined') {
+                  document.documentElement.classList.toggle('dark', next === 'dark');
+                }
+              }}
+              className="h-9 w-9 shrink-0"
+            >
+              <Sun className="h-4 w-4 dark:hidden" aria-hidden="true" />
+              <Moon className="hidden h-4 w-4 dark:block" aria-hidden="true" />
+            </Button>
+            <NotificationBell key={company?.id ?? 'none'} />
             {user && (
               <div className="flex items-center gap-2 text-right">
                 <div className="hidden sm:block">
                   <p className="text-sm font-medium leading-none">{user.name}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{ru.roles[user.role]}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {DASHBOARD_ROLE_LABELS[user.role]?.[dashLang] ?? ru.roles[user.role]}
+                  </p>
                 </div>
                 <Badge variant="secondary" className="sm:hidden">
-                  {ru.roles[user.role]}
+                  {DASHBOARD_ROLE_LABELS[user.role]?.[dashLang] ?? ru.roles[user.role]}
                 </Badge>
               </div>
             )}
@@ -352,7 +406,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               className="min-h-11 gap-2 px-3"
             >
               <LogOut className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">{ru.auth.logout}</span>
+              <span className="hidden sm:inline">{shellText.logout}</span>
             </Button>
           </div>
         </header>
@@ -443,7 +497,12 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </div>
           )}
 
-        <main className="min-w-0 flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-8">{children}</main>
+        <main
+          key={`${company?.id ?? 'none'}:${user?.id ?? 'none'}`}
+          className="min-w-0 flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-8"
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

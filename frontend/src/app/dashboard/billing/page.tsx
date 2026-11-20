@@ -5,9 +5,11 @@ import {
   Check,
   Clock,
   CreditCard,
+  FileText,
   Loader2,
   ShieldAlert,
   Sparkles,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
@@ -23,9 +25,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   cancelPaymentClaim,
   createPaymentClaim,
+  fetchSubscriptionPaymentProofBlob,
   getBillingOverview,
   listBillingPayments,
   listBillingPlans,
+  switchToFreePlan,
+  uploadSubscriptionPaymentProof,
 } from '@/lib/api/billing.api';
 import { getApiErrorMessage } from '@/lib/api/client';
 import { formatPriceKgs } from '@/lib/i18n/ru';
@@ -92,6 +97,8 @@ function BillingContent() {
   const [claimError, setClaimError] = useState<string | null>(null);
   const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
   const [isCancellingClaim, setIsCancellingClaim] = useState(false);
+  const [isSwitchingFree, setIsSwitchingFree] = useState(false);
+  const [uploadingProofPaymentId, setUploadingProofPaymentId] = useState<string | null>(null);
 
   async function loadAll() {
     setIsLoading(true);
@@ -105,8 +112,10 @@ function BillingContent() {
       setOverview(ov);
       setPlans(pl);
       setPayments(pay.items);
-      if (!claimPlanId && pl.length > 0) {
-        setClaimPlanId(ov.subscription.plan.id);
+      const paid = pl.filter((p) => Number(p.priceMonthly) > 0);
+      const preferred = paid.find((p) => p.id === ov.subscription.plan.id) ?? paid[0];
+      if (!claimPlanId && preferred) {
+        setClaimPlanId(preferred.id);
       }
     } catch (err) {
       setLoadError(getApiErrorMessage(err));
@@ -123,8 +132,10 @@ function BillingContent() {
         setOverview(ov);
         setPlans(pl);
         setPayments(pay.items);
-        if (pl.length > 0) {
-          setClaimPlanId((prev) => prev || ov.subscription.plan.id);
+        const paid = pl.filter((p) => Number(p.priceMonthly) > 0);
+        const preferred = paid.find((p) => p.id === ov.subscription.plan.id) ?? paid[0];
+        if (preferred) {
+          setClaimPlanId((prev) => prev || preferred.id);
         }
       })
       .catch((err: unknown) => {
@@ -144,13 +155,29 @@ function BillingContent() {
   }, []);
 
   function openClaimDialog(planId?: string) {
-    setClaimPlanId(planId ?? overview?.subscription.plan.id ?? plans[0]?.id ?? '');
+    const paid = plans.filter((p) => Number(p.priceMonthly) > 0);
+    setClaimPlanId(
+      planId ?? paid.find((p) => p.id === overview?.subscription.plan.id)?.id ?? paid[0]?.id ?? '',
+    );
     setClaimMonths(1);
     setClaimMethod('MBANK');
     setClaimReference('');
     setClaimComment('');
     setClaimError(null);
     setIsClaimOpen(true);
+  }
+
+  async function handleSwitchFree() {
+    setIsSwitchingFree(true);
+    try {
+      await switchToFreePlan();
+      toast.success('Тариф переключён на «Бесплатный»');
+      await loadAll();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setIsSwitchingFree(false);
+    }
   }
 
   async function handleSubmitClaim(e: React.FormEvent) {
@@ -186,6 +213,32 @@ function BillingContent() {
       toast.error(getApiErrorMessage(err));
     } finally {
       setIsCancellingClaim(false);
+    }
+  }
+
+  async function handleUploadProof(paymentId: string, file: File) {
+    setUploadingProofPaymentId(paymentId);
+    try {
+      await uploadSubscriptionPaymentProof(paymentId, file);
+      toast.success(
+        'Чек прикреплён (оплата по-прежнему требует ручного подтверждения администратором)',
+      );
+      await loadAll();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setUploadingProofPaymentId(null);
+    }
+  }
+
+  async function handleOpenProof(paymentId: string, proofId: string) {
+    try {
+      const blob = await fetchSubscriptionPaymentProofBlob(paymentId, proofId);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
     }
   }
 
@@ -246,12 +299,17 @@ function BillingContent() {
             <div>
               <CardTitle className="text-lg">Текущий тариф: {subscription.plan.name}</CardTitle>
               <CardDescription>
-                {formatPriceKgs(subscription.plan.priceMonthly)} / мес
+                {Number(subscription.plan.priceMonthly) === 0
+                  ? 'Бесплатно'
+                  : `${formatPriceKgs(subscription.plan.priceMonthly)} / мес`}
               </CardDescription>
             </div>
-            <Badge variant={SUBSCRIPTION_STATUS_VARIANT[subscription.state]}>
-              {SUBSCRIPTION_STATUS_LABEL[subscription.state]}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {subscription.plan.isLegacy && <Badge variant="outline">Архивный</Badge>}
+              <Badge variant={SUBSCRIPTION_STATUS_VARIANT[subscription.state]}>
+                {SUBSCRIPTION_STATUS_LABEL[subscription.state]}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
@@ -274,44 +332,111 @@ function BillingContent() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Использование ресурсов</CardTitle>
-            <CardDescription>Активные сотрудники (включая владельца)</CardDescription>
+            <CardDescription>Текущие лимиты и матрица возможностей тарифа</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <Users className="h-4 w-4" aria-hidden="true" />
-                  Сотрудники
-                </span>
-                <span className="font-semibold">
-                  {usage.activeStaffCount} / {usage.maxStaff}
-                </span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className={`h-full transition-all ${
-                    usage.isOverStaffLimit ? 'bg-destructive' : 'bg-primary'
-                  }`}
-                  style={{ width: `${usagePct}%` }}
-                />
-              </div>
-              {usage.isOverStaffLimit && (
-                <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
-                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  Превышен лимит тарифа. Добавление новых сотрудников заблокировано.
-                </p>
-              )}
-            </div>
+          <CardContent className="space-y-3">
+            {(
+              [
+                {
+                  key: 'staff',
+                  label: 'Сотрудники',
+                  used: usage.activeStaffCount,
+                  limit: usage.maxStaff,
+                  over: usage.isOverStaffLimit,
+                  showUsersIcon: true,
+                },
+                {
+                  key: 'services',
+                  label: 'Услуги',
+                  used: usage.activeServicesCount,
+                  limit: usage.maxServices,
+                  over: usage.isOverServicesLimit,
+                  showUsersIcon: false,
+                },
+                {
+                  key: 'appointments',
+                  label: 'Записи за месяц',
+                  used: usage.monthlyAppointmentsCount,
+                  limit: usage.maxAppointmentsPerMonth,
+                  over: usage.isOverAppointmentsLimit,
+                  showUsersIcon: false,
+                },
+                {
+                  key: 'reminders',
+                  label: 'Авто-напоминания за месяц',
+                  used: usage.monthlyRemindersCount,
+                  limit: usage.maxRemindersPerMonth,
+                  over: usage.isOverRemindersLimit,
+                  showUsersIcon: false,
+                },
+              ] as const
+            ).map((row) => {
+              const pct =
+                row.limit === null || row.limit <= 0
+                  ? 0
+                  : Math.min(100, Math.round((row.used / row.limit) * 100));
+              return (
+                <div key={row.key} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      {row.showUsersIcon && <Users className="h-4 w-4" aria-hidden="true" />}
+                      {row.label}
+                    </span>
+                    <span className="font-semibold">
+                      {row.used} / {row.limit ?? '∞'}
+                    </span>
+                  </div>
+                  {row.limit !== null && (
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full transition-all ${
+                          row.over ? 'bg-destructive' : 'bg-primary'
+                        }`}
+                        style={{ width: `${row.key === 'staff' ? usagePct : pct}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
-            <div className="flex flex-wrap gap-2 text-xs">
+            {(usage.isOverStaffLimit ||
+              usage.isOverServicesLimit ||
+              usage.isOverAppointmentsLimit ||
+              usage.isOverRemindersLimit) && (
+              <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+                <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  Превышен лимит текущего тарифа. Ваши существующие данные сохранены; создание новых
+                  объектов сверх лимита ограничено.
+                </span>
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-1.5 pt-1 text-xs">
               <Badge variant={subscription.plan.featureAnalytics ? 'default' : 'outline'}>
                 Аналитика: {subscription.plan.featureAnalytics ? 'Включена' : 'Нет'}
+              </Badge>
+              <Badge
+                variant={subscription.plan.featureCrmAdvanced !== false ? 'default' : 'outline'}
+              >
+                CRM Pro: {subscription.plan.featureCrmAdvanced !== false ? 'Да' : 'Нет'}
+              </Badge>
+              <Badge
+                variant={subscription.plan.featureManualPayments !== false ? 'default' : 'outline'}
+              >
+                Платежи и чеки: {subscription.plan.featureManualPayments !== false ? 'Да' : 'Нет'}
               </Badge>
               <Badge variant={subscription.plan.featureAutoReminders ? 'default' : 'outline'}>
                 Авто-напоминания: {subscription.plan.featureAutoReminders ? 'Да' : 'Нет'}
               </Badge>
               <Badge variant={subscription.plan.featurePrepayment ? 'default' : 'outline'}>
                 Предоплата: {subscription.plan.featurePrepayment ? 'Да' : 'Нет'}
+              </Badge>
+              <Badge
+                variant={subscription.plan.featureMultiCompany !== false ? 'default' : 'outline'}
+              >
+                Мульти-компания: {subscription.plan.featureMultiCompany !== false ? 'Да' : 'Нет'}
               </Badge>
             </div>
           </CardContent>
@@ -323,7 +448,7 @@ function BillingContent() {
           <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
             <div className="flex items-start gap-3">
               <Clock className="mt-0.5 h-5 w-5 text-amber-700 dark:text-amber-300" />
-              <div className="space-y-0.5 text-sm">
+              <div className="space-y-1 text-sm">
                 <p className="font-semibold">
                   Заявка на оплату тарифа «{pendingClaim.planName}» ({pendingClaim.months} мес.,{' '}
                   {formatPriceKgs(pendingClaim.amount)}) находится на проверке
@@ -332,16 +457,55 @@ function BillingContent() {
                   Способ: {pendingClaim.method}
                   {pendingClaim.reference ? ` • Номер перевода: ${pendingClaim.reference}` : ''}
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  Загрузка чека ускоряет проверку, но не подтверждает оплату автоматически.
+                </p>
+                {(pendingClaim.proofs ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {(pendingClaim.proofs ?? []).map((proof) => (
+                      <Button
+                        key={proof.id}
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => void handleOpenProof(pendingClaim.id, proof.id)}
+                      >
+                        <FileText className="mr-1 h-3 w-3" aria-hidden="true" />
+                        {proof.fileName}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isCancellingClaim}
-              onClick={() => void handleCancelClaim(pendingClaim.id)}
-            >
-              {isCancellingClaim ? 'Отменяем...' : 'Отменить заявку'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="relative inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted">
+                <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>
+                  {uploadingProofPaymentId === pendingClaim.id ? 'Загрузка...' : 'Прикрепить чек'}
+                </span>
+                <input
+                  type="file"
+                  aria-label="Прикрепить чек к заявке"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  disabled={uploadingProofPaymentId === pendingClaim.id}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) void handleUploadProof(pendingClaim.id, file);
+                  }}
+                  className="sr-only left-0 top-0"
+                />
+              </label>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isCancellingClaim}
+                onClick={() => void handleCancelClaim(pendingClaim.id)}
+              >
+                {isCancellingClaim ? 'Отменяем...' : 'Отменить заявку'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -356,6 +520,7 @@ function BillingContent() {
           <div className="grid gap-4 md:grid-cols-3">
             {plans.map((plan) => {
               const isCurrent = plan.id === subscription.plan.id;
+              const isFree = Number(plan.priceMonthly) === 0;
               return (
                 <div
                   key={plan.id}
@@ -364,18 +529,37 @@ function BillingContent() {
                   }`}
                 >
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <h3 className="text-lg font-bold">{plan.name}</h3>
                       {isCurrent && <Badge variant="secondary">Текущий</Badge>}
                     </div>
+                    {plan.description && (
+                      <p className="text-xs text-muted-foreground">{plan.description}</p>
+                    )}
                     <p className="text-2xl font-extrabold">
-                      {formatPriceKgs(plan.priceMonthly)}
-                      <span className="text-xs font-normal text-muted-foreground"> / мес</span>
+                      {isFree ? (
+                        'Бесплатно'
+                      ) : (
+                        <>
+                          {formatPriceKgs(plan.priceMonthly)}
+                          <span className="text-xs font-normal text-muted-foreground"> / мес</span>
+                        </>
+                      )}
                     </p>
                     <ul className="space-y-1.5 text-sm text-muted-foreground">
                       <li className="flex items-center gap-2">
                         <Check className="h-4 w-4 text-primary" />
                         До {plan.maxStaff} сотрудников
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-primary" />
+                        {plan.maxServices ? `До ${plan.maxServices} услуг` : 'Безлимит услуг'}
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-primary" />
+                        {plan.maxAppointmentsPerMonth
+                          ? `До ${plan.maxAppointmentsPerMonth} записей/мес`
+                          : 'Безлимит записей'}
                       </li>
                       <li className="flex items-center gap-2">
                         {plan.featureAnalytics ? (
@@ -384,6 +568,22 @@ function BillingContent() {
                           <X className="h-4 w-4 text-muted-foreground/50" />
                         )}
                         Аналитика и CSV-экспорт
+                      </li>
+                      <li className="flex items-center gap-2">
+                        {plan.featureCrmAdvanced !== false ? (
+                          <Check className="h-4 w-4 text-primary" />
+                        ) : (
+                          <X className="h-4 w-4 text-muted-foreground/50" />
+                        )}
+                        Теги, объединение и импорт CRM
+                      </li>
+                      <li className="flex items-center gap-2">
+                        {plan.featureManualPayments !== false ? (
+                          <Check className="h-4 w-4 text-primary" />
+                        ) : (
+                          <X className="h-4 w-4 text-muted-foreground/50" />
+                        )}
+                        Журнал оплат и чеки
                       </li>
                       <li className="flex items-center gap-2">
                         {plan.featureAutoReminders ? (
@@ -401,18 +601,41 @@ function BillingContent() {
                         )}
                         Предоплата при записи
                       </li>
+                      <li className="flex items-center gap-2">
+                        {plan.featureMultiCompany !== false ? (
+                          <Check className="h-4 w-4 text-primary" />
+                        ) : (
+                          <X className="h-4 w-4 text-muted-foreground/50" />
+                        )}
+                        Несколько филиалов / компаний
+                      </li>
                     </ul>
                   </div>
 
-                  <Button
-                    className="mt-5 w-full"
-                    variant={isCurrent ? 'outline' : 'default'}
-                    disabled={Boolean(pendingClaim)}
-                    onClick={() => openClaimDialog(plan.id)}
-                  >
-                    <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" />
-                    {isCurrent ? 'Продлить' : 'Выбрать и оплатить'}
-                  </Button>
+                  {isFree ? (
+                    <Button
+                      className="mt-5 w-full"
+                      variant={isCurrent ? 'outline' : 'secondary'}
+                      disabled={isCurrent || Boolean(pendingClaim) || isSwitchingFree}
+                      onClick={() => void handleSwitchFree()}
+                    >
+                      {isCurrent
+                        ? 'Текущий тариф'
+                        : isSwitchingFree
+                          ? 'Переключаем...'
+                          : 'Перейти на Бесплатный'}
+                    </Button>
+                  ) : (
+                    <Button
+                      className="mt-5 w-full"
+                      variant={isCurrent ? 'outline' : 'default'}
+                      disabled={Boolean(pendingClaim)}
+                      onClick={() => openClaimDialog(plan.id)}
+                    >
+                      <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" />
+                      {isCurrent ? 'Продлить' : 'Выбрать и оплатить'}
+                    </Button>
+                  )}
                 </div>
               );
             })}
@@ -429,7 +652,7 @@ function BillingContent() {
           {payments.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Платежей пока нет</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b text-xs text-muted-foreground">
@@ -439,6 +662,7 @@ function BillingContent() {
                     <th className="py-2 pr-4">Сумма</th>
                     <th className="py-2 pr-4">Способ</th>
                     <th className="py-2 pr-4">Статус</th>
+                    <th className="py-2 pr-4">Чеки</th>
                     <th className="py-2">Комментарий</th>
                   </tr>
                 </thead>
@@ -462,6 +686,43 @@ function BillingContent() {
                         >
                           {PAYMENT_STATUS_LABEL[p.status]}
                         </Badge>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {(p.proofs ?? []).map((proof) => (
+                            <Button
+                              key={proof.id}
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              onClick={() => void handleOpenProof(p.id, proof.id)}
+                            >
+                              <FileText className="mr-1 h-3 w-3" aria-hidden="true" />
+                              {proof.fileName}
+                            </Button>
+                          ))}
+                          {p.status === 'PENDING' && (
+                            <label className="relative inline-flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-xs font-medium hover:bg-muted">
+                              <Upload className="h-3 w-3" aria-hidden="true" />
+                              <span>Чек</span>
+                              <input
+                                type="file"
+                                aria-label={`Загрузить чек для заявки ${p.planName}`}
+                                accept="image/jpeg,image/png,image/webp,application/pdf"
+                                disabled={uploadingProofPaymentId === p.id}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (file) void handleUploadProof(p.id, file);
+                                }}
+                                className="sr-only left-0 top-0"
+                              />
+                            </label>
+                          )}
+                          {(p.proofs ?? []).length === 0 && p.status !== 'PENDING' && (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 text-xs text-muted-foreground">
                         {p.rejectReason ? `Причина: ${p.rejectReason}` : (p.comment ?? '—')}
@@ -533,11 +794,13 @@ function BillingContent() {
                     onChange={(e) => setClaimPlanId(e.target.value)}
                     className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    {plans.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} — {formatPriceKgs(p.priceMonthly)} / мес
-                      </option>
-                    ))}
+                    {plans
+                      .filter((p) => Number(p.priceMonthly) > 0)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} — {formatPriceKgs(p.priceMonthly)} / мес
+                        </option>
+                      ))}
                   </select>
                 </div>
 

@@ -1,11 +1,17 @@
+import { inviteStaff } from './invitations.service.js';
 import type { RequestHandler } from 'express';
 import { extractAuditContext } from '../../lib/audit.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import { getValidatedBody, getValidatedParams } from '../../middleware/validate.js';
 import { generateStaffPasswordResetLink } from '../auth/password-reset.service.js';
+import {
+  createStaffTelegramLinkCodeForCompany,
+  unlinkStaffTelegramForCompany,
+} from '../notifications/telegram-link.service.js';
 import type {
   CreateStaffBody,
   CreateStaffPasswordResetLinkBody,
+  InviteStaffBody,
   ReplaceStaffServicesBody,
   ReplaceWorkingHoursBody,
   StaffIdParams,
@@ -23,7 +29,7 @@ import {
 
 export const listStaffController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
-  const staff = await listStaffForCompany(actor.companyId);
+  const staff = await listStaffForCompany(actor);
   res.status(200).json({ data: staff });
 };
 
@@ -93,4 +99,26 @@ export const createStaffPasswordResetLinkController: RequestHandler = async (req
     extractAuditContext(req),
   );
   res.status(200).json({ data: result });
+};
+
+export const inviteStaffController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const input = getValidatedBody<InviteStaffBody>(req);
+  res.status(201).json({
+    data: await inviteStaff(actor.companyId, actor.userId, input, extractAuditContext(req)),
+  });
+};
+
+export const createStaffTelegramLinkCodeController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<StaffIdParams>(req);
+  const data = await createStaffTelegramLinkCodeForCompany(actor.companyId, id);
+  res.status(200).json({ data });
+};
+
+export const unlinkStaffTelegramController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<StaffIdParams>(req);
+  await unlinkStaffTelegramForCompany(actor.companyId, id);
+  res.status(204).send();
 };

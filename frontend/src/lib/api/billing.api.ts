@@ -3,6 +3,7 @@ import type {
   ApiSuccessEnvelope,
   BillingOverviewDto,
   PaymentMethod,
+  PaymentProofSummaryDto,
   PlanDto,
   PublicPlatformDto,
   SubscriptionPaymentDto,
@@ -62,7 +63,40 @@ export async function cancelPaymentClaim(paymentId: string): Promise<Subscriptio
   return res.data.data;
 }
 
+export async function switchToFreePlan(): Promise<BillingOverviewDto> {
+  const res = await apiClient.post<ApiSuccessEnvelope<BillingOverviewDto>>('/billing/switch-free');
+  return res.data.data;
+}
+
 export async function getPublicPlatform(): Promise<PublicPlatformDto> {
   const res = await apiClient.get<ApiSuccessEnvelope<PublicPlatformDto>>('/public/platform');
   return res.data.data;
+}
+
+export async function uploadSubscriptionPaymentProof(
+  paymentId: string,
+  file: File,
+): Promise<PaymentProofSummaryDto> {
+  const buffer = await file.arrayBuffer();
+  const res = await apiClient.post<ApiSuccessEnvelope<PaymentProofSummaryDto>>(
+    `/billing/payments/${paymentId}/proofs`,
+    buffer,
+    {
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+    },
+  );
+  return res.data.data;
+}
+
+export async function fetchSubscriptionPaymentProofBlob(
+  paymentId: string,
+  proofId: string,
+): Promise<Blob> {
+  const res = await apiClient.get<Blob>(`/billing/payments/${paymentId}/proofs/${proofId}`, {
+    responseType: 'blob',
+  });
+  return res.data;
 }

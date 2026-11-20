@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Check, X } from 'lucide-react';
+import { AlertCircle, Check, FileText, X } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   type AdminPaymentItem,
   confirmAdminPayment,
+  fetchAdminSubscriptionProofBlob,
   listAdminPayments,
   rejectAdminPayment,
 } from '@/lib/api/admin.api';
@@ -44,6 +45,17 @@ export default function AdminPaymentsPage() {
   const loadPayments = useCallback(async () => {
     setReloadTick((t) => t + 1);
   }, []);
+
+  async function handleOpenProof(paymentId: string, proofId: string) {
+    try {
+      const blob = await fetchAdminSubscriptionProofBlob(paymentId, proofId);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +206,22 @@ export default function AdminPaymentsPage() {
                         {p.comment && <div>{p.comment}</div>}
                         {p.rejectReason && (
                           <div className="text-destructive">Причина: {p.rejectReason}</div>
+                        )}
+                        {(p.proofs ?? []).length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {(p.proofs ?? []).map((proof) => (
+                              <Button
+                                key={proof.id}
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                onClick={() => void handleOpenProof(p.id, proof.id)}
+                              >
+                                <FileText className="mr-1 h-3 w-3" aria-hidden="true" />
+                                {proof.fileName}
+                              </Button>
+                            ))}
+                          </div>
                         )}
                       </td>
                       <td className="py-3 pr-4">

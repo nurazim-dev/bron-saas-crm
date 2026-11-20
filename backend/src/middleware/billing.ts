@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 import {
+  assertOptionalPlanFeature,
   assertPlanFeature,
   assertWritableSubscription,
   type PlanFeatureKey,
@@ -46,6 +47,14 @@ export function requireFeature(feature: PlanFeatureKey): RequestHandler {
   return async (req, _res, next) => {
     const actor = getAuthActor(req);
     await assertPlanFeature(actor.companyId, feature);
+    next();
+  };
+}
+
+export function requireFeatureIfSubscribed(feature: PlanFeatureKey): RequestHandler {
+  return async (req, _res, next) => {
+    const actor = getAuthActor(req);
+    await assertOptionalPlanFeature(actor.companyId, feature);
     next();
   };
 }

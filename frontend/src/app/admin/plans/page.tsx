@@ -32,14 +32,22 @@ export default function AdminPlansPage() {
 
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [priceMonthly, setPriceMonthly] = useState('1500.00');
   const [maxStaff, setMaxStaff] = useState(5);
+  const [maxServices, setMaxServices] = useState('');
+  const [maxAppointmentsPerMonth, setMaxAppointmentsPerMonth] = useState('');
   const [maxRemindersPerMonth, setMaxRemindersPerMonth] = useState('');
   const [featureAnalytics, setFeatureAnalytics] = useState(true);
   const [featureAutoReminders, setFeatureAutoReminders] = useState(false);
   const [featurePrepayment, setFeaturePrepayment] = useState(false);
+  const [featureCrmAdvanced, setFeatureCrmAdvanced] = useState(true);
+  const [featureManualPayments, setFeatureManualPayments] = useState(true);
+  const [featureMultiCompany, setFeatureMultiCompany] = useState(true);
+  const [featureCustomBranding, setFeatureCustomBranding] = useState(false);
   const [isPublic, setIsPublic] = useState(true);
   const [isActive, setIsActive] = useState(true);
+  const [isLegacy, setIsLegacy] = useState(false);
   const [sortOrder, setSortOrder] = useState(10);
 
   const loadPlans = useCallback(async () => {
@@ -69,14 +77,22 @@ export default function AdminPlansPage() {
     setEditing(null);
     setCode('');
     setName('');
+    setDescription('');
     setPriceMonthly('1500.00');
     setMaxStaff(5);
+    setMaxServices('');
+    setMaxAppointmentsPerMonth('');
     setMaxRemindersPerMonth('');
     setFeatureAnalytics(true);
     setFeatureAutoReminders(false);
     setFeaturePrepayment(false);
+    setFeatureCrmAdvanced(true);
+    setFeatureManualPayments(true);
+    setFeatureMultiCompany(true);
+    setFeatureCustomBranding(false);
     setIsPublic(true);
     setIsActive(true);
+    setIsLegacy(false);
     setSortOrder(10);
     setDialogOpen(true);
   }
@@ -85,16 +101,26 @@ export default function AdminPlansPage() {
     setEditing(plan);
     setCode(plan.code);
     setName(plan.name);
+    setDescription(plan.description ?? '');
     setPriceMonthly(plan.priceMonthly);
     setMaxStaff(plan.maxStaff);
+    setMaxServices(plan.maxServices != null ? String(plan.maxServices) : '');
+    setMaxAppointmentsPerMonth(
+      plan.maxAppointmentsPerMonth != null ? String(plan.maxAppointmentsPerMonth) : '',
+    );
     setMaxRemindersPerMonth(
       plan.maxRemindersPerMonth != null ? String(plan.maxRemindersPerMonth) : '',
     );
     setFeatureAnalytics(plan.featureAnalytics);
     setFeatureAutoReminders(plan.featureAutoReminders);
     setFeaturePrepayment(plan.featurePrepayment);
+    setFeatureCrmAdvanced(plan.featureCrmAdvanced ?? true);
+    setFeatureManualPayments(plan.featureManualPayments ?? true);
+    setFeatureMultiCompany(plan.featureMultiCompany ?? true);
+    setFeatureCustomBranding(plan.featureCustomBranding ?? false);
     setIsPublic(plan.isPublic ?? true);
     setIsActive(plan.isActive ?? true);
+    setIsLegacy(plan.isLegacy ?? false);
     setSortOrder(plan.sortOrder);
     setDialogOpen(true);
   }
@@ -103,18 +129,31 @@ export default function AdminPlansPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
+      const servicesVal = maxServices.trim() ? Number(maxServices.trim()) : null;
+      const appointmentsVal = maxAppointmentsPerMonth.trim()
+        ? Number(maxAppointmentsPerMonth.trim())
+        : null;
       const remindersVal = maxRemindersPerMonth.trim() ? Number(maxRemindersPerMonth.trim()) : null;
+      const trimmedDesc = description.trim() ? description.trim() : null;
       if (editing) {
         await updateAdminPlan(editing.id, {
           name: name.trim(),
+          description: trimmedDesc,
           priceMonthly: priceMonthly.trim(),
           maxStaff,
+          maxServices: servicesVal,
+          maxAppointmentsPerMonth: appointmentsVal,
           maxRemindersPerMonth: remindersVal,
           featureAnalytics,
           featureAutoReminders,
           featurePrepayment,
+          featureCrmAdvanced,
+          featureManualPayments,
+          featureMultiCompany,
+          featureCustomBranding,
           isPublic,
           isActive,
+          isLegacy,
           sortOrder,
         });
         toast.success('Тариф обновлён');
@@ -122,13 +161,21 @@ export default function AdminPlansPage() {
         await createAdminPlan({
           code: code.trim(),
           name: name.trim(),
+          description: trimmedDesc,
           priceMonthly: priceMonthly.trim(),
           maxStaff,
+          maxServices: servicesVal,
+          maxAppointmentsPerMonth: appointmentsVal,
           maxRemindersPerMonth: remindersVal,
           featureAnalytics,
           featureAutoReminders,
           featurePrepayment,
+          featureCrmAdvanced,
+          featureManualPayments,
+          featureMultiCompany,
+          featureCustomBranding,
           isPublic,
+          isLegacy,
           sortOrder,
         });
         toast.success('Тариф создан');
@@ -177,24 +224,38 @@ export default function AdminPlansPage() {
                 <div>
                   <CardTitle className="text-base">{plan.name}</CardTitle>
                   <div className="text-xs text-muted-foreground">{plan.code}</div>
+                  {plan.description && (
+                    <p className="mt-1 text-xs text-muted-foreground">{plan.description}</p>
+                  )}
                 </div>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
+                  {plan.isLegacy && <Badge variant="outline">Архивный</Badge>}
                   <Badge variant={plan.isActive ? 'secondary' : 'outline'}>
-                    {plan.isActive ? 'Активен' : 'Архив'}
+                    {plan.isActive ? 'Активен' : 'Выкл'}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <div className="text-2xl font-bold">{plan.priceMonthly} сом/мес</div>
+                <div className="text-2xl font-bold">
+                  {Number(plan.priceMonthly) === 0
+                    ? '0 сом (Бесплатный)'
+                    : `${plan.priceMonthly} сом/мес`}
+                </div>
                 <div className="space-y-1 text-xs text-muted-foreground">
                   <div>Макс. мастеров: {plan.maxStaff}</div>
+                  <div>Макс. услуг: {plan.maxServices ?? 'без лимита'}</div>
+                  <div>Записей/мес: {plan.maxAppointmentsPerMonth ?? 'без лимита'}</div>
                   <div>Напоминаний/мес: {plan.maxRemindersPerMonth ?? 'без лимита'}</div>
                   <div>
                     Функции:{' '}
                     {[
                       plan.featureAnalytics && 'Аналитика',
+                      plan.featureCrmAdvanced !== false && 'CRM Pro',
+                      plan.featureManualPayments !== false && 'Платежи',
                       plan.featureAutoReminders && 'Авто-напоминания',
                       plan.featurePrepayment && 'Предоплата',
+                      plan.featureMultiCompany !== false && 'Мульти-компания',
+                      plan.featureCustomBranding && 'Брендирование',
                     ]
                       .filter(Boolean)
                       .join(', ') || 'Базовые'}
@@ -241,6 +302,15 @@ export default function AdminPlansPage() {
                 required
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="plan-desc">Описание (необязательно)</Label>
+              <Input
+                id="plan-desc"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Краткое описание тарифа"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="plan-price">Цена (сом/мес)</Label>
@@ -260,6 +330,30 @@ export default function AdminPlansPage() {
                   value={maxStaff}
                   onChange={(e) => setMaxStaff(Number(e.target.value))}
                   required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="plan-services">Лимит услуг</Label>
+                <Input
+                  id="plan-services"
+                  type="number"
+                  min={1}
+                  value={maxServices}
+                  onChange={(e) => setMaxServices(e.target.value)}
+                  placeholder="Пусто = без лимита"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="plan-appts">Лимит записей/мес</Label>
+                <Input
+                  id="plan-appts"
+                  type="number"
+                  min={1}
+                  value={maxAppointmentsPerMonth}
+                  onChange={(e) => setMaxAppointmentsPerMonth(e.target.value)}
+                  placeholder="Пусто = без лимита"
                 />
               </div>
             </div>
@@ -292,7 +386,23 @@ export default function AdminPlansPage() {
                   checked={featureAnalytics}
                   onChange={(e) => setFeatureAnalytics(e.target.checked)}
                 />
-                Аналитика
+                Аналитика и CSV-экспорт
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={featureCrmAdvanced}
+                  onChange={(e) => setFeatureCrmAdvanced(e.target.checked)}
+                />
+                CRM Pro (теги, объединение, CSV-импорт)
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={featureManualPayments}
+                  onChange={(e) => setFeatureManualPayments(e.target.checked)}
+                />
+                Журнал ручных оплат и чеков
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -313,10 +423,34 @@ export default function AdminPlansPage() {
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
+                  checked={featureMultiCompany}
+                  onChange={(e) => setFeatureMultiCompany(e.target.checked)}
+                />
+                Несколько филиалов / компаний
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={featureCustomBranding}
+                  onChange={(e) => setFeatureCustomBranding(e.target.checked)}
+                />
+                Расширенный брендинг
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
                   checked={isPublic}
                   onChange={(e) => setIsPublic(e.target.checked)}
                 />
                 Показывать на странице биллинга
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={isLegacy}
+                  onChange={(e) => setIsLegacy(e.target.checked)}
+                />
+                Архивный (Legacy) тариф
               </label>
               {editing && (
                 <label className="flex items-center gap-2">
@@ -325,7 +459,7 @@ export default function AdminPlansPage() {
                     checked={isActive}
                     onChange={(e) => setIsActive(e.target.checked)}
                   />
-                  Тариф активен (не в архиве)
+                  Тариф активен (доступен для продления)
                 </label>
               )}
             </div>

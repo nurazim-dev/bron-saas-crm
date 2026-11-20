@@ -2,6 +2,7 @@ import 'express-serve-static-core';
 import type { Role } from '../generated/prisma/client.js';
 
 export interface AuthenticatedActor {
+  sessionId?: string;
   userId: string;
   companyId: string;
   role: Role;

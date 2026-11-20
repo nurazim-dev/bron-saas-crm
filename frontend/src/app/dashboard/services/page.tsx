@@ -8,6 +8,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { OwnerGuard } from '@/components/layout/auth-bootstrap';
+import { PackagesSection } from '@/components/services/packages-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -414,6 +415,8 @@ function ServicesManagerContent() {
           ))}
         </div>
       )}
+
+      {!isLoading && !loadError && <PackagesSection services={services} />}
 
       {/* Create / Edit Modal */}
       {isFormOpen && (

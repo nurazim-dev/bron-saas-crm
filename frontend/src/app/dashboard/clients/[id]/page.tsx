@@ -5,15 +5,18 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
+  GitMerge,
   MessageCircle,
   Phone,
   ShieldAlert,
+  Tag,
   Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { ClientMergeDialog } from '@/components/clients/client-merge-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,8 +34,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import {
   type ClientDetailDto,
+  type ClientTagDto,
   anonymizeClient,
   getClientDetail,
+  listClientTags,
+  setClientTags,
   updateClient,
 } from '@/lib/api/clients.api';
 import { getApiErrorMessage } from '@/lib/api/client';
@@ -41,12 +47,14 @@ import { useAuthStore } from '@/stores/auth.store';
 
 export default function DashboardClientDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params.id;
   const user = useAuthStore((s) => s.user);
   const isImpersonating = useAuthStore((s) => s.isImpersonating);
   const isOwner = user?.role === 'OWNER' && !isImpersonating;
 
   const [detail, setDetail] = useState<ClientDetailDto | null>(null);
+  const [companyTags, setCompanyTags] = useState<ClientTagDto[]>([]);
   const [page, setPage] = useState(1);
   const [reloadTick, setReloadTick] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,6 +65,7 @@ export default function DashboardClientDetailPage() {
   const [notes, setNotes] = useState('');
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [anonymizeDialogOpen, setAnonymizeDialogOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
   const triggerReload = useCallback(() => {
     setReloadTick((t) => t + 1);
@@ -64,10 +73,14 @@ export default function DashboardClientDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void getClientDetail(id, { page, limit: 20 })
-      .then((res) => {
+    void Promise.all([
+      getClientDetail(id, { page, limit: 20 }),
+      listClientTags().catch(() => [] as ClientTagDto[]),
+    ])
+      .then(([res, allTags]) => {
         if (cancelled) return;
         setDetail(res);
+        setCompanyTags(allTags);
         setName(res.client.name);
         setNotes(res.client.notes ?? '');
         setError(null);
@@ -82,6 +95,24 @@ export default function DashboardClientDetailPage() {
       cancelled = true;
     };
   }, [id, page, reloadTick]);
+
+  async function handleToggleTag(tagId: string) {
+    if (!detail || !isOwner || isAnonymized) return;
+    const currentIds = detail.client.tags.map((t) => t.id);
+    const nextIds = currentIds.includes(tagId)
+      ? currentIds.filter((item) => item !== tagId)
+      : [...currentIds, tagId];
+    setIsSubmitting(true);
+    try {
+      await setClientTags(detail.client.id, nextIds);
+      toast.success('Теги клиента обновлены');
+      triggerReload();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -209,24 +240,36 @@ export default function DashboardClientDetailPage() {
               </a>
             )}
             {isOwner && (
-              <Button
-                variant={client.isBlocked ? 'outline' : 'destructive'}
-                size="sm"
-                onClick={() => setBlockDialogOpen(true)}
-                disabled={isSubmitting}
-              >
-                {client.isBlocked ? (
-                  <>
-                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                    Разблокировать
-                  </>
-                ) : (
-                  <>
-                    <ShieldAlert className="mr-1.5 h-4 w-4" />
-                    Заблокировать
-                  </>
-                )}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMergeDialogOpen(true)}
+                  disabled={isSubmitting}
+                >
+                  <GitMerge className="mr-1.5 h-4 w-4" />
+                  Объединить
+                </Button>
+                <Button
+                  variant={client.isBlocked ? 'outline' : 'destructive'}
+                  size="sm"
+                  onClick={() => setBlockDialogOpen(true)}
+                  disabled={isSubmitting}
+                >
+                  {client.isBlocked ? (
+                    <>
+                      <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                      Разблокировать
+                    </>
+                  ) : (
+                    <>
+                      <ShieldAlert className="mr-1.5 h-4 w-4" />
+                      Заблокировать
+                    </>
+                  )}
+                </Button>
+              </>
             )}
           </div>
         )}
@@ -303,6 +346,51 @@ export default function DashboardClientDetailPage() {
                 </Button>
               )}
             </form>
+
+            <div className="mt-5 space-y-2 border-t pt-4">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+                Теги клиента
+              </div>
+              {companyTags.length === 0 && client.tags.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Теги компании пока не созданы.</p>
+              ) : isOwner && !isAnonymized ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {companyTags.map((tag) => {
+                    const active = client.tags.some((t) => t.id === tag.id);
+                    return (
+                      <Button
+                        key={tag.id}
+                        type="button"
+                        size="xs"
+                        variant={active ? 'default' : 'outline'}
+                        disabled={isSubmitting}
+                        onClick={() => void handleToggleTag(tag.id)}
+                        style={
+                          active
+                            ? { backgroundColor: tag.color, borderColor: tag.color, color: '#fff' }
+                            : { borderColor: tag.color, color: tag.color }
+                        }
+                      >
+                        {tag.name}
+                      </Button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {client.tags.map((tag) => (
+                    <Badge
+                      key={tag.id}
+                      variant="outline"
+                      style={{ borderColor: tag.color, color: tag.color }}
+                    >
+                      {tag.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -440,6 +528,15 @@ export default function DashboardClientDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {isOwner && (
+        <ClientMergeDialog
+          open={mergeDialogOpen}
+          onOpenChange={setMergeDialogOpen}
+          initialSourceClientId={client.id}
+          onMerged={(targetId) => router.push(`/dashboard/clients/${targetId}`)}
+        />
+      )}
     </div>
   );
 }

@@ -17,6 +17,13 @@ export const uuidParamsSchema = z.object({
 
 export type UuidParams = z.infer<typeof uuidParamsSchema>;
 
+export const adminPaymentProofParamsSchema = z.object({
+  id: z.uuid({ message: 'Payment ID must be a valid UUID' }),
+  proofId: z.uuid({ message: 'Proof ID must be a valid UUID' }),
+});
+
+export type AdminPaymentProofParams = z.infer<typeof adminPaymentProofParamsSchema>;
+
 export const adminSignupsQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(30),
 });
@@ -146,13 +153,29 @@ export const adminCreatePlanBodySchema = z
       .string()
       .transform((v) => sanitizeText(v))
       .pipe(z.string().min(2).max(60)),
+    description: z
+      .union([
+        z
+          .string()
+          .transform((v) => sanitizeText(v))
+          .pipe(z.string().max(400)),
+        z.null(),
+      ])
+      .optional(),
     priceMonthly: z.string().regex(/^\d+(\.\d{1,2})?$/),
     maxStaff: z.number().int().min(1).max(1000),
+    maxServices: z.number().int().min(1).max(10_000).nullable().optional(),
+    maxAppointmentsPerMonth: z.number().int().min(1).max(1_000_000).nullable().optional(),
     maxRemindersPerMonth: z.number().int().min(0).max(1_000_000).nullable().optional(),
     featureAnalytics: z.boolean().default(false),
     featureAutoReminders: z.boolean().default(false),
     featurePrepayment: z.boolean().default(false),
+    featureCrmAdvanced: z.boolean().default(true),
+    featureManualPayments: z.boolean().default(true),
+    featureMultiCompany: z.boolean().default(true),
+    featureCustomBranding: z.boolean().default(false),
     isPublic: z.boolean().default(true),
+    isLegacy: z.boolean().default(false),
     sortOrder: z.number().int().min(0).max(1000).default(10),
   })
   .strict();
@@ -166,17 +189,33 @@ export const adminUpdatePlanBodySchema = z
       .transform((v) => sanitizeText(v))
       .pipe(z.string().min(2).max(60))
       .optional(),
+    description: z
+      .union([
+        z
+          .string()
+          .transform((v) => sanitizeText(v))
+          .pipe(z.string().max(400)),
+        z.null(),
+      ])
+      .optional(),
     priceMonthly: z
       .string()
       .regex(/^\d+(\.\d{1,2})?$/)
       .optional(),
     maxStaff: z.number().int().min(1).max(1000).optional(),
+    maxServices: z.number().int().min(1).max(10_000).nullable().optional(),
+    maxAppointmentsPerMonth: z.number().int().min(1).max(1_000_000).nullable().optional(),
     maxRemindersPerMonth: z.number().int().min(0).max(1_000_000).nullable().optional(),
     featureAnalytics: z.boolean().optional(),
     featureAutoReminders: z.boolean().optional(),
     featurePrepayment: z.boolean().optional(),
+    featureCrmAdvanced: z.boolean().optional(),
+    featureManualPayments: z.boolean().optional(),
+    featureMultiCompany: z.boolean().optional(),
+    featureCustomBranding: z.boolean().optional(),
     isActive: z.boolean().optional(),
     isPublic: z.boolean().optional(),
+    isLegacy: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(1000).optional(),
   })
   .strict();

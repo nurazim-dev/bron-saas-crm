@@ -52,7 +52,7 @@ describe('Phase 24: Kyrgyz i18n, Legal Consent & Templates', () => {
     });
     expect(okRes.status).toBe(201);
 
-    const user = await prisma.user.findUnique({ where: { email: 'withterms@zapis.kg' } });
+    const user = await prisma.user.findFirst({ where: { email: 'withterms@zapis.kg' } });
     expect(user?.termsAcceptedAt?.toISOString()).toBe('2026-11-20T08:00:00.000Z');
     expect(user?.termsVersion).toBe(LEGAL_VERSION);
   });

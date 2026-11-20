@@ -107,3 +107,38 @@ export const updateServiceBodySchema = z
   .strict();
 
 export type UpdateServiceBody = z.infer<typeof updateServiceBodySchema>;
+
+const packageServiceIdsSchema = z
+  .array(z.uuid({ message: 'Each serviceId must be a valid UUID' }))
+  .min(2, 'Service package must contain at least 2 services')
+  .max(10, 'Service package can contain at most 10 services')
+  .refine((ids) => new Set(ids).size === ids.length, {
+    message: 'Duplicate services are not allowed in a package',
+  });
+
+export const createServicePackageBodySchema = z
+  .object({
+    name: nameSchema,
+    description: descriptionSchema,
+    price: priceSchema,
+    serviceIds: packageServiceIdsSchema,
+    isActive: z.boolean().optional().default(true),
+  })
+  .strict();
+
+export type CreateServicePackageBody = z.infer<typeof createServicePackageBodySchema>;
+
+export const updateServicePackageBodySchema = z
+  .object({
+    name: nameSchema.optional(),
+    description: descriptionSchema,
+    price: priceSchema.optional(),
+    serviceIds: packageServiceIdsSchema.optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field must be provided for update',
+  });
+
+export type UpdateServicePackageBody = z.infer<typeof updateServicePackageBodySchema>;

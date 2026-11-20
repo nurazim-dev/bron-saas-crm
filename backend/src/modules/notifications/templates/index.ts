@@ -55,11 +55,17 @@ function readString(payload: Record<string, unknown>, key: string, fallback: str
 
 registerNotificationTemplate('SYSTEM_TEST', (locale, payload) => {
   const defaultTitle =
-    locale === 'KY' ? 'Zapis.kg тесттик билдирүү' : 'Тестовое уведомление Zapis.kg';
+    locale === 'KY'
+      ? 'Zapis.kg тесттик билдирүү'
+      : locale === 'EN'
+        ? 'Zapis.kg test notification'
+        : 'Тестовое уведомление Zapis.kg';
   const defaultMessage =
     locale === 'KY'
       ? 'Бул Zapis.kg почта кызматынын тесттик каты.'
-      : 'Это тестовое сообщение системы уведомлений Zapis.kg.';
+      : locale === 'EN'
+        ? 'This is a test message from the Zapis.kg notification system.'
+        : 'Это тестовое сообщение системы уведомлений Zapis.kg.';
 
   const subject = readString(payload, 'title', defaultTitle);
   const text = readString(payload, 'message', defaultMessage);
@@ -113,6 +119,36 @@ registerNotificationTemplate('PASSWORD_RESET', (locale, payload) => {
       `<p><a href="${escapeHtml(resetUrl)}">Сырсөздү жаңылоо</a></p>`,
       `<p>Же шилтемени көчүрүңүз: ${escapeHtml(resetUrl)}</p>`,
       '<p>Эгер сиз бул сурамды жөнөтпөгөн болсоңуз, бул катты этибарга албаңыз.</p>',
+    ].join('');
+
+    return {
+      subject,
+      text,
+      html,
+      telegramHtml: `<b>${escapeTelegramHtml(subject)}</b>\n${escapeTelegramHtml(resetUrl)}`,
+    };
+  }
+
+  if (locale === 'EN') {
+    const subject = `Password reset — ${companyName}`;
+    const greeting = userName ? `Hello, ${userName}!` : 'Hello!';
+    const text = [
+      greeting,
+      '',
+      `We received a password reset request for your account in ${companyName} (Zapis.kg).`,
+      `To set a new password, open the link below (valid for ${expiresMin} minutes):`,
+      resetUrl,
+      '',
+      'If you did not request a password reset, please ignore this email.',
+    ].join('\n');
+
+    const html = [
+      `<p>${escapeHtml(greeting)}</p>`,
+      `<p>We received a password reset request for your account in <strong>${escapeHtml(companyName)}</strong> (Zapis.kg).</p>`,
+      `<p>The link is valid for ${expiresMin} minutes:</p>`,
+      `<p><a href="${escapeHtml(resetUrl)}">Reset password</a></p>`,
+      `<p>Or copy the link: ${escapeHtml(resetUrl)}</p>`,
+      '<p>If you did not request a password reset, please ignore this email.</p>',
     ].join('');
 
     return {
@@ -299,6 +335,17 @@ function buildReminderTemplate(
     return buildSimpleEmailTemplate(`${companyName} — жазылуу эскертүүсү`, lines);
   }
 
+  if (locale === 'EN') {
+    const lines = [
+      `${companyName}: appointment reminder.`,
+      `Service: ${serviceName}`,
+      `Date & time: ${localDateTime}`,
+    ];
+    if (address) lines.push(`Address: ${address}`);
+    if (manageUrl) lines.push(`Manage appointment: ${manageUrl}`);
+    return buildSimpleEmailTemplate(`Appointment reminder — ${companyName}`, lines);
+  }
+
   const lines = [
     `${companyName}: напоминаем о вашей записи.`,
     `Услуга: ${serviceName}`,
@@ -346,7 +393,37 @@ registerNotificationTemplate('PREPAYMENT_EXPIRED_CLIENT', (locale, payload) => {
       `Алдын ала төлөм өз убагында тастыкталбагандыктан, "${serviceName}" (${localDateTime}) жазылуусу жокко чыгарылды.`,
     ]);
   }
+  if (locale === 'EN') {
+    return buildSimpleEmailTemplate(`Appointment cancelled — ${companyName}`, [
+      `Your booking for "${serviceName}" (${localDateTime}) was automatically cancelled because prepayment was not confirmed in time.`,
+    ]);
+  }
   return buildSimpleEmailTemplate(`Запись отменена — ${companyName}`, [
     `Бронь на «${serviceName}» (${localDateTime}) автоматически отменена, так как предоплата не поступила в установленный срок.`,
   ]);
+});
+
+registerNotificationTemplate('EMAIL_VERIFICATION', (_locale, payload) => {
+  const url = readString(payload, 'verifyUrl', '');
+  const subject = 'Подтвердите email — Zapis.kg';
+  const text = `Для подтверждения email откройте ссылку. Она действует 60 минут:\n${url}\nЕсли вы не отправляли запрос, проигнорируйте письмо.`;
+  return {
+    subject,
+    text,
+    html: `<p>Подтвердите email. Ссылка действует 60 минут.</p><p><a href="${escapeHtml(url)}">Подтвердить email</a></p><p>Если вы не отправляли запрос, проигнорируйте письмо.</p>`,
+    telegramHtml: escapeTelegramHtml(text),
+  };
+});
+
+registerNotificationTemplate('STAFF_INVITATION', (_locale, payload) => {
+  const name = readString(payload, 'name', '');
+  const url = readString(payload, 'inviteUrl', '');
+  const subject = 'Приглашение в команду — Zapis.kg';
+  const text = `${name}, вас пригласили в команду. Установите пароль по ссылке в течение 60 минут:\n${url}`;
+  return {
+    subject,
+    text,
+    html: `<p>${escapeHtml(name)}, вас пригласили в команду.</p><p><a href="${escapeHtml(url)}">Установить пароль</a></p><p>Ссылка действует 60 минут.</p>`,
+    telegramHtml: escapeTelegramHtml(text),
+  };
 });

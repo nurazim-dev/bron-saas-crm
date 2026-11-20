@@ -169,13 +169,22 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
       const existingCompany = await prisma.company.create({
         data: { name: 'Preexisting', slug: 'preexisting' },
       });
+      const racePasswordHash = await hashPassword('Password123!');
+      const raceIdentity = await prisma.identity.create({
+        data: {
+          email: 'race@zapis.kg',
+          passwordHash: racePasswordHash,
+          lastCompanyId: existingCompany.id,
+        },
+      });
       await prisma.user.create({
         data: {
           companyId: existingCompany.id,
+          identityId: raceIdentity.id,
           role: Role.OWNER,
           name: 'Existing Owner',
           email: 'race@zapis.kg',
-          passwordHash: await hashPassword('Password123!'),
+          passwordHash: racePasswordHash,
         },
       });
 
@@ -441,13 +450,22 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
       const companyIdA = bodyA.data.company.id;
 
       // Create a MASTER in Company A
+      const masterPasswordHash = await hashPassword('Password123!');
+      const masterIdentity = await prisma.identity.create({
+        data: {
+          email: 'mastera@salon.kg',
+          passwordHash: masterPasswordHash,
+          lastCompanyId: companyIdA,
+        },
+      });
       const masterA = await prisma.user.create({
         data: {
           companyId: companyIdA,
+          identityId: masterIdentity.id,
           role: Role.MASTER,
           name: 'Master A',
           email: 'mastera@salon.kg',
-          passwordHash: await hashPassword('Password123!'),
+          passwordHash: masterPasswordHash,
         },
       });
       const masterLogin = await request(app).post('/api/v1/auth/login').send({

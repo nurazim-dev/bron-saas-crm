@@ -21,6 +21,7 @@ import {
   listAdminPaymentsController,
   listAdminPlansController,
   listAdminUsersController,
+  readAdminPaymentProofController,
   recordOfflinePaymentController,
   rejectAdminPaymentController,
   restoreAdminCompanyController,
@@ -40,6 +41,7 @@ import {
   adminCreatePlanBodySchema,
   adminDeleteCompanyBodySchema,
   adminOutboxQuerySchema,
+  adminPaymentProofParamsSchema,
   adminPaymentsQuerySchema,
   adminReasonBodySchema,
   adminRecordOfflinePaymentBodySchema,
@@ -132,6 +134,11 @@ adminRouter.post(
   '/payments/:id/reject',
   validate({ params: uuidParamsSchema, body: adminReasonBodySchema }),
   rejectAdminPaymentController,
+);
+adminRouter.get(
+  '/payments/:id/proofs/:proofId',
+  validate({ params: adminPaymentProofParamsSchema }),
+  readAdminPaymentProofController,
 );
 
 // Plans

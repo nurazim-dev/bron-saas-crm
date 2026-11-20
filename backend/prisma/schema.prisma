@@ -10,6 +10,7 @@ datasource db {
 enum Role {
   OWNER
   MASTER
+  MANAGER
 }
 
 enum BusinessType {
@@ -19,6 +20,8 @@ enum BusinessType {
 
 enum AppointmentStatus {
   SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
   COMPLETED
   CANCELLED
   NO_SHOW
@@ -32,6 +35,7 @@ enum AppointmentSource {
 enum Locale {
   RU
   KY
+  EN
 }
 
 enum NotificationChannel {
@@ -92,6 +96,24 @@ enum PaymentSource {
   ADMIN_MANUAL
 }
 
+enum BusinessPaymentKind {
+  PAYMENT
+  PREPAYMENT
+  REFUND
+}
+
+enum BusinessPaymentStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  VOIDED
+}
+
+enum PaymentProofScope {
+  SUBSCRIPTION_PAYMENT
+  BUSINESS_PAYMENT
+}
+
 enum TimeOffKind {
   VACATION
   SICK_LEAVE
@@ -127,9 +149,13 @@ model Company {
   name                 String
   slug                 String        @unique
   businessType         BusinessType  @default(BARBERSHOP)
-  phone                String?
-  address              String?
-  timezone             String        @default("Asia/Bishkek")
+  phone                    String?
+  address                  String?
+  description              String?
+  brandColor               String?
+  customDomain             String?   @unique
+  instagramUrl             String?
+  timezone                 String    @default("Asia/Bishkek")
   currency             String        @default("KGS")
   slotIntervalMin      Int           @default(30)
   minLeadTimeMin       Int           @default(60)
@@ -154,23 +180,51 @@ model Company {
   deletedAt            DateTime?     @db.Timestamptz(3)
   users                User[]
   services             Service[]
+  servicePackages      ServicePackage[]
   clients              Client[]
+  clientTags           ClientTag[]
   appointments         Appointment[]
   timeOffs             TimeOff[]
   inAppNotifications   InAppNotification[]
   subscription         Subscription?
   subscriptionPayments SubscriptionPayment[]
+  businessPayments     BusinessPayment[]
+  paymentProofs        PaymentProof[]
   impersonationCodes   ImpersonationCode[]
 }
 
+/// Login identity shared by several company memberships (User rows).
+/// Credentials are authoritative here; User.passwordHash is a mirrored legacy copy.
+model Identity {
+  id                String    @id @default(uuid()) @db.Uuid
+  email             String    @unique
+  passwordHash      String?
+  credentialVersion Int       @default(0)
+  lastCompanyId     String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+  members           User[]
+}
+
+/// A User row is a company membership (BusinessMember): companyId + role + staff profile.
 model User {
+  identityId String? @db.Uuid
+  identity   Identity? @relation(fields: [identityId], references: [id], onDelete: Restrict)
+  emailVerifiedAt DateTime? @db.Timestamptz(3)
+  emailVerifyHash String? @unique @db.Char(64)
+  emailVerifyExpiresAt DateTime? @db.Timestamptz(3)
+  sessions AuthSession[]
   id           String          @id @default(uuid()) @db.Uuid
   companyId    String          @db.Uuid
   role         Role
   name         String
-  email        String?         @unique
+  email        String?
   passwordHash String?
   phone        String?
+  biography    String          @default("")
+  specialties  String          @default("")
+  experienceYears Int?
+  portfolio    StaffMedia[]
   tokenVersion Int             @default(0)
   isActive     Boolean         @default(true)
   isBookable                Boolean              @default(true)
@@ -192,6 +246,9 @@ model User {
   inAppNotifications  InAppNotification[]
   passwordResetTokens PasswordResetToken[]
 
+  @@unique([companyId, id])
+  @@unique([companyId, email])
+  @@unique([identityId, companyId])
   @@index([companyId, deletedAt])
 }
 
@@ -225,16 +282,52 @@ model Service {
   deletedAt    DateTime?       @db.Timestamptz(3)
   company      Company         @relation(fields: [companyId], references: [id])
   masters      MasterService[]
+  packageItems ServicePackageItem[]
   appointments Appointment[]
+  appointmentItems AppointmentService[]
 
+  @@unique([id, companyId])
   @@index([companyId, deletedAt])
 }
 
+model ServicePackage {
+  id           String               @id @default(uuid()) @db.Uuid
+  companyId    String               @db.Uuid
+  name         String
+  description  String?
+  price        Decimal              @db.Decimal(10, 2)
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime             @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime?            @db.Timestamptz(3)
+  company      Company              @relation(fields: [companyId], references: [id])
+  items        ServicePackageItem[]
+  appointments Appointment[]
+
+  @@unique([id, companyId])
+  @@index([companyId, deletedAt])
+}
+
+model ServicePackageItem {
+  packageId String         @db.Uuid
+  companyId String         @db.Uuid
+  serviceId String         @db.Uuid
+  position  Int
+  package   ServicePackage @relation(fields: [packageId, companyId], references: [id, companyId], onDelete: Cascade)
+  service   Service        @relation(fields: [serviceId, companyId], references: [id, companyId])
+
+  @@id([packageId, serviceId])
+  @@unique([packageId, position])
+  @@index([companyId, serviceId])
+}
+
 model MasterService {
-  userId    String  @db.Uuid
-  serviceId String  @db.Uuid
-  user      User    @relation(fields: [userId], references: [id])
-  service   Service @relation(fields: [serviceId], references: [id])
+  userId            String   @db.Uuid
+  serviceId         String   @db.Uuid
+  customPrice       Decimal? @db.Decimal(10, 2)
+  customDurationMin Int?
+  user              User     @relation(fields: [userId], references: [id])
+  service           Service  @relation(fields: [serviceId], references: [id])
 
   @@id([userId, serviceId])
   @@index([serviceId])
@@ -271,22 +364,57 @@ model TimeOff {
 }
 
 model Client {
-  id           String        @id @default(uuid()) @db.Uuid
-  companyId    String        @db.Uuid
-  name         String
-  phone        String
-  notes        String?
-  isBlocked    Boolean       @default(false)
-  blockedAt    DateTime?     @db.Timestamptz(3)
-  locale       Locale        @default(RU)
-  anonymizedAt DateTime?     @db.Timestamptz(3)
-  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
-  company      Company       @relation(fields: [companyId], references: [id])
-  appointments Appointment[]
+  id                 String                @id @default(uuid()) @db.Uuid
+  companyId          String                @db.Uuid
+  name               String
+  phone              String
+  notes              String?
+  isBlocked          Boolean               @default(false)
+  blockedAt          DateTime?             @db.Timestamptz(3)
+  locale             Locale                @default(RU)
+  anonymizedAt       DateTime?             @db.Timestamptz(3)
+  mergedIntoClientId String?               @db.Uuid
+  mergedAt           DateTime?             @db.Timestamptz(3)
+  telegramChatId     String?
+  createdAt          DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @db.Timestamptz(3)
+  company            Company               @relation(fields: [companyId], references: [id])
+  appointments       Appointment[]
+  businessPayments   BusinessPayment[]
+  tags               ClientTagAssignment[]
 
+  @@unique([id, companyId])
   @@unique([companyId, phone])
   @@index([companyId, isBlocked])
+  @@index([companyId, mergedAt])
+  @@index([telegramChatId])
+}
+
+model ClientTag {
+  id        String                @id @default(uuid()) @db.Uuid
+  companyId String                @db.Uuid
+  name      String
+  color     String                @default("#0f766e")
+  createdAt DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime              @updatedAt @db.Timestamptz(3)
+  company   Company               @relation(fields: [companyId], references: [id])
+  clients   ClientTagAssignment[]
+
+  @@unique([id, companyId])
+  @@index([companyId])
+}
+
+model ClientTagAssignment {
+  clientId  String    @db.Uuid
+  tagId     String    @db.Uuid
+  companyId String    @db.Uuid
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  client    Client    @relation(fields: [clientId, companyId], references: [id, companyId], onDelete: Cascade)
+  tag       ClientTag @relation(fields: [tagId, companyId], references: [id, companyId], onDelete: Cascade)
+
+  @@id([clientId, tagId])
+  @@index([companyId, tagId])
+  @@index([companyId, clientId])
 }
 
 model Appointment {
@@ -294,6 +422,8 @@ model Appointment {
   companyId         String            @db.Uuid
   masterId          String            @db.Uuid
   serviceId         String            @db.Uuid
+  packageId         String?           @db.Uuid
+  packageName       String?
   clientId          String            @db.Uuid
   clientName        String
   clientPhone       String
@@ -322,8 +452,13 @@ model Appointment {
   company           Company           @relation(fields: [companyId], references: [id])
   master            User              @relation(fields: [masterId], references: [id])
   service           Service           @relation(fields: [serviceId], references: [id])
+  package           ServicePackage?   @relation(fields: [packageId, companyId], references: [id, companyId])
   client            Client            @relation(fields: [clientId], references: [id])
 
+  items            AppointmentService[]
+  businessPayments BusinessPayment[]
+
+  @@unique([id, companyId])
   @@index([companyId, startAt])
   @@index([masterId, startAt, endAt])
   @@index([companyId, clientPhone])
@@ -398,23 +533,31 @@ model WorkerHeartbeat {
 }
 
 model Plan {
-  id                   String                @id @default(uuid()) @db.Uuid
-  code                 String                @unique
-  name                 String
-  priceMonthly         Decimal               @db.Decimal(10, 2)
-  currency             String                @default("KGS")
-  maxStaff             Int
-  maxRemindersPerMonth Int?
-  featureAnalytics     Boolean               @default(false)
-  featureAutoReminders Boolean               @default(false)
-  featurePrepayment    Boolean               @default(false)
-  isActive             Boolean               @default(true)
-  isPublic             Boolean               @default(true)
-  sortOrder            Int                   @default(0)
-  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
-  subscriptions        Subscription[]
-  payments             SubscriptionPayment[]
+  id                      String                @id @default(uuid()) @db.Uuid
+  code                    String                @unique
+  name                    String
+  description             String?
+  priceMonthly            Decimal               @db.Decimal(10, 2)
+  currency                String                @default("KGS")
+  maxStaff                Int
+  maxServices             Int?
+  maxAppointmentsPerMonth Int?
+  maxRemindersPerMonth    Int?
+  featureAnalytics        Boolean               @default(false)
+  featureAutoReminders    Boolean               @default(false)
+  featurePrepayment       Boolean               @default(false)
+  featureCrmAdvanced      Boolean               @default(true)
+  featureManualPayments   Boolean               @default(true)
+  featureMultiCompany     Boolean               @default(true)
+  featureCustomBranding   Boolean               @default(false)
+  isActive                Boolean               @default(true)
+  isPublic                Boolean               @default(true)
+  isLegacy                Boolean               @default(false)
+  sortOrder               Int                   @default(0)
+  createdAt               DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime              @updatedAt @db.Timestamptz(3)
+  subscriptions           Subscription[]
+  payments                SubscriptionPayment[]
 }
 
 model Subscription {
@@ -453,11 +596,66 @@ model SubscriptionPayment {
   source            PaymentSource @default(CLAIM)
   createdAt         DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
-  company           Company       @relation(fields: [companyId], references: [id])
-  plan              Plan          @relation(fields: [planId], references: [id])
+  company           Company        @relation(fields: [companyId], references: [id])
+  plan              Plan           @relation(fields: [planId], references: [id])
+  proofs            PaymentProof[]
 
+  @@unique([id, companyId])
   @@index([companyId, status, createdAt])
   @@index([status, createdAt])
+}
+
+model BusinessPayment {
+  id               String                @id @default(uuid()) @db.Uuid
+  companyId        String                @db.Uuid
+  appointmentId    String?               @db.Uuid
+  clientId         String?               @db.Uuid
+  kind             BusinessPaymentKind   @default(PAYMENT)
+  status           BusinessPaymentStatus @default(PENDING)
+  amount           Decimal               @db.Decimal(10, 2)
+  currency         String                @default("KGS")
+  method           PaymentMethod
+  providerCode     String                @default("MANUAL")
+  reference        String?
+  note             String?
+  rejectReason     String?
+  recordedByUserId String?               @db.Uuid
+  reviewedByUserId String?               @db.Uuid
+  reviewedAt       DateTime?             @db.Timestamptz(3)
+  paidAt           DateTime?             @db.Timestamptz(3)
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
+  company          Company               @relation(fields: [companyId], references: [id])
+  appointment      Appointment?          @relation(fields: [appointmentId, companyId], references: [id, companyId])
+  client           Client?               @relation(fields: [clientId, companyId], references: [id, companyId])
+  proofs           PaymentProof[]
+
+  @@unique([id, companyId])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, paidAt])
+  @@index([companyId, appointmentId])
+  @@index([companyId, clientId])
+}
+
+model PaymentProof {
+  id                    String               @id @default(uuid()) @db.Uuid
+  companyId             String               @db.Uuid
+  scope                 PaymentProofScope
+  subscriptionPaymentId String?              @db.Uuid
+  businessPaymentId     String?              @db.Uuid
+  fileName              String
+  mime                  String
+  size                  Int
+  sha256                String
+  data                  Bytes
+  uploadedByUserId      String?              @db.Uuid
+  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
+  company               Company              @relation(fields: [companyId], references: [id])
+  subscriptionPayment   SubscriptionPayment? @relation(fields: [subscriptionPaymentId, companyId], references: [id, companyId], onDelete: Cascade)
+  businessPayment       BusinessPayment?     @relation(fields: [businessPaymentId, companyId], references: [id, companyId], onDelete: Cascade)
+
+  @@index([companyId, subscriptionPaymentId])
+  @@index([companyId, businessPaymentId])
 }
 
 model PlatformSetting {
@@ -500,4 +698,54 @@ model ImpersonationCode {
 
   @@index([adminId, createdAt])
   @@index([companyId, createdAt])
+}
+
+
+model StaffMedia {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [companyId, userId], references: [companyId, id], onDelete: Cascade)
+  kind String
+  status String @default("PENDING")
+  position Int @default(0)
+  isCover Boolean @default(false)
+  caption String @default("")
+  mime String @default("")
+  data Bytes?
+  poster Bytes?
+  size Int @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([companyId, userId, status])
+}
+
+model AppointmentService {
+  appointmentId String @db.Uuid
+  companyId String @db.Uuid
+  serviceId String @db.Uuid
+  position Int
+  name String
+  durationMin Int
+  price Decimal @db.Decimal(10, 2)
+  appointment Appointment @relation(fields: [appointmentId, companyId], references: [id, companyId], onDelete: Cascade)
+  service Service @relation(fields: [serviceId, companyId], references: [id, companyId])
+
+  @@id([appointmentId, serviceId])
+  @@unique([appointmentId, position])
+  @@index([companyId, serviceId])
+}
+
+model AuthSession {
+  id String @id @db.Uuid
+  userId String @db.Uuid
+  companyId String @db.Uuid
+  refreshHash String @unique @db.Char(64)
+  userAgent String
+  createdAt DateTime @db.Timestamptz(3)
+  lastUsedAt DateTime @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, userId, revokedAt])
 }

@@ -44,17 +44,40 @@ export async function createUserFactory(
   overrides: Partial<Prisma.UserUncheckedCreateInput> = {},
 ): Promise<User> {
   const n = nextSeq();
+  const email =
+    overrides.email !== undefined
+      ? overrides.email
+      : `staff-${n}-${randomUUID().slice(0, 6)}@test.zapis.kg`;
+  const passwordHash =
+    overrides.passwordHash !== undefined ? overrides.passwordHash : 'hashed-password-placeholder';
+
+  let identityId = overrides.identityId;
+  if (email !== null && identityId === undefined) {
+    const existing = await prisma.identity.findUnique({ where: { email } });
+    if (existing) {
+      identityId = existing.id;
+    } else {
+      const created = await prisma.identity.create({
+        data: { email, passwordHash, lastCompanyId: companyId },
+      });
+      identityId = created.id;
+    }
+  } else if (email === null) {
+    identityId = null;
+  }
+
   return prisma.user.create({
     data: {
       companyId,
       role: Role.MASTER,
       name: `Staff Member ${n}`,
-      email: `staff-${n}-${randomUUID().slice(0, 6)}@test.zapis.kg`,
-      passwordHash: 'hashed-password-placeholder',
       phone: '+996555100200',
       isActive: true,
       isBookable: true,
       ...overrides,
+      email,
+      passwordHash,
+      identityId: identityId ?? null,
     },
   });
 }

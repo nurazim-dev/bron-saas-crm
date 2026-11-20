@@ -1,3 +1,4 @@
+import { serviceIdsSchema, serviceIdsQuerySchema } from '../appointments/service-selection.js';
 import { z } from 'zod';
 import { parseNormalizedStartAtUtc } from '../../lib/datetime.js';
 import { normalizePhoneE164, sanitizeText } from '../../lib/phone.js';
@@ -13,15 +14,33 @@ export const companySlugParamsSchema = z.object({
 
 export type CompanySlugParams = z.infer<typeof companySlugParamsSchema>;
 
+export const companyDomainParamsSchema = z.object({
+  domain: z.string().trim().toLowerCase().min(3).max(253),
+});
+
+export type CompanyDomainParams = z.infer<typeof companyDomainParamsSchema>;
+
 const publicMasterIdQuerySchema = z
   .union([z.literal('ANY'), z.uuid({ message: 'masterId must be a valid UUID or ANY' })])
   .optional();
 
-export const getPublicAvailabilityQuerySchema = z.object({
-  serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
-  masterId: publicMasterIdQuerySchema,
-  date: localDateQuerySchema,
-});
+export const getPublicAvailabilityQuerySchema = z
+  .object({
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsQuerySchema.optional(),
+    packageId: z.uuid({ message: 'packageId must be a valid UUID' }).optional(),
+    masterId: publicMasterIdQuerySchema,
+    date: localDateQuerySchema,
+  })
+  .superRefine((data, ctx) => {
+    if (!data.serviceId && !data.packageId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['serviceId'],
+        message: 'Either serviceId or packageId is required',
+      });
+    }
+  });
 
 export type GetPublicAvailabilityQuery = z.infer<typeof getPublicAvailabilityQuerySchema>;
 
@@ -75,7 +94,9 @@ const publicMasterIdBodySchema = z
 
 export const createPublicAppointmentBodySchema = z
   .object({
-    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsSchema.optional(),
+    packageId: z.uuid({ message: 'packageId must be a valid UUID' }).optional(),
     masterId: publicMasterIdBodySchema,
     startAt: startAtSchema,
     clientName: clientNameSchema,
@@ -84,10 +105,26 @@ export const createPublicAppointmentBodySchema = z
     consentAccepted: z.literal(true, {
       message: 'Consent to personal data processing is required',
     }),
-    locale: z.enum(['RU', 'KY']).optional(),
+    locale: z.enum(['RU', 'KY', 'EN']).optional(),
     website: z.string().optional().default(''),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!data.serviceId && !data.packageId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['serviceId'],
+        message: 'Either serviceId or packageId is required',
+      });
+    }
+    if (data.packageId && (data.serviceId !== undefined || data.serviceIds !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['packageId'],
+        message: 'Cannot combine packageId with serviceId or serviceIds',
+      });
+    }
+  });
 
 export type CreatePublicAppointmentBody = z.infer<typeof createPublicAppointmentBodySchema>;
 

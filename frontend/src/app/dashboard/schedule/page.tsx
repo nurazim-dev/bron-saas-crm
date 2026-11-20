@@ -8,24 +8,28 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppointmentDetailsModal,
   AppointmentFormDialog,
 } from '@/components/appointments/appointment-dialogs';
+import { PeriodCalendar } from '@/components/schedule/period-calendar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { listAppointments } from '@/lib/api/appointments.api';
+import { listCalendarAppointments, updateAppointment } from '@/lib/api/appointments.api';
 import { getApiErrorMessage } from '@/lib/api/client';
 import { listServices } from '@/lib/api/services.api';
 import { listVisibleStaffForRole } from '@/lib/api/staff.api';
 import { listTimeOff, type TimeOffDto } from '@/lib/api/time-off.api';
 import {
-  addDaysToLocalDateInTz,
-  formatLocalDateRussian,
+  localDateTimeToUtcIso,
+  getCalendarPeriod,
+  shiftCalendarDate,
+  type CalendarView,
   formatTimeInCompanyTz,
   getCurrentMinutesInTz,
   getIsoWeekdayInTz,
@@ -37,26 +41,9 @@ import { formatPriceKgs, ru } from '@/lib/i18n/ru';
 import { useAuthStore } from '@/stores/auth.store';
 import type { AppointmentDto, AppointmentStatus, ServiceDto, StaffDto } from '@/types/api';
 
-const GRID_START_HOUR = 8;
-const GRID_END_HOUR = 22;
-const GRID_START_MIN = GRID_START_HOUR * 60;
-const GRID_END_MIN = GRID_END_HOUR * 60;
 const SLOT_STEP_MIN = 30;
 const ROW_HEIGHT_PX = 52;
 const PX_PER_MINUTE = ROW_HEIGHT_PX / SLOT_STEP_MIN;
-
-const TIME_SLOTS: { minutes: number; label: string }[] = (() => {
-  const slots: { minutes: number; label: string }[] = [];
-  for (let m = GRID_START_MIN; m < GRID_END_MIN; m += SLOT_STEP_MIN) {
-    const h = Math.floor(m / 60);
-    const min = m % 60;
-    slots.push({
-      minutes: m,
-      label: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
-    });
-  }
-  return slots;
-})();
 
 function parseHhMmToMinutes(hhMm: string): number {
   const [h, m] = hhMm.split(':');
@@ -66,6 +53,10 @@ function parseHhMmToMinutes(hhMm: string): number {
 const BLOCK_STYLES: Record<AppointmentStatus, string> = {
   SCHEDULED:
     'border-emerald-600/40 bg-emerald-500/15 text-emerald-950 hover:bg-emerald-500/25 dark:text-emerald-100',
+  CONFIRMED:
+    'border-indigo-600/40 bg-indigo-500/15 text-indigo-950 hover:bg-indigo-500/25 dark:text-indigo-100',
+  IN_PROGRESS:
+    'border-violet-600/40 bg-violet-500/15 text-violet-950 hover:bg-violet-500/25 dark:text-violet-100',
   COMPLETED: 'border-sky-600/40 bg-sky-500/15 text-sky-950 hover:bg-sky-500/25 dark:text-sky-100',
   CANCELLED:
     'border-neutral-400/40 bg-neutral-500/10 text-muted-foreground line-through opacity-70 hover:opacity-90',
@@ -78,7 +69,23 @@ export default function SchedulePage() {
   const company = useAuthStore((s) => s.company);
   const timezone = company?.timezone ?? 'Asia/Bishkek';
 
+  const dragId = useRef<string | null>(null);
+  const [move, setMove] = useState<{
+    appointment: AppointmentDto;
+    master: StaffDto;
+    time: string;
+    date: string;
+  } | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [moveNotice, setMoveNotice] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => getTodayLocalDateInTz(timezone));
+  const [view, setView] = useState<CalendarView>('day');
+  const [selectedServiceFilter, setSelectedServiceFilter] = useState('ALL');
+  const period = useMemo(
+    () => getCalendarPeriod(selectedDate, view, timezone),
+    [selectedDate, view, timezone],
+  );
   const [selectedMasterFilter, setSelectedMasterFilter] = useState<string>('ALL');
 
   const [staffList, setStaffList] = useState<StaffDto[]>([]);
@@ -107,25 +114,22 @@ export default function SchedulePage() {
     const userId = user.id;
     const userRole = user.role;
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadData() {
       try {
-        const { fromUtc, toUtc } = getLocalDayUtcRange(selectedDate, timezone);
+        const { fromUtc, toUtc } = period;
         const [staffData, servicesData, apptsRes, timeOffData] = await Promise.all([
           listVisibleStaffForRole(userId, userRole),
           listServices(),
-          listAppointments({
-            from: fromUtc,
-            to: toUtc,
-            limit: 200,
-          }),
+          listCalendarAppointments({ from: fromUtc, to: toUtc }, controller.signal),
           listTimeOff({ from: fromUtc, to: toUtc }),
         ]);
 
         if (!cancelled) {
           setStaffList(staffData);
           setServices(servicesData);
-          setAppointments(apptsRes.data);
+          setAppointments(apptsRes);
           setTimeOffs(timeOffData);
           setLoadError(null);
         }
@@ -145,8 +149,9 @@ export default function SchedulePage() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [reloadKey, selectedDate, timezone, user]);
+  }, [reloadKey, period, user]);
 
   // 60s auto-refresh when tab is visible + update current time indicator
   useEffect(() => {
@@ -173,15 +178,95 @@ export default function SchedulePage() {
     return bookableMasters.filter((m) => m.id === selectedMasterFilter);
   }, [bookableMasters, selectedMasterFilter]);
 
+  const filteredAppointments = useMemo(
+    () =>
+      appointments.filter(
+        (appointment) =>
+          (selectedMasterFilter === 'ALL' || appointment.masterId === selectedMasterFilter) &&
+          (selectedServiceFilter === 'ALL' ||
+            (appointment.serviceIds ?? [appointment.serviceId]).includes(selectedServiceFilter)),
+      ),
+    [appointments, selectedMasterFilter, selectedServiceFilter],
+  );
+
+  function selectDate(date: string) {
+    setIsLoading(true);
+    setSelectedDate(date);
+  }
+
+  function selectView(next: CalendarView) {
+    setIsLoading(true);
+    setView(next);
+    setReloadKey((key) => key + 1);
+  }
+
   const isoWeekday = useMemo(
     () => getIsoWeekdayInTz(selectedDate, timezone),
     [selectedDate, timezone],
+  );
+
+  const dayRange = getLocalDayUtcRange(selectedDate, timezone);
+  const dayStart = new Date(dayRange.fromUtc).getTime();
+  const dayEnd = new Date(dayRange.toUtc).getTime();
+  const starts = filteredAppointments.map((appointment) =>
+    new Date(appointment.startAt).getTime() <= dayStart
+      ? 0
+      : getMinutesSinceMidnightInTz(appointment.startAt, timezone),
+  );
+  const ends = filteredAppointments.map((appointment) =>
+    new Date(appointment.endAt).getTime() >= dayEnd
+      ? 1440
+      : getMinutesSinceMidnightInTz(appointment.endAt, timezone),
+  );
+  const hours = visibleColumns.flatMap((master) =>
+    master.workingHours.filter((day) => day.dayOfWeek === isoWeekday),
+  );
+  const GRID_START_MIN =
+    Math.floor(
+      Math.min(480, ...starts, ...hours.map((day) => parseHhMmToMinutes(day.startTime))) / 60,
+    ) * 60;
+  const GRID_END_MIN =
+    Math.ceil(
+      Math.max(1320, ...ends, ...hours.map((day) => parseHhMmToMinutes(day.endTime))) / 60,
+    ) * 60;
+  const TIME_SLOTS = Array.from(
+    { length: (GRID_END_MIN - GRID_START_MIN) / SLOT_STEP_MIN },
+    (_, index) => {
+      const minutes = GRID_START_MIN + index * SLOT_STEP_MIN;
+      return {
+        minutes,
+        label: `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`,
+      };
+    },
   );
 
   const todayLocalDate = getTodayLocalDateInTz(timezone);
   const isToday = selectedDate === todayLocalDate;
   const showNowLine = isToday && currentMinutes >= GRID_START_MIN && currentMinutes <= GRID_END_MIN;
   const nowLineTopPx = (currentMinutes - GRID_START_MIN) * PX_PER_MINUTE;
+
+  async function confirmMove() {
+    if (!move || moving) return;
+    setMoving(true);
+    setMoveError(null);
+    try {
+      const updated = await updateAppointment(move.appointment.id, {
+        masterId: move.master.id,
+        startAt: localDateTimeToUtcIso(move.date, move.time, timezone),
+      });
+      handleAppointmentSaved(updated);
+      setMoveNotice(
+        updated.warnings?.length
+          ? 'Запись перенесена. Проверьте график: новое время попадает вне смены, в перерыв или отсутствие.'
+          : 'Запись перенесена',
+      );
+      setMove(null);
+    } catch (error) {
+      setMoveError(getApiErrorMessage(error));
+    } finally {
+      setMoving(false);
+    }
+  }
 
   function handleManualRefresh() {
     setIsRefreshing(true);
@@ -225,12 +310,15 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-5">
+      <p role="status" className="text-sm text-primary">
+        {moveNotice}
+      </p>
       {/* Header & Controls */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{ru.schedulePage.title}</h1>
           <p className="mt-0.5 text-sm capitalize text-muted-foreground">
-            {formatLocalDateRussian(selectedDate, timezone)} • {timezone}
+            {period.label} • {timezone}
           </p>
         </div>
 
@@ -241,8 +329,14 @@ export default function SchedulePage() {
               type="button"
               variant="ghost"
               size="icon-sm"
-              onClick={() => setSelectedDate((d) => addDaysToLocalDateInTz(d, -1, timezone))}
-              aria-label={ru.schedulePage.prevDayLabel}
+              onClick={() => selectDate(shiftCalendarDate(selectedDate, view, -1, timezone))}
+              aria-label={
+                view === 'day'
+                  ? ru.schedulePage.prevDayLabel
+                  : view === 'week'
+                    ? 'Предыдущая неделя'
+                    : 'Предыдущий месяц'
+              }
             >
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
@@ -250,7 +344,9 @@ export default function SchedulePage() {
               type="button"
               variant={isToday ? 'secondary' : 'ghost'}
               size="sm"
-              onClick={() => setSelectedDate(todayLocalDate)}
+              onClick={() => {
+                if (!isToday) selectDate(todayLocalDate);
+              }}
               className="px-2.5 text-xs font-medium"
             >
               {ru.schedulePage.todayButton}
@@ -259,8 +355,14 @@ export default function SchedulePage() {
               type="button"
               variant="ghost"
               size="icon-sm"
-              onClick={() => setSelectedDate((d) => addDaysToLocalDateInTz(d, 1, timezone))}
-              aria-label={ru.schedulePage.nextDayLabel}
+              onClick={() => selectDate(shiftCalendarDate(selectedDate, view, 1, timezone))}
+              aria-label={
+                view === 'day'
+                  ? ru.schedulePage.nextDayLabel
+                  : view === 'week'
+                    ? 'Следующая неделя'
+                    : 'Следующий месяц'
+              }
             >
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </Button>
@@ -271,20 +373,56 @@ export default function SchedulePage() {
               type="date"
               value={selectedDate}
               onChange={(e) => {
-                if (e.target.value) setSelectedDate(e.target.value);
+                if (e.target.value && e.target.value !== selectedDate) selectDate(e.target.value);
               }}
               aria-label={ru.appointmentDialog.dateLabel}
-              className="h-9 w-40 text-sm"
+              className="min-h-11 w-40 text-sm"
             />
           </div>
 
-          {/* Master filter for OWNER */}
-          {user.role === 'OWNER' && bookableMasters.length > 1 && (
+          <div
+            role="group"
+            aria-label="Вид календаря"
+            className="flex rounded-lg border bg-card p-1"
+          >
+            {(
+              [
+                ['day', 'День'],
+                ['week', 'Неделя'],
+                ['month', 'Месяц'],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                variant={view === value ? 'secondary' : 'ghost'}
+                aria-pressed={view === value}
+                onClick={() => {
+                  if (view !== value) selectView(value);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <select
+            aria-label="Фильтр по услуге"
+            value={selectedServiceFilter}
+            onChange={(event) => setSelectedServiceFilter(event.target.value)}
+            className="min-h-11 max-w-full rounded-md border bg-card px-3 text-sm"
+          >
+            <option value="ALL">Все услуги</option>
+            {services.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+              </option>
+            ))}
+          </select>
+          {user.role !== 'MASTER' && bookableMasters.length > 1 && (
             <select
               aria-label={ru.appointmentsPage.masterFilterLabel}
               value={selectedMasterFilter}
               onChange={(e) => setSelectedMasterFilter(e.target.value)}
-              className="h-9 rounded-md border border-input bg-card px-3 text-sm shadow-2xs"
+              className="min-h-11 max-w-full rounded-md border border-input bg-card px-3 text-sm shadow-2xs"
             >
               <option value="ALL">{ru.schedulePage.allMastersFilter}</option>
               {bookableMasters.map((m) => (
@@ -301,6 +439,7 @@ export default function SchedulePage() {
             size="sm"
             onClick={handleManualRefresh}
             disabled={isRefreshing}
+            aria-label={ru.schedulePage.refreshButton}
             title={ru.schedulePage.autoRefreshHint}
             className="gap-1.5"
           >
@@ -349,9 +488,26 @@ export default function SchedulePage() {
         </Card>
       )}
 
+      {!isLoading && !loadError && (
+        <div className={view === 'day' ? 'md:hidden' : ''}>
+          <PeriodCalendar
+            dates={period.dates}
+            appointments={filteredAppointments}
+            timezone={timezone}
+            selectedDate={selectedDate}
+            month={view === 'month'}
+            onDay={(date) => {
+              selectDate(date);
+              selectView('day');
+            }}
+            onAppointment={setSelectedAppointment}
+          />
+        </div>
+      )}
+
       {/* Day Schedule Grid */}
-      {!isLoading && !loadError && visibleColumns.length > 0 && (
-        <Card className="overflow-hidden shadow-xs">
+      {!isLoading && !loadError && visibleColumns.length > 0 && view === 'day' && (
+        <Card className="hidden overflow-hidden shadow-xs md:block">
           <div className="overflow-x-auto">
             <div className="min-w-[640px]">
               {/* Column Headers */}
@@ -417,14 +573,49 @@ export default function SchedulePage() {
                   const workStartMin = wh ? parseHhMmToMinutes(wh.startTime) : -1;
                   const workEndMin = wh ? parseHhMmToMinutes(wh.endTime) : -1;
 
-                  const masterAppts = appointments.filter((a) => a.masterId === master.id);
+                  const masterAppts = filteredAppointments.filter((a) => a.masterId === master.id);
                   const masterTimeOffs = timeOffs.filter((t) => t.userId === master.id);
                   const { fromUtc, toUtc } = getLocalDayUtcRange(selectedDate, timezone);
                   const dayStartMs = new Date(fromUtc).getTime();
                   const dayEndMs = new Date(toUtc).getTime();
 
                   return (
-                    <div key={master.id} className="relative border-r last:border-r-0">
+                    <div
+                      key={master.id}
+                      className="relative border-r last:border-r-0"
+                      onDragOver={(event) => {
+                        if (dragId.current) event.preventDefault();
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const appointment = appointments.find((item) => item.id === dragId.current);
+                        dragId.current = null;
+                        if (
+                          !appointment ||
+                          (appointment.status !== 'SCHEDULED' &&
+                            appointment.status !== 'CONFIRMED') ||
+                          moving
+                        ) {
+                          return;
+                        }
+                        if (
+                          !(appointment.serviceIds ?? [appointment.serviceId]).every((id) =>
+                            master.serviceIds.includes(id),
+                          )
+                        ) {
+                          setMoveNotice('Выбранный мастер не выполняет все услуги записи');
+                          return;
+                        }
+                        const index = Math.floor(
+                          (event.clientY - event.currentTarget.getBoundingClientRect().top) /
+                            ROW_HEIGHT_PX,
+                        );
+                        const slot = TIME_SLOTS[index];
+                        if (!slot) return;
+                        setMoveError(null);
+                        setMove({ appointment, master, time: slot.label, date: selectedDate });
+                      }}
+                    >
                       {/* Background half-hour cells */}
                       {TIME_SLOTS.map((slot) => {
                         const isWorkingCell =
@@ -437,6 +628,7 @@ export default function SchedulePage() {
                             key={slot.label}
                             type="button"
                             onClick={() => openNewAppointment(master.id, slot.label)}
+                            aria-label={`${master.name} • ${slot.label} — ${ru.schedulePage.clickCellHint}`}
                             title={`${master.name} • ${slot.label} — ${ru.schedulePage.clickCellHint}`}
                             className={`block w-full border-b text-left transition-colors ${
                               isWorkingCell
@@ -512,8 +704,14 @@ export default function SchedulePage() {
 
                       {/* Positioned Appointment Blocks */}
                       {masterAppts.map((appt) => {
-                        const startMin = getMinutesSinceMidnightInTz(appt.startAt, timezone);
-                        const endMin = getMinutesSinceMidnightInTz(appt.endAt, timezone);
+                        const startMin =
+                          new Date(appt.startAt).getTime() <= dayStartMs
+                            ? 0
+                            : getMinutesSinceMidnightInTz(appt.startAt, timezone);
+                        const endMin =
+                          new Date(appt.endAt).getTime() >= dayEndMs
+                            ? 1440
+                            : getMinutesSinceMidnightInTz(appt.endAt, timezone);
                         const clampedStart = Math.max(GRID_START_MIN, startMin);
                         const clampedEnd = Math.min(
                           GRID_END_MIN,
@@ -532,6 +730,19 @@ export default function SchedulePage() {
                         return (
                           <button
                             key={appt.id}
+                            draggable={
+                              (appt.status === 'SCHEDULED' || appt.status === 'CONFIRMED') &&
+                              !moving
+                            }
+                            onDragStart={(event) => {
+                              dragId.current = appt.id;
+                              event.dataTransfer.effectAllowed = 'move';
+                              event.dataTransfer.setData('text/plain', appt.id);
+                            }}
+                            onDragEnd={() => {
+                              dragId.current = null;
+                            }}
+                            title="Откройте запись для редактирования или перетащите на новое время"
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -579,6 +790,46 @@ export default function SchedulePage() {
         </Card>
       )}
 
+      <Dialog
+        open={move !== null}
+        onOpenChange={(open) => {
+          if (!open && !moving) setMove(null);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>Перенести запись?</DialogTitle>
+          {move && (
+            <div className="mt-4 space-y-3 text-sm">
+              <p className="break-words font-medium">
+                {move.appointment.clientName} · {move.appointment.service.name}
+              </p>
+              <p>
+                Было: {formatTimeInCompanyTz(move.appointment.startAt, timezone)} ·{' '}
+                {move.appointment.master.name}
+              </p>
+              <p>
+                Новое время: {move.date} в {move.time} · {move.master.name}
+              </p>
+              <p className="text-muted-foreground">
+                Длительность и стоимость сохранятся. Доступность проверим при подтверждении.
+              </p>
+              {moveError && (
+                <p role="alert" className="text-destructive">
+                  {moveError}
+                </p>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" disabled={moving} onClick={() => setMove(null)}>
+                  Отмена
+                </Button>
+                <Button disabled={moving} onClick={() => void confirmMove()}>
+                  {moving ? 'Переносим…' : 'Подтвердить перенос'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {/* Appointment Details Drawer/Modal */}
       <AppointmentDetailsModal
         appointment={selectedAppointment}

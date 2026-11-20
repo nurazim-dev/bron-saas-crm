@@ -327,6 +327,8 @@ describe('Phase 20: Staff notifications, Telegram linking & client reminders', (
     expect(
       asBody<DataEnvelope<{ telegramConnected: boolean }>>(settings1.body).data.telegramConnected,
     ).toBe(true);
+    expect(fakeTelegram.sent.length).toBe(0);
+    await runOutboxDispatcherOnce();
     expect(fakeTelegram.sent.length).toBeGreaterThanOrEqual(1);
 
     // Duplicate chatId attempt for user2 -> rejected, user1 stays linked

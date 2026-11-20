@@ -62,7 +62,9 @@ async function runSeed(): Promise<void> {
     prismaUnfiltered.workingHours.deleteMany(),
     prismaUnfiltered.masterService.deleteMany(),
     prismaUnfiltered.service.deleteMany(),
+    prismaUnfiltered.authSession.deleteMany(),
     prismaUnfiltered.user.deleteMany(),
+    prismaUnfiltered.identity.deleteMany(),
     prismaUnfiltered.company.deleteMany(),
   ]);
 
@@ -84,9 +86,18 @@ async function runSeed(): Promise<void> {
 
   await createTrialSubscriptionForCompany(prisma, company.id);
 
+  const ownerIdentity = await prismaUnfiltered.identity.create({
+    data: {
+      email: 'owner@demo.zapis.kg',
+      passwordHash,
+      lastCompanyId: company.id,
+    },
+  });
+
   const owner = await prismaUnfiltered.user.create({
     data: {
       companyId: company.id,
+      identityId: ownerIdentity.id,
       role: Role.OWNER,
       name: 'Азамат Токтогулов',
       email: 'owner@demo.zapis.kg',
@@ -97,9 +108,18 @@ async function runSeed(): Promise<void> {
     },
   });
 
+  const masterIdentity = await prismaUnfiltered.identity.create({
+    data: {
+      email: 'master@demo.zapis.kg',
+      passwordHash,
+      lastCompanyId: company.id,
+    },
+  });
+
   const masterWithLogin = await prismaUnfiltered.user.create({
     data: {
       companyId: company.id,
+      identityId: masterIdentity.id,
       role: Role.MASTER,
       name: 'Бекзат Исаков',
       email: 'master@demo.zapis.kg',

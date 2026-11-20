@@ -80,3 +80,24 @@ export const impersonateExchangeBodySchema = z
   .strict();
 
 export type ImpersonateExchangeBody = z.infer<typeof impersonateExchangeBodySchema>;
+
+export const switchCompanyBodySchema = z
+  .object({
+    companyId: z.uuid('Invalid companyId'),
+  })
+  .strict();
+
+export type SwitchCompanyBody = z.infer<typeof switchCompanyBodySchema>;
+
+export const createAdditionalCompanyBodySchema = z
+  .object({
+    companyName: trimmedNameSchema('Company name'),
+    businessType: z.enum(BusinessType).optional().default(BusinessType.BARBERSHOP),
+    phone: z
+      .string()
+      .transform((val) => sanitizeText(val))
+      .optional(),
+  })
+  .strict();
+
+export type CreateAdditionalCompanyBody = z.infer<typeof createAdditionalCompanyBodySchema>;

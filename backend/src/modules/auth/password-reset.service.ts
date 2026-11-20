@@ -14,6 +14,11 @@ import { AppError } from '../../lib/errors.js';
 import { hashPassword, verifyDummyPassword } from '../../lib/password.js';
 import { prisma } from '../../lib/prisma.js';
 import { enqueue } from '../notifications/outbox.service.js';
+import {
+  applyIdentityPassword,
+  assertIdentityNotShared,
+  lockIdentity,
+} from './identity.service.js';
 
 export const PASSWORD_RESET_TTL_MINUTES = 60;
 
@@ -37,21 +42,33 @@ export async function requestPasswordResetByEmail(
   email: string,
   auditContext?: AuditRequestContext,
 ): Promise<{ message: string }> {
-  const user = await prisma.user.findUnique({
+  const identity = await prisma.identity.findUnique({
     where: { email },
-    include: { company: true },
+    include: {
+      members: {
+        where: { deletedAt: null, isActive: true },
+        include: { company: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      },
+    },
   });
 
-  const isEligible =
-    user !== null &&
-    user.deletedAt === null &&
-    user.isActive &&
-    user.passwordHash !== null &&
-    user.email !== null &&
-    user.company.deletedAt === null &&
-    user.company.suspendedAt === null;
+  const eligibleMembers =
+    identity && identity.passwordHash !== null
+      ? identity.members.filter(
+          (member) =>
+            member.email !== null &&
+            member.company.deletedAt === null &&
+            member.company.suspendedAt === null,
+        )
+      : [];
 
-  if (!isEligible || user === null || user.email === null) {
+  const user =
+    eligibleMembers.find((member) => member.companyId === identity?.lastCompanyId) ??
+    eligibleMembers[0] ??
+    null;
+
+  if (!identity || !user || user.email === null) {
     // Equalize response timing so account existence cannot be inferred.
     await verifyDummyPassword('timing-equalization-dummy');
     return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
@@ -62,11 +79,12 @@ export async function requestPasswordResetByEmail(
   const rawToken = generateRawResetToken();
   const tokenHash = hashPasswordResetToken(rawToken);
   const resetUrl = buildResetUrl(rawToken);
-  const recipientEmail = user.email;
+  const recipientEmail = identity.email;
+  const memberIds = identity.members.map((m) => m.id);
 
   await prisma.$transaction(async (tx) => {
     await tx.passwordResetToken.updateMany({
-      where: { userId: user.id, usedAt: null },
+      where: { userId: { in: memberIds }, usedAt: null },
       data: { usedAt: currentNow },
     });
 
@@ -126,10 +144,13 @@ export async function validatePasswordResetToken(
     where: { tokenHash },
     include: {
       user: {
-        include: { company: true },
+        include: { company: true, identity: true },
       },
     },
   });
+
+  const effectivePasswordHash =
+    record?.user.identity?.passwordHash ?? record?.user.passwordHash ?? null;
 
   if (
     !record ||
@@ -137,7 +158,7 @@ export async function validatePasswordResetToken(
     record.expiresAt.getTime() <= currentNow.getTime() ||
     record.user.deletedAt !== null ||
     !record.user.isActive ||
-    record.user.passwordHash === null ||
+    (effectivePasswordHash === null && record.createdBy !== PasswordResetCreator.OWNER) ||
     record.user.company.deletedAt !== null ||
     record.user.company.suspendedAt !== null
   ) {
@@ -159,10 +180,13 @@ export async function resetPasswordWithToken(
     where: { tokenHash },
     include: {
       user: {
-        include: { company: true },
+        include: { company: true, identity: true },
       },
     },
   });
+
+  const effectivePasswordHash =
+    record?.user.identity?.passwordHash ?? record?.user.passwordHash ?? null;
 
   if (
     !record ||
@@ -170,7 +194,7 @@ export async function resetPasswordWithToken(
     record.expiresAt.getTime() <= currentNow.getTime() ||
     record.user.deletedAt !== null ||
     !record.user.isActive ||
-    record.user.passwordHash === null ||
+    (effectivePasswordHash === null && record.createdBy !== PasswordResetCreator.OWNER) ||
     record.user.company.deletedAt !== null ||
     record.user.company.suspendedAt !== null
   ) {
@@ -202,23 +226,32 @@ export async function resetPasswordWithToken(
       );
     }
 
-    await tx.passwordResetToken.updateMany({
-      where: {
-        userId: record.userId,
-        usedAt: null,
-      },
-      data: {
-        usedAt: currentNow,
-      },
-    });
+    if (record.user.identityId) {
+      await lockIdentity(tx, record.user.identityId);
+      await applyIdentityPassword(tx, record.user.identityId, newPasswordHash, currentNow);
+    } else {
+      await tx.passwordResetToken.updateMany({
+        where: {
+          userId: record.userId,
+          usedAt: null,
+        },
+        data: {
+          usedAt: currentNow,
+        },
+      });
 
-    await tx.user.update({
-      where: { id: record.userId },
-      data: {
-        passwordHash: newPasswordHash,
-        tokenVersion: { increment: 1 },
-      },
-    });
+      await tx.authSession.updateMany({
+        where: { userId: record.userId, companyId: record.user.companyId, revokedAt: null },
+        data: { revokedAt: currentNow },
+      });
+      await tx.user.update({
+        where: { id: record.userId, companyId: record.user.companyId },
+        data: {
+          passwordHash: newPasswordHash,
+          tokenVersion: { increment: 1 },
+        },
+      });
+    }
 
     await audit(tx, {
       actorType: AuditActor.USER,
@@ -244,10 +277,9 @@ export async function generateStaffPasswordResetLink(
     where: {
       id: staffId,
       companyId,
-      role: Role.MASTER,
+      role: { in: [Role.MASTER, Role.MANAGER] },
       isActive: true,
       email: { not: null },
-      passwordHash: { not: null },
     },
     include: { company: true },
   });
@@ -264,6 +296,11 @@ export async function generateStaffPasswordResetLink(
   const targetEmail = target.email;
 
   await prisma.$transaction(async (tx) => {
+    if (target.identityId) {
+      await lockIdentity(tx, target.identityId);
+      await assertIdentityNotShared(tx, target.identityId, companyId);
+    }
+
     await tx.passwordResetToken.updateMany({
       where: { userId: target.id, usedAt: null },
       data: { usedAt: currentNow },

@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, Scissors } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -9,6 +9,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { AuthBootstrap, GuestGuard } from '@/components/layout/auth-bootstrap';
+import { AuthShell } from '@/components/layout/auth-shell';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -90,19 +91,12 @@ function RegisterFormContent() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/30 px-4 py-10">
-      <div className="mb-6 flex items-center gap-2.5">
-        <Link href="/" className="flex items-center gap-2.5 font-semibold">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Scissors className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <span className="text-xl font-bold">{ru.brand.name}</span>
-        </Link>
-      </div>
-
-      <Card className="w-full max-w-lg shadow-xs">
+    <AuthShell registration>
+      <Card className="w-full max-w-lg auth-card">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">{ru.auth.registerTitle}</CardTitle>
+          <CardTitle className="text-3xl font-semibold tracking-tight">
+            {ru.auth.registerTitle}
+          </CardTitle>
           <CardDescription>{ru.auth.registerSubtitle}</CardDescription>
         </CardHeader>
 
@@ -279,7 +273,7 @@ function RegisterFormContent() {
           </Link>
         </CardFooter>
       </Card>
-    </main>
+    </AuthShell>
   );
 }
 

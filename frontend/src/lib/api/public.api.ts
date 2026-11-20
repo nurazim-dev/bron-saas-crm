@@ -1,8 +1,10 @@
 import axios from 'axios';
+import type { PublicLang } from '@/lib/i18n/public-dict';
 import { mapErrorCodeToRussian, ru } from '@/lib/i18n/ru';
 import type {
   ApiErrorResponse,
   ApiSuccessEnvelope,
+  AppointmentStatus,
   AvailabilityDto,
   ErrorCode,
   PublicCompanyProfileDto,
@@ -19,14 +21,16 @@ const publicHttpClient = axios.create({
 });
 
 export interface CreatePublicAppointmentPayload {
-  serviceId: string;
+  serviceId?: string;
+  serviceIds?: string[];
+  packageId?: string;
   masterId?: string | null;
   startAt: string;
   clientName: string;
   clientPhone: string;
   clientNote?: string | null;
   consentAccepted: boolean;
-  locale?: 'RU' | 'KY';
+  locale?: 'RU' | 'KY' | 'EN';
   website?: string;
 }
 
@@ -58,13 +62,20 @@ export async function fetchPublicCompanyServer(
 
 export async function getPublicAvailability(
   slug: string,
-  params: { masterId?: string; serviceId: string; date: string },
+  params: {
+    masterId?: string;
+    serviceId?: string;
+    serviceIds?: string[];
+    packageId?: string;
+    date: string;
+  },
 ): Promise<AvailabilityDto> {
   const res = await publicHttpClient.get<ApiSuccessEnvelope<AvailabilityDto>>(
     `/companies/${encodeURIComponent(slug)}/availability`,
     {
       params: {
         ...params,
+        serviceIds: params.serviceIds?.join(','),
         _t: Date.now(),
       },
     },
@@ -95,13 +106,14 @@ export type ManageDisableReason =
 
 export interface PublicManageAppointmentDto {
   id: string;
-  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  status: AppointmentStatus;
   startAt: string;
   endAt: string;
   rescheduledCount: number;
   cancelledAt: string | null;
   cancelledBy: string | null;
   cancelReason: string | null;
+  packageName?: string | null;
   service: { id: string; name: string; durationMin: number; price: string };
   master: { id: string; name: string };
   company: {
@@ -120,6 +132,7 @@ export interface PublicManageAppointmentDto {
     canReschedule: boolean;
     rescheduleDisabledReason: ManageDisableReason | null;
   };
+  telegramBotUrl?: string;
   prepayment?: PublicPrepaymentBlockDto | null;
 }
 
@@ -165,7 +178,31 @@ export async function reschedulePublicManageAppointment(
   return res.data.data;
 }
 
-export function getPublicErrorMessage(err: unknown): string {
+export function getPublicErrorMessage(err: unknown, lang: PublicLang = 'ru'): string {
+  if (lang === 'ky') {
+    const code = getPublicErrorCode(err);
+    if (code === 'RATE_LIMITED') return 'Сурамдар өтө көп. Бир аз күтүп, кайра аракет кылыңыз.';
+    if (code === 'SLOT_ALREADY_BOOKED' || code === 'SLOT_NOT_AVAILABLE')
+      return 'Бул убакыт бош эмес. Башка убакытты тандаңыз.';
+    if (code === 'VALIDATION_ERROR') return 'Киргизилген маалыматтарды текшериңиз.';
+    if (code === 'BOOKING_DISABLED' || code === 'BOOKING_NOT_ALLOWED')
+      return 'Онлайн жазылуу жеткиликсиз. Салон менен байланышыңыз.';
+    if (code === 'INVALID_OR_EXPIRED_TOKEN' || code === 'NOT_FOUND')
+      return 'Шилтеме жараксыз же жазылуу табылган жок.';
+    return 'Сурам аткарылган жок. Байланышты текшерип, кайра аракет кылыңыз.';
+  }
+  if (lang === 'en') {
+    const code = getPublicErrorCode(err);
+    if (code === 'RATE_LIMITED') return 'Too many requests. Please wait and try again.';
+    if (code === 'SLOT_ALREADY_BOOKED' || code === 'SLOT_NOT_AVAILABLE')
+      return 'This time slot is no longer available. Please choose another.';
+    if (code === 'VALIDATION_ERROR') return 'Please check the entered details.';
+    if (code === 'BOOKING_DISABLED' || code === 'BOOKING_NOT_ALLOWED')
+      return 'Online booking is unavailable. Please contact the salon.';
+    if (code === 'INVALID_OR_EXPIRED_TOKEN' || code === 'NOT_FOUND')
+      return 'Invalid link or appointment not found.';
+    return 'Request failed. Please check your connection and try again.';
+  }
   if (axios.isAxiosError<ApiErrorResponse>(err)) {
     if (!err.response) {
       return ru.errors.NETWORK_ERROR;

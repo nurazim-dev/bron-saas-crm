@@ -51,7 +51,7 @@ export default function AdminDashboardPage() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-56" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <Skeleton key={i} className="h-28 w-full" />
           ))}
@@ -82,7 +82,7 @@ export default function AdminDashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Компании</CardTitle>
@@ -99,7 +99,7 @@ export default function AdminDashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              MRR (Active)
+              Подписки в месяц
             </CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -142,13 +142,13 @@ export default function AdminDashboardPage() {
               </Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span>Ошибки Outbox:</span>
+              <span>Ошибки доставки:</span>
               <Badge variant={metrics.failedOutboxCount > 0 ? 'destructive' : 'secondary'}>
                 {metrics.failedOutboxCount}
               </Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span>Past Due / Locked:</span>
+              <span>Просрочено / блок:</span>
               <Badge variant="outline">
                 {metrics.companiesByState.PAST_DUE} / {metrics.companiesByState.LOCKED}
               </Badge>
@@ -157,8 +157,8 @@ export default function AdminDashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Регистрации за последние 14 дней</CardTitle>
             <CardDescription>Новые компании по дням (UTC)</CardDescription>
@@ -215,7 +215,7 @@ export default function AdminDashboardPage() {
               <Link href="/admin/companies?status=PAST_DUE">
                 <span className="flex items-center gap-2">
                   <Building2 className="h-4 w-4" />
-                  Компании в Grace
+                  Истекает подписка
                 </span>
                 <Badge variant="outline">{metrics.companiesByState.PAST_DUE}</Badge>
               </Link>
@@ -224,7 +224,7 @@ export default function AdminDashboardPage() {
               <Link href="/admin/companies?status=LOCKED">
                 <span className="flex items-center gap-2">
                   <Building2 className="h-4 w-4" />
-                  Заблокированные (Locked)
+                  Заблокированы
                 </span>
                 <Badge variant="outline">{metrics.companiesByState.LOCKED}</Badge>
               </Link>

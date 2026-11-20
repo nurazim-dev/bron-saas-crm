@@ -12,6 +12,10 @@ import {
   recordOfflinePayment,
   rejectPayment,
 } from '../billing/billing.service.js';
+import {
+  readSubscriptionProofForAdmin,
+  sendProofDownloadResponse,
+} from '../payments/payment-proof.service.js';
 import { getAdminActor } from './admin-auth.middleware.js';
 import type {
   AdminAdjustSubscriptionBody,
@@ -20,6 +24,7 @@ import type {
   AdminCreatePlanBody,
   AdminDeleteCompanyBody,
   AdminOutboxQuery,
+  AdminPaymentProofParams,
   AdminPaymentsQuery,
   AdminReasonBody,
   AdminRecordOfflinePaymentBody,
@@ -200,6 +205,12 @@ export const rejectAdminPaymentController: RequestHandler = async (req, res) => 
   const body = getValidatedBody<AdminReasonBody>(req);
   const data = await rejectPayment(id, actor.adminId, body.reason, extractAuditContext(req));
   res.status(200).json({ data });
+};
+
+export const readAdminPaymentProofController: RequestHandler = async (req, res) => {
+  const { id, proofId } = getValidatedParams<AdminPaymentProofParams>(req);
+  const file = await readSubscriptionProofForAdmin(id, proofId);
+  sendProofDownloadResponse(res, file);
 };
 
 export const listAdminPlansController: RequestHandler = async (_req, res) => {

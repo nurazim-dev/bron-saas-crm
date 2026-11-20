@@ -58,10 +58,10 @@ export default function ResetPasswordPage() {
 
     async function initToken() {
       const params = new URLSearchParams(window.location.search);
-      const rawToken = params.get('token')?.trim() ?? '';
+      const rawToken = window.location.hash.slice(1) || params.get('token')?.trim() || '';
 
       // Scrub token from the browser address bar immediately after reading it (BR-13).
-      if (window.location.search) {
+      if (window.location.search || window.location.hash) {
         window.history.replaceState(null, '', '/reset-password');
       }
 

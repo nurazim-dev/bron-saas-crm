@@ -1,104 +1,196 @@
-import { ArrowRight, CalendarCheck2, Scissors, Smartphone, Users } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, CalendarDays, Check, Scissors, Users } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
+import { Brand } from '@/components/layout/auth-shell';
 import {
   LandingAnnouncementBanner,
   LandingPricingSection,
 } from '@/components/landing/platform-section';
-import { Badge } from '@/components/ui/badge';
+import { Reveal } from '@/components/landing/reveal';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ru } from '@/lib/i18n/ru';
-
-const BENEFIT_ICONS = [CalendarCheck2, Smartphone, Users] as const;
 
 export default function HomePage() {
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="editorial-site">
+      <a href="#content" className="skip-link">
+        К содержанию
+      </a>
       <LandingAnnouncementBanner />
-      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Scissors className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <span className="text-lg font-bold">{ru.brand.name}</span>
+      <header className="editorial-header">
+        <Brand />
+        <nav aria-label="Основная навигация">
+          <Link className="hidden md:inline-flex" href="#possibilities">
+            Возможности
           </Link>
-          <nav className="flex items-center gap-2 sm:gap-3">
-            <Button asChild variant="ghost" className="min-h-11 px-4">
-              <Link href="/login">{ru.landing.ctaLogin}</Link>
-            </Button>
-            <Button asChild className="min-h-11 px-4">
-              <Link href="/register">{ru.landing.ctaStart}</Link>
-            </Button>
-          </nav>
-        </div>
+          <Link href="/login">Войти</Link>
+          <Button asChild>
+            <Link href="/register">
+              Начать <ArrowUpRight aria-hidden="true" />
+            </Link>
+          </Button>
+        </nav>
       </header>
-
-      <main className="flex-1">
-        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-          <div className="mx-auto max-w-3xl text-center">
-            <Badge variant="secondary" className="mb-4 px-3 py-1 text-xs sm:text-sm">
-              {ru.landing.badge}
-            </Badge>
-            <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-5xl">
-              {ru.landing.heroTitle}
+      <main id="content">
+        <section className="cinema-hero">
+          <div className="cinema-copy">
+            <span className="eyebrow">ZAPIS.KG / ДЛЯ БИЗНЕСА В КЫРГЫЗСТАНЕ</span>
+            <h1>
+              Вы создаёте
+              <br />
+              красоту.
+              <br />
+              <em>Мы — порядок.</em>
             </h1>
-            <p className="mt-5 text-base leading-relaxed text-muted-foreground sm:text-xl">
-              {ru.landing.heroSubtitle}
+            <p>
+              Онлайн-запись и CRM для барбершопов и салонов. Чтобы в вашем дне оставалось больше
+              места для любимого дела.
             </p>
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-              <Button asChild size="lg" className="min-h-12 w-full px-8 text-base sm:w-auto">
-                <Link href="/register">
-                  {ru.landing.ctaStart}
-                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
-                </Link>
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                size="lg"
-                className="min-h-12 w-full px-8 text-base sm:w-auto"
-              >
-                <Link href="/login">{ru.landing.ctaLogin}</Link>
-              </Button>
-            </div>
+            <Button asChild className="min-h-12 px-6">
+              <Link href="/register">
+                Открыть свой кабинет <ArrowUpRight aria-hidden="true" />
+              </Link>
+            </Button>
+            <a href="#possibilities" className="hero-explore">
+              Знакомство с сервисом <ArrowDown size={16} aria-hidden="true" />
+            </a>
           </div>
+          <figure className="cinema-photo">
+            <Image
+              src="/images/salon-1600.webp"
+              alt="Светлый интерьер салона с зеркалами и креслами"
+              fill
+              priority
+              sizes="(max-width: 767px) 100vw, 55vw"
+              className="object-cover"
+            />
+            <figcaption>
+              <span>ВНИМАНИЕ К ДЕТАЛЯМ</span>
+              <p>
+                В салоне.
+                <br />И за его пределами.
+              </p>
+            </figcaption>
+          </figure>
         </section>
-
-        <section className="border-t bg-muted/40 py-16 sm:py-20">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6">
-            <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
-              {ru.landing.benefitsTitle}
+        <div className="editorial-strip">
+          <span>
+            <Scissors size={18} aria-hidden="true" /> Барбершопы и салоны
+          </span>
+          <span>Одна команда. Одно пространство.</span>
+          <span>Телефон · Планшет · Компьютер</span>
+        </div>
+        <section id="possibilities" className="editorial-section">
+          <Reveal className="section-intro">
+            <span className="eyebrow text-primary">01 / ВАШ РАБОЧИЙ ДЕНЬ</span>
+            <h2>
+              Всё на своих местах.
+              <br />
+              <span className="text-muted-foreground">Даже в самый занятый день.</span>
             </h2>
-            <div className="mt-10 grid gap-6 md:grid-cols-3">
-              {ru.landing.benefits.map((benefit, idx) => {
-                const Icon = BENEFIT_ICONS[idx] ?? CalendarCheck2;
-                return (
-                  <Card key={benefit.title} className="border-border/80 shadow-xs">
-                    <CardHeader>
-                      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-                        <Icon className="h-5 w-5" aria-hidden="true" />
-                      </div>
-                      <CardTitle className="text-lg font-semibold">{benefit.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        {benefit.description}
-                      </p>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+          </Reveal>
+          <div className="feature-editorial">
+            {[
+              {
+                icon: CalendarDays,
+                title: 'Расписание без путаницы',
+                text: 'Записи, перерывы и отпуска мастеров — рядом. Доступное время для онлайн-записи учитывает расписание команды.',
+                label: 'РАСПИСАНИЕ',
+              },
+              {
+                icon: Users,
+                title: 'Клиенты, которых помнят',
+                text: 'История визитов и заметки в карточке клиента помогают продолжать знакомство с каждой новой встречей.',
+                label: 'КЛИЕНТСКАЯ БАЗА',
+              },
+              {
+                icon: Scissors,
+                title: 'Команда в одном ритме',
+                text: 'Владелец управляет услугами и командой. Мастер видит свои записи и планирует рабочий день.',
+                label: 'ЛИЧНЫЕ КАБИНЕТЫ',
+              },
+            ].map((item, index) => (
+              <Reveal key={item.label}>
+                <article className="feature-story">
+                  <div className="flex items-center justify-between text-primary">
+                    <item.icon size={26} aria-hidden="true" />
+                    <span className="eyebrow">0{index + 1}</span>
+                  </div>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                  <span className="eyebrow mt-8 block text-primary">{item.label}</span>
+                </article>
+              </Reveal>
+            ))}
           </div>
         </section>
-
+        <section className="booking-story">
+          <Reveal>
+            <span className="eyebrow">02 / ОНЛАЙН-ЗАПИСЬ</span>
+            <h2>
+              От «хочу записаться»
+              <br />
+              до «до встречи».
+            </h2>
+            <p>
+              Поделитесь ссылкой на ваш салон. Клиент сам выберет услугу, мастера и удобное время.
+            </p>
+            <Button asChild variant="secondary" className="mt-8 min-h-12">
+              <Link href="/register">
+                Подключить свой салон <ArrowUpRight aria-hidden="true" />
+              </Link>
+            </Button>
+          </Reveal>
+          <ol>
+            {[
+              ['Услуга и мастер', 'Цена, длительность и выбор любого свободного мастера.'],
+              ['Дата и время', 'Только доступные слоты. Условия предоплаты — до подтверждения.'],
+              [
+                'Всё готово к встрече',
+                'Детали визита и защищённая ссылка для переноса или отмены.',
+              ],
+            ].map(([title, text], i) => (
+              <li key={title}>
+                <span>0{i + 1}</span>
+                <div>
+                  <h3>{title}</h3>
+                  <p>{text}</p>
+                </div>
+                <Check size={20} aria-hidden="true" />
+              </li>
+            ))}
+          </ol>
+        </section>
         <LandingPricingSection />
+        <Reveal className="editorial-section closing-note">
+          <span className="eyebrow text-primary">СЛЕДУЮЩАЯ ГЛАВА ВАШЕГО САЛОНА</span>
+          <h2>
+            Больше внимания людям.
+            <br />
+            Меньше — рутине.
+          </h2>
+          <Button asChild className="min-h-12 px-6">
+            <Link href="/register">
+              Создать аккаунт <ArrowUpRight aria-hidden="true" />
+            </Link>
+          </Button>
+        </Reveal>
       </main>
-
-      <footer className="border-t py-8">
-        <div className="mx-auto max-w-6xl px-4 text-center text-sm text-muted-foreground sm:px-6">
-          {ru.landing.footerText}
+      <footer className="editorial-footer">
+        <Brand />
+        <p>
+          Онлайн-запись и CRM.
+          <br />С заботой о вашем рабочем дне.
+        </p>
+        <div>
+          <Link href="/privacy">Конфиденциальность</Link>
+          <Link href="/terms">Условия использования</Link>
+          <a
+            href="https://www.pexels.com/photo/interior-of-hairdresser-saloon-9146943/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Фото интерьера: Лена Gromakova / Pexels
+          </a>
         </div>
       </footer>
     </div>

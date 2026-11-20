@@ -67,13 +67,21 @@ export interface PublicPlanDto {
   id: string;
   code: string;
   name: string;
+  description: string | null;
   priceMonthly: string;
   currency: string;
   maxStaff: number;
+  maxServices: number | null;
+  maxAppointmentsPerMonth: number | null;
   maxRemindersPerMonth: number | null;
   featureAnalytics: boolean;
   featureAutoReminders: boolean;
   featurePrepayment: boolean;
+  featureCrmAdvanced: boolean;
+  featureManualPayments: boolean;
+  featureMultiCompany: boolean;
+  featureCustomBranding: boolean;
+  isLegacy: boolean;
   sortOrder: number;
 }
 
@@ -117,13 +125,21 @@ export async function getPublicPlatformInfo(): Promise<PublicPlatformDto> {
       id: p.id,
       code: p.code,
       name: p.name,
+      description: p.description,
       priceMonthly: p.priceMonthly.toFixed(2),
       currency: p.currency,
       maxStaff: p.maxStaff,
+      maxServices: p.maxServices,
+      maxAppointmentsPerMonth: p.maxAppointmentsPerMonth,
       maxRemindersPerMonth: p.maxRemindersPerMonth,
       featureAnalytics: p.featureAnalytics,
       featureAutoReminders: p.featureAutoReminders,
       featurePrepayment: p.featurePrepayment,
+      featureCrmAdvanced: p.featureCrmAdvanced,
+      featureManualPayments: p.featureManualPayments,
+      featureMultiCompany: p.featureMultiCompany,
+      featureCustomBranding: p.featureCustomBranding,
+      isLegacy: p.isLegacy,
       sortOrder: p.sortOrder,
     })),
     support: {

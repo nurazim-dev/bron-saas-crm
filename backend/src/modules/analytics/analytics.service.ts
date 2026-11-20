@@ -1,9 +1,15 @@
 import { DateTime } from 'luxon';
-import { AppointmentStatus, Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
+import { escapeCsvCell } from '../../lib/csv.js';
+import { ACTIVE_SLOT_STATUSES } from '../appointments/status-transitions.js';
+import { buildClientStatsCteSql, getClientSegmentCutoffs } from '../clients/clients.service.js';
 import { addDaysToLocalDate, localDateTimeToUtc, utcToLocalParts } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import type { AnalyticsRangeQuery, AnalyticsTimeseriesQuery } from './analytics.schemas.js';
+
+export { escapeCsvCell };
 
 interface SummaryAggRow {
   revenue: string | null;
@@ -123,7 +129,7 @@ async function queryPeriodSummary(
       COALESCE(SUM(CASE WHEN a."status" = 'COMPLETED' THEN a."price" ELSE 0 END), 0)::text AS revenue,
       COALESCE(SUM(CASE WHEN a."prepaymentStatus" = 'RECEIVED' THEN COALESCE(a."prepaymentAmount", 0) ELSE 0 END), 0)::text AS prepayments_received,
       COUNT(*)::int AS total_count,
-      COUNT(*) FILTER (WHERE a."status" = 'SCHEDULED')::int AS scheduled_count,
+      COUNT(*) FILTER (WHERE a."status" IN ('SCHEDULED', 'CONFIRMED', 'IN_PROGRESS'))::int AS scheduled_count,
       COUNT(*) FILTER (WHERE a."status" = 'COMPLETED')::int AS completed_count,
       COUNT(*) FILTER (WHERE a."status" = 'CANCELLED')::int AS cancelled_count,
       COUNT(*) FILTER (WHERE a."status" = 'NO_SHOW')::int AS no_show_count,
@@ -301,21 +307,35 @@ export async function getAnalyticsServices(companyId: string, query: AnalyticsRa
       completed: number;
     }>
   >(Prisma.sql`
-    SELECT
-      s."id" AS service_id,
-      s."name" AS service_name,
-      COALESCE(SUM(CASE WHEN a."status" = 'COMPLETED' THEN a."price" ELSE 0 END), 0)::text AS revenue,
+    WITH composition AS (
+      SELECT a."id", a."price", a."status",
+        COALESCE(i."serviceId", a."serviceId") AS service_id,
+        COALESCE(i."position", 0) AS position,
+        COALESCE(i."price", a."price") AS weight,
+        SUM(COALESCE(i."price", a."price")) OVER (PARTITION BY a."id") AS weights,
+        COUNT(*) OVER (PARTITION BY a."id") AS item_count
+      FROM "Appointment" a
+      LEFT JOIN "AppointmentService" i ON i."appointmentId" = a."id" AND i."companyId" = a."companyId"
+      WHERE a."companyId" = ${companyId}::uuid
+        AND a."deletedAt" IS NULL
+        AND a."startAt" >= ${range.fromUtc}
+        AND a."startAt" < ${range.toUtc}
+        ${masterFilter}
+    ), rounded AS (
+      SELECT *, FLOOR(CASE WHEN weights > 0 THEN "price" * 100 * weight / weights
+        ELSE "price" * 100 / item_count END) AS cents FROM composition
+    ), allocated AS (
+      SELECT *, cents + CASE WHEN position = 0 THEN "price" * 100 - SUM(cents) OVER (PARTITION BY "id")
+        ELSE 0 END AS allocated_cents FROM rounded
+    )
+    SELECT s."id" AS service_id, s."name" AS service_name,
+      (COALESCE(SUM(CASE WHEN a."status" = 'COMPLETED' THEN a.allocated_cents ELSE 0 END), 0) / 100)::text AS revenue,
       COUNT(*)::int AS total,
       COUNT(*) FILTER (WHERE a."status" = 'COMPLETED')::int AS completed
-    FROM "Appointment" a
-    JOIN "Service" s ON s."id" = a."serviceId"
-    WHERE a."companyId" = ${companyId}::uuid
-      AND a."deletedAt" IS NULL
-      AND a."startAt" >= ${range.fromUtc}
-      AND a."startAt" < ${range.toUtc}
-      ${masterFilter}
+    FROM allocated a
+    JOIN "Service" s ON s."id" = a.service_id AND s."companyId" = ${companyId}::uuid
     GROUP BY s."id", s."name"
-    ORDER BY SUM(CASE WHEN a."status" = 'COMPLETED' THEN a."price" ELSE 0 END) DESC, COUNT(*) DESC
+    ORDER BY SUM(CASE WHEN a."status" = 'COMPLETED' THEN a.allocated_cents ELSE 0 END) DESC, COUNT(*) DESC
   `);
 
   return rows.map((r) => ({
@@ -379,7 +399,7 @@ export async function getAnalyticsMasters(companyId: string, query: AnalyticsRan
       where: {
         companyId,
         deletedAt: null,
-        status: { in: [AppointmentStatus.SCHEDULED, AppointmentStatus.COMPLETED] },
+        status: { in: [...ACTIVE_SLOT_STATUSES] },
         startAt: { lt: range.toUtc },
         endAt: { gt: range.fromUtc },
         ...(query.masterId ? { masterId: query.masterId } : {}),
@@ -477,15 +497,6 @@ export async function getAnalyticsHeatmap(companyId: string, query: AnalyticsRan
   return rows;
 }
 
-export function escapeCsvCell(raw: string | number | null | undefined): string {
-  const str = raw === null || raw === undefined ? '' : String(raw);
-  const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
-  if (/[",\n\r]/.test(safe)) {
-    return `"${safe.replace(/"/g, '""')}"`;
-  }
-  return safe;
-}
-
 export async function exportAppointmentsCsv(
   companyId: string,
   query: AnalyticsRangeQuery,
@@ -537,4 +548,299 @@ export async function exportAppointmentsCsv(
   });
 
   return `\uFEFF${[header, ...lines].join('\r\n')}`;
+}
+
+export async function exportPaymentsCsv(
+  companyId: string,
+  query: AnalyticsRangeQuery,
+): Promise<string> {
+  const range = await resolveCompanyRange(companyId, query.from, query.to);
+
+  const rows = await prisma.businessPayment.findMany({
+    where: {
+      companyId,
+      createdAt: { gte: range.fromUtc, lt: range.toUtc },
+    },
+    include: {
+      client: { select: { name: true, phone: true } },
+    },
+    orderBy: [{ createdAt: 'asc' }],
+  });
+
+  const header = [
+    'Дата',
+    'Время',
+    'Тип',
+    'Статус',
+    'Сумма',
+    'Валюта',
+    'Способ',
+    'Клиент',
+    'Телефон',
+    'Референс',
+    'Комментарий',
+  ].join(',');
+
+  const lines = rows.map((r) => {
+    const local = utcToLocalParts(r.createdAt, range.timezone);
+    return [
+      escapeCsvCell(local.date),
+      escapeCsvCell(local.time),
+      escapeCsvCell(r.kind),
+      escapeCsvCell(r.status),
+      escapeCsvCell(r.amount.toFixed(2)),
+      escapeCsvCell(r.currency),
+      escapeCsvCell(r.method),
+      escapeCsvCell(r.client?.name ?? ''),
+      escapeCsvCell(r.client?.phone ?? ''),
+      escapeCsvCell(r.reference ?? ''),
+      escapeCsvCell(r.note ?? ''),
+    ].join(',');
+  });
+
+  return `\uFEFF${[header, ...lines].join('\r\n')}`;
+}
+
+export async function getAnalyticsCrm(companyId: string, query: AnalyticsRangeQuery) {
+  const range = await resolveCompanyRange(companyId, query.from, query.to);
+  const currentTime = clockNow();
+  const cutoffs = getClientSegmentCutoffs(currentTime);
+  const statsCte = buildClientStatsCteSql(companyId, currentTime, query.masterId ?? null);
+  const masterFilter = query.masterId
+    ? Prisma.sql`AND a."masterId" = ${query.masterId}::uuid`
+    : Prisma.empty;
+  const masterClientScopeSql = query.masterId
+    ? Prisma.sql`AND EXISTS (
+        SELECT 1 FROM "Appointment" a_m
+        WHERE a_m."companyId" = c."companyId"
+          AND a_m."clientId" = c."id"
+          AND a_m."masterId" = ${query.masterId}::uuid
+          AND a_m."deletedAt" IS NULL
+      )`
+    : Prisma.empty;
+
+  const [segmentRows, retentionRows, topClientRows, tagRows] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{
+        total_active: number;
+        new_clients: number;
+        repeat_clients: number;
+        vip_clients: number;
+        at_risk_clients: number;
+        lost_clients: number;
+        no_show_risk_clients: number;
+        blocked_clients: number;
+      }>
+    >(Prisma.sql`
+      ${statsCte}
+      SELECT
+        COUNT(*) FILTER (WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL)::int AS total_active,
+        COUNT(*) FILTER (
+          WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL
+            AND COALESCE(s.visits, 0) <= 1 AND c."createdAt" >= ${cutoffs.daysAgo30}
+        )::int AS new_clients,
+        COUNT(*) FILTER (
+          WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL
+            AND COALESCE(s.visits, 0) >= 2
+        )::int AS repeat_clients,
+        COUNT(*) FILTER (
+          WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL
+            AND (COALESCE(s.visits, 0) >= 5 OR COALESCE(s."totalSpent", 0) >= 5000)
+        )::int AS vip_clients,
+        COUNT(*) FILTER (
+          WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL
+            AND COALESCE(s.visits, 0) >= 2
+            AND s."lastVisitAt" IS NOT NULL
+            AND s."lastVisitAt" < ${cutoffs.daysAgo45}
+            AND s."lastVisitAt" >= ${cutoffs.daysAgo90}
+            AND s."nextAppointmentAt" IS NULL
+        )::int AS at_risk_clients,
+        COUNT(*) FILTER (
+          WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL
+            AND COALESCE(s.visits, 0) >= 1
+            AND s."lastVisitAt" IS NOT NULL
+            AND s."lastVisitAt" < ${cutoffs.daysAgo90}
+            AND s."nextAppointmentAt" IS NULL
+        )::int AS lost_clients,
+        COUNT(*) FILTER (
+          WHERE c."isBlocked" = false AND c."anonymizedAt" IS NULL
+            AND COALESCE(s."noShows", 0) >= 2
+        )::int AS no_show_risk_clients,
+        COUNT(*) FILTER (WHERE c."isBlocked" = true)::int AS blocked_clients
+      FROM "Client" c
+      LEFT JOIN stats s ON s."clientId" = c."id"
+      WHERE c."companyId" = ${companyId}::uuid
+        AND c."mergedAt" IS NULL
+        ${masterClientScopeSql}
+    `),
+    prisma.$queryRaw<
+      Array<{
+        prior_clients: number;
+        retained_clients: number;
+        overall_with_visit: number;
+        overall_repeat: number;
+      }>
+    >(Prisma.sql`
+      ${statsCte},
+      period_flags AS (
+        SELECT
+          c."id",
+          c."isBlocked",
+          c."anonymizedAt",
+          COALESCE(s.visits, 0) AS total_visits,
+          EXISTS (
+            SELECT 1 FROM "Appointment" a
+            WHERE a."companyId" = c."companyId"
+              AND a."clientId" = c."id"
+              AND a."deletedAt" IS NULL
+              AND a."status" = 'COMPLETED'
+              AND a."startAt" < ${range.fromUtc}
+              ${masterFilter}
+          ) AS had_prior,
+          EXISTS (
+            SELECT 1 FROM "Appointment" a
+            WHERE a."companyId" = c."companyId"
+              AND a."clientId" = c."id"
+              AND a."deletedAt" IS NULL
+              AND a."status" = 'COMPLETED'
+              AND a."startAt" >= ${range.fromUtc}
+              AND a."startAt" < ${range.toUtc}
+              ${masterFilter}
+          ) AS had_current
+        FROM "Client" c
+        LEFT JOIN stats s ON s."clientId" = c."id"
+        WHERE c."companyId" = ${companyId}::uuid
+          AND c."mergedAt" IS NULL
+          ${masterClientScopeSql}
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE had_prior)::int AS prior_clients,
+        COUNT(*) FILTER (WHERE had_prior AND had_current)::int AS retained_clients,
+        COUNT(*) FILTER (WHERE "isBlocked" = false AND "anonymizedAt" IS NULL AND total_visits >= 1)::int AS overall_with_visit,
+        COUNT(*) FILTER (WHERE "isBlocked" = false AND "anonymizedAt" IS NULL AND total_visits >= 2)::int AS overall_repeat
+      FROM period_flags
+    `),
+    prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        phone: string;
+        visits: number;
+        completed_value: string;
+        last_visit_at: Date | null;
+      }>
+    >(Prisma.sql`
+      SELECT
+        c."id",
+        c."name",
+        c."phone",
+        COUNT(a."id")::int AS visits,
+        COALESCE(SUM(a."price"), 0)::numeric(10,2)::text AS completed_value,
+        MAX(a."startAt") AS last_visit_at
+      FROM "Appointment" a
+      JOIN "Client" c ON c."id" = a."clientId" AND c."companyId" = a."companyId"
+      WHERE a."companyId" = ${companyId}::uuid
+        AND a."deletedAt" IS NULL
+        AND a."status" = 'COMPLETED'
+        AND a."startAt" >= ${range.fromUtc}
+        AND a."startAt" < ${range.toUtc}
+        AND c."mergedAt" IS NULL
+        AND c."anonymizedAt" IS NULL
+        ${masterFilter}
+      GROUP BY c."id", c."name", c."phone"
+      ORDER BY COALESCE(SUM(a."price"), 0) DESC, COUNT(a."id") DESC, c."name" ASC
+      LIMIT 10
+    `),
+    prisma.$queryRaw<
+      Array<{
+        tag_id: string;
+        name: string;
+        color: string;
+        client_count: number;
+        visits_in_period: number;
+        completed_value_in_period: string;
+      }>
+    >(Prisma.sql`
+      SELECT
+        t."id" AS tag_id,
+        t."name",
+        t."color",
+        COUNT(DISTINCT c."id")::int AS client_count,
+        COUNT(a."id")::int AS visits_in_period,
+        COALESCE(SUM(a."price"), 0)::numeric(10,2)::text AS completed_value_in_period
+      FROM "ClientTag" t
+      LEFT JOIN "ClientTagAssignment" cta
+        ON cta."tagId" = t."id" AND cta."companyId" = t."companyId"
+      LEFT JOIN "Client" c
+        ON c."id" = cta."clientId" AND c."companyId" = cta."companyId" AND c."mergedAt" IS NULL
+      LEFT JOIN "Appointment" a
+        ON a."companyId" = c."companyId"
+        AND a."clientId" = c."id"
+        AND a."deletedAt" IS NULL
+        AND a."status" = 'COMPLETED'
+        AND a."startAt" >= ${range.fromUtc}
+        AND a."startAt" < ${range.toUtc}
+        ${masterFilter}
+      WHERE t."companyId" = ${companyId}::uuid
+      GROUP BY t."id", t."name", t."color"
+      ORDER BY lower(t."name") ASC, t."createdAt" ASC
+    `),
+  ]);
+
+  const topClientIds = topClientRows.map((r) => r.id);
+  const topClientTags =
+    topClientIds.length > 0
+      ? await prisma.clientTagAssignment.findMany({
+          where: { companyId, clientId: { in: topClientIds } },
+          include: { tag: { select: { id: true, name: true, color: true } } },
+          orderBy: { tag: { name: 'asc' } },
+        })
+      : [];
+  const topTagsMap = new Map<string, Array<{ id: string; name: string; color: string }>>();
+  for (const row of topClientTags) {
+    const arr = topTagsMap.get(row.clientId) ?? [];
+    arr.push(row.tag);
+    topTagsMap.set(row.clientId, arr);
+  }
+
+  const seg = segmentRows[0];
+  const ret = retentionRows[0];
+  const prior = ret?.prior_clients ?? 0;
+  const retained = ret?.retained_clients ?? 0;
+  const withVisit = ret?.overall_with_visit ?? 0;
+  const repeat = ret?.overall_repeat ?? 0;
+
+  return {
+    period: { from: range.fromDate, to: range.toDate, timezone: range.timezone },
+    revenueBasis: 'COMPLETED_VISITS_ESTIMATE' as const,
+    segments: {
+      totalActive: seg?.total_active ?? 0,
+      newClients: seg?.new_clients ?? 0,
+      repeatClients: seg?.repeat_clients ?? 0,
+      vipClients: seg?.vip_clients ?? 0,
+      atRiskClients: seg?.at_risk_clients ?? 0,
+      lostClients: seg?.lost_clients ?? 0,
+      noShowRiskClients: seg?.no_show_risk_clients ?? 0,
+      blockedClients: seg?.blocked_clients ?? 0,
+    },
+    retentionRate: prior > 0 ? Math.round((retained / prior) * 1000) / 10 : 0,
+    repeatRate: withVisit > 0 ? Math.round((repeat / withVisit) * 1000) / 10 : 0,
+    topClients: topClientRows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      visits: c.visits,
+      completedValue: Number(c.completed_value).toFixed(2),
+      lastVisitAt: c.last_visit_at ? c.last_visit_at.toISOString() : null,
+      tags: topTagsMap.get(c.id) ?? [],
+    })),
+    byTag: tagRows.map((t) => ({
+      tagId: t.tag_id,
+      name: t.name,
+      color: t.color,
+      clientCount: t.client_count,
+      visitsInPeriod: t.visits_in_period,
+      completedValueInPeriod: Number(t.completed_value_in_period).toFixed(2),
+    })),
+  };
 }

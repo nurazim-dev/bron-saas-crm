@@ -1,31 +1,96 @@
 'use client';
 
-import { AlertCircle, Ban, Search, Users } from 'lucide-react';
+import {
+  AlertCircle,
+  Ban,
+  Download,
+  FileSpreadsheet,
+  GitMerge,
+  Search,
+  Tag,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { ClientImportDialog } from '@/components/clients/client-import-dialog';
+import { ClientMergeDialog } from '@/components/clients/client-merge-dialog';
+import { ClientTagsManager } from '@/components/clients/client-tags-manager';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { type ClientListItemDto, type ClientSortOption, listClients } from '@/lib/api/clients.api';
 import { getApiErrorMessage } from '@/lib/api/client';
+import {
+  type ClientListItemDto,
+  type ClientSegment,
+  type ClientSortOption,
+  type ClientTagDto,
+  downloadClientsCsv,
+  listClientTags,
+  listClients,
+} from '@/lib/api/clients.api';
+import { useAuthStore } from '@/stores/auth.store';
+
+const SEGMENT_CHIPS: Array<{ value: ClientSegment; label: string }> = [
+  { value: 'ALL', label: 'Все' },
+  { value: 'NEW', label: 'Новые' },
+  { value: 'REPEAT', label: 'Постоянные' },
+  { value: 'VIP', label: 'VIP' },
+  { value: 'AT_RISK', label: 'В зоне риска' },
+  { value: 'LOST', label: 'Потерянные' },
+  { value: 'NO_SHOW_RISK', label: 'Риск неявок' },
+  { value: 'BLOCKED', label: 'Заблокированные' },
+];
 
 export default function DashboardClientsPage() {
+  const user = useAuthStore((s) => s.user);
+  const isImpersonating = useAuthStore((s) => s.isImpersonating);
+  const isOwner = user?.role === 'OWNER' && !isImpersonating;
+
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<ClientSortOption>('lastVisit');
   const [blocked, setBlocked] = useState<'' | 'true' | 'false'>('');
+  const [segment, setSegment] = useState<ClientSegment>('ALL');
+  const [tagId, setTagId] = useState('');
   const [page, setPage] = useState(1);
+  const [reloadTick, setReloadTick] = useState(0);
+
   const [items, setItems] = useState<ClientListItemDto[]>([]);
+  const [tags, setTags] = useState<ClientTagDto[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [tagsDialogOpen, setTagsDialogOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+
+  const triggerReload = useCallback(() => {
+    setReloadTick((t) => t + 1);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listClientTags()
+      .then((res) => {
+        if (!cancelled) setTags(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadTick]);
 
   useEffect(() => {
     let cancelled = false;
     void listClients({
       ...(search.trim() ? { search: search.trim() } : {}),
       ...(blocked ? { blocked } : {}),
+      ...(tagId ? { tagId } : {}),
+      ...(segment !== 'ALL' ? { segment } : {}),
       sort,
       page,
       limit: 20,
@@ -45,21 +110,104 @@ export default function DashboardClientsPage() {
     return () => {
       cancelled = true;
     };
-  }, [search, sort, blocked, page]);
+  }, [search, sort, blocked, segment, tagId, page, reloadTick]);
+
+  async function handleExportCsv() {
+    setIsExporting(true);
+    try {
+      await downloadClientsCsv({
+        ...(search.trim() ? { search: search.trim() } : {}),
+        ...(blocked ? { blocked } : {}),
+        ...(tagId ? { tagId } : {}),
+        ...(segment !== 'ALL' ? { segment } : {}),
+      });
+      toast.success('Экспорт клиентов CSV выполнен');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / 20));
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Клиенты</h1>
-        <p className="text-sm text-muted-foreground">
-          База клиентов, история визитов, заметки и блокировка недобросовестных записей.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Клиенты</h1>
+          <p className="text-sm text-muted-foreground">
+            Сегменты, теги, история визитов, импорт и объединение дубликатов.
+          </p>
+        </div>
+
+        {isOwner && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setTagsDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+              Теги
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setImportDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+              Импорт CSV
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMergeDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <GitMerge className="h-3.5 w-3.5" aria-hidden="true" />
+              Объединить
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isExporting}
+              onClick={() => void handleExportCsv()}
+              className="gap-1.5"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Экспорт CSV
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Segment chips */}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Сегменты клиентов">
+        {SEGMENT_CHIPS.map((chip) => (
+          <Button
+            key={chip.value}
+            type="button"
+            size="sm"
+            variant={segment === chip.value ? 'default' : 'outline'}
+            onClick={() => {
+              setSegment(chip.value);
+              setPage(1);
+            }}
+          >
+            {chip.label}
+          </Button>
+        ))}
       </div>
 
       <Card>
-        <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
+        <CardContent className="grid gap-3 pt-6 sm:grid-cols-2 lg:grid-cols-4">
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
@@ -74,6 +222,24 @@ export default function DashboardClientsPage() {
           </div>
 
           <select
+            aria-label="Фильтр по тегу"
+            value={tagId}
+            onChange={(e) => {
+              setTagId(e.target.value);
+              setPage(1);
+            }}
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="">Все теги</option>
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            aria-label="Сортировка клиентов"
             value={sort}
             onChange={(e) => {
               setSort(e.target.value as ClientSortOption);
@@ -83,11 +249,13 @@ export default function DashboardClientsPage() {
           >
             <option value="lastVisit">Сначала недавние визиты</option>
             <option value="visits">По количеству визитов</option>
+            <option value="totalSpent">По сумме визитов</option>
             <option value="noShows">По количеству неявок</option>
             <option value="name">По имени (А–Я)</option>
           </select>
 
           <select
+            aria-label="Фильтр по статусу"
             value={blocked}
             onChange={(e) => {
               setBlocked(e.target.value as '' | 'true' | 'false');
@@ -95,7 +263,7 @@ export default function DashboardClientsPage() {
             }}
             className="h-10 rounded-md border border-input bg-background px-3 text-sm"
           >
-            <option value="">Все клиенты</option>
+            <option value="">Любой статус</option>
             <option value="false">Активные</option>
             <option value="true">Заблокированные</option>
           </select>
@@ -133,6 +301,7 @@ export default function DashboardClientsPage() {
                 <thead>
                   <tr className="border-b text-left text-xs text-muted-foreground">
                     <th className="py-2 pr-4">Клиент</th>
+                    <th className="py-2 pr-4">Теги</th>
                     <th className="py-2 pr-4">Визиты</th>
                     <th className="py-2 pr-4">Неявки</th>
                     <th className="py-2 pr-4">Выручка</th>
@@ -164,6 +333,20 @@ export default function DashboardClientsPage() {
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">{client.phone}</div>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-wrap gap-1">
+                          {client.tags.map((tag) => (
+                            <Badge
+                              key={tag.id}
+                              variant="outline"
+                              className="text-[10px]"
+                              style={{ borderColor: tag.color, color: tag.color }}
+                            >
+                              {tag.name}
+                            </Badge>
+                          ))}
+                        </div>
                       </td>
                       <td className="py-3 pr-4 font-medium">{client.stats.visits}</td>
                       <td className="py-3 pr-4">{client.stats.noShows}</td>
@@ -215,6 +398,27 @@ export default function DashboardClientsPage() {
           )}
         </CardContent>
       </Card>
+
+      {isOwner && (
+        <>
+          <ClientTagsManager
+            open={tagsDialogOpen}
+            onOpenChange={setTagsDialogOpen}
+            tags={tags}
+            onTagsChanged={triggerReload}
+          />
+          <ClientMergeDialog
+            open={mergeDialogOpen}
+            onOpenChange={setMergeDialogOpen}
+            onMerged={triggerReload}
+          />
+          <ClientImportDialog
+            open={importDialogOpen}
+            onOpenChange={setImportDialogOpen}
+            onImported={triggerReload}
+          />
+        </>
+      )}
     </div>
   );
 }

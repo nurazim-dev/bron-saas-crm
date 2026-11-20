@@ -4,6 +4,7 @@ import type {
   ApiSuccessEnvelope,
   BusinessType,
   PaymentMethod,
+  PaymentProofSummaryDto,
   PaymentStatus,
   PlanDto,
   Role,
@@ -310,6 +311,17 @@ export interface AdminPaymentItem {
   source: string;
   reviewedAt: string | null;
   createdAt: string;
+  proofs?: PaymentProofSummaryDto[];
+}
+
+export async function fetchAdminSubscriptionProofBlob(
+  paymentId: string,
+  proofId: string,
+): Promise<Blob> {
+  const res = await adminApiClient.get<Blob>(`/payments/${paymentId}/proofs/${proofId}`, {
+    responseType: 'blob',
+  });
+  return res.data;
 }
 
 export async function listAdminPayments(params: {
@@ -344,13 +356,21 @@ export async function listAdminPlans(): Promise<PlanDto[]> {
 export async function createAdminPlan(payload: {
   code: string;
   name: string;
+  description?: string | null;
   priceMonthly: string;
   maxStaff: number;
+  maxServices?: number | null;
+  maxAppointmentsPerMonth?: number | null;
   maxRemindersPerMonth?: number | null;
   featureAnalytics: boolean;
   featureAutoReminders: boolean;
   featurePrepayment: boolean;
+  featureCrmAdvanced?: boolean;
+  featureManualPayments?: boolean;
+  featureMultiCompany?: boolean;
+  featureCustomBranding?: boolean;
   isPublic: boolean;
+  isLegacy?: boolean;
   sortOrder: number;
 }): Promise<PlanDto> {
   const res = await adminApiClient.post<ApiSuccessEnvelope<PlanDto>>('/plans', payload);
@@ -361,14 +381,22 @@ export async function updateAdminPlan(
   id: string,
   payload: Partial<{
     name: string;
+    description: string | null;
     priceMonthly: string;
     maxStaff: number;
+    maxServices: number | null;
+    maxAppointmentsPerMonth: number | null;
     maxRemindersPerMonth: number | null;
     featureAnalytics: boolean;
     featureAutoReminders: boolean;
     featurePrepayment: boolean;
+    featureCrmAdvanced: boolean;
+    featureManualPayments: boolean;
+    featureMultiCompany: boolean;
+    featureCustomBranding: boolean;
     isActive: boolean;
     isPublic: boolean;
+    isLegacy: boolean;
     sortOrder: number;
   }>,
 ): Promise<PlanDto> {

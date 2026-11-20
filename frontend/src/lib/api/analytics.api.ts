@@ -125,6 +125,47 @@ export async function getAnalyticsHeatmap(
   return res.data.data;
 }
 
+export interface AnalyticsCrmDto {
+  period: { from: string; to: string; timezone: string };
+  revenueBasis: 'COMPLETED_VISITS_ESTIMATE';
+  segments: {
+    totalActive: number;
+    newClients: number;
+    repeatClients: number;
+    vipClients: number;
+    atRiskClients: number;
+    lostClients: number;
+    noShowRiskClients: number;
+    blockedClients: number;
+  };
+  retentionRate: number;
+  repeatRate: number;
+  topClients: Array<{
+    id: string;
+    name: string;
+    phone: string;
+    visits: number;
+    completedValue: string;
+    lastVisitAt: string | null;
+    tags: Array<{ id: string; name: string; color: string }>;
+  }>;
+  byTag: Array<{
+    tagId: string;
+    name: string;
+    color: string;
+    clientCount: number;
+    visitsInPeriod: number;
+    completedValueInPeriod: string;
+  }>;
+}
+
+export async function getAnalyticsCrm(params: AnalyticsRangeParams): Promise<AnalyticsCrmDto> {
+  const res = await apiClient.get<ApiSuccessEnvelope<AnalyticsCrmDto>>('/analytics/crm', {
+    params,
+  });
+  return res.data.data;
+}
+
 export async function downloadAppointmentsCsv(params: AnalyticsRangeParams): Promise<void> {
   const res = await apiClient.get<Blob>('/export/appointments.csv', {
     params,
@@ -134,6 +175,21 @@ export async function downloadAppointmentsCsv(params: AnalyticsRangeParams): Pro
   const link = document.createElement('a');
   link.href = url;
   link.download = `appointments-${params.from}-to-${params.to}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadPaymentsCsv(params: AnalyticsRangeParams): Promise<void> {
+  const res = await apiClient.get<Blob>('/export/payments.csv', {
+    params,
+    responseType: 'blob',
+  });
+  const url = URL.createObjectURL(res.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `payments-${params.from}-to-${params.to}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

@@ -14,6 +14,10 @@ export interface UpdateCompanyPayload {
   businessType?: BusinessType;
   phone?: string | null;
   address?: string | null;
+  description?: string | null;
+  brandColor?: string | null;
+  customDomain?: string | null;
+  instagramUrl?: string | null;
   timezone?: string;
   slug?: string;
   slotIntervalMin?: number;

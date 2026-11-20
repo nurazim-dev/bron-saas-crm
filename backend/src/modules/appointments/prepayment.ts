@@ -54,7 +54,9 @@ export function buildWhatsappProofUrl(
   const text =
     params.locale === 'KY'
       ? `Саламатсызбы! Мен ${params.clientName}, "${params.serviceName}" (${params.localDateTime}) жазылуусу үчүн ${params.amount} ${params.currency} алдын ала төлөм жөнөтүп жатам.`
-      : `Здравствуйте! Я ${params.clientName}, отправляю чек предоплаты ${params.amount} ${params.currency} за запись «${params.serviceName}» (${params.localDateTime}).`;
+      : params.locale === 'EN'
+        ? `Hello! I am ${params.clientName}, sending prepayment receipt of ${params.amount} ${params.currency} for "${params.serviceName}" (${params.localDateTime}).`
+        : `Здравствуйте! Я ${params.clientName}, отправляю чек предоплаты ${params.amount} ${params.currency} за запись «${params.serviceName}» (${params.localDateTime}).`;
 
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }

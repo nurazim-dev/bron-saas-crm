@@ -17,6 +17,16 @@ const nameSchema = z
       .max(100, 'Name must be at most 100 characters'),
   );
 
+export const inviteStaffBodySchema = z
+  .object({
+    name: nameSchema,
+    email: z.email().trim().toLowerCase(),
+    role: z.enum(['MASTER', 'MANAGER']).default('MASTER'),
+  })
+  .strict();
+
+export type InviteStaffBody = z.infer<typeof inviteStaffBodySchema>;
+
 const optionalEmailSchema = z
   .union([
     z
@@ -89,14 +99,81 @@ export const updateStaffBodySchema = z
 
 export type UpdateStaffBody = z.infer<typeof updateStaffBodySchema>;
 
+const customPriceSchema = z
+  .union([z.number(), z.string(), z.null()])
+  .transform((val, ctx): string | null => {
+    if (val === null) return null;
+    const str = typeof val === 'number' ? String(val) : val.trim();
+    if (str === '') return null;
+    if (!/^\d+(?:\.\d{1,2})?$/.test(str)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Custom price must be a non-negative amount with at most 2 decimal places',
+      });
+      return z.NEVER;
+    }
+    const num = Number(str);
+    if (!Number.isFinite(num) || num < 0 || num > 1_000_000) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Custom price must be between 0 and 1,000,000',
+      });
+      return z.NEVER;
+    }
+    return num.toFixed(2);
+  })
+  .optional();
+
+const customDurationMinSchema = z
+  .union([
+    z
+      .number()
+      .int('Custom duration must be an integer')
+      .min(5, 'Custom duration must be at least 5 minutes')
+      .max(720, 'Custom duration must be at most 720 minutes'),
+    z.null(),
+  ])
+  .optional();
+
+const serviceOverrideSchema = z
+  .object({
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
+    customPrice: customPriceSchema,
+    customDurationMin: customDurationMinSchema,
+  })
+  .strict();
+
 export const replaceStaffServicesBodySchema = z
   .object({
     serviceIds: z
       .array(z.uuid({ message: 'Each serviceId must be a valid UUID' }))
       .max(200)
       .transform((ids) => Array.from(new Set(ids))),
+    serviceOverrides: z.array(serviceOverrideSchema).max(200).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!data.serviceOverrides) return;
+    const allowed = new Set(data.serviceIds);
+    const seen = new Set<string>();
+    data.serviceOverrides.forEach((item, index) => {
+      if (!allowed.has(item.serviceId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['serviceOverrides', index, 'serviceId'],
+          message: 'Override serviceId must be included in serviceIds',
+        });
+      }
+      if (seen.has(item.serviceId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['serviceOverrides', index, 'serviceId'],
+          message: 'Duplicate serviceId in serviceOverrides',
+        });
+      }
+      seen.add(item.serviceId);
+    });
+  });
 
 export type ReplaceStaffServicesBody = z.infer<typeof replaceStaffServicesBodySchema>;
 

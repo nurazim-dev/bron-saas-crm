@@ -1,10 +1,11 @@
-import { AppointmentStatus, Role, type TimeOff } from '../../generated/prisma/client.js';
+import { Role, type TimeOff } from '../../generated/prisma/client.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { localAllDayRangeToUtc, parseNormalizedStartAtUtc } from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import type { AuthenticatedActor } from '../../types/express.js';
 import { lockMastersForUpdate } from '../appointments/appointments.service.js';
+import { UPCOMING_ACTIVE_STATUSES } from '../appointments/status-transitions.js';
 import type { CreateTimeOffBody, ListTimeOffQuery, UpdateTimeOffBody } from './time-off.schemas.js';
 
 export interface TimeOffDto {
@@ -145,7 +146,7 @@ export async function createTimeOffForActor(
         companyId: actor.companyId,
         masterId: targetUser.id,
         deletedAt: null,
-        status: AppointmentStatus.SCHEDULED,
+        status: { in: [...UPCOMING_ACTIVE_STATUSES] },
         startAt: { lt: endAt },
         endAt: { gt: startAt },
       },
@@ -246,7 +247,7 @@ export async function updateTimeOffForActor(
         companyId: actor.companyId,
         masterId: existing.userId,
         deletedAt: null,
-        status: AppointmentStatus.SCHEDULED,
+        status: { in: [...UPCOMING_ACTIVE_STATUSES] },
         startAt: { lt: nextEndAt },
         endAt: { gt: nextStartAt },
       },

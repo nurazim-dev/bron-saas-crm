@@ -1,3 +1,12 @@
+import {
+  resolveServiceSelection,
+  snapshotServices,
+  type ServiceSelectionResult,
+} from '../appointments/service-selection.js';
+import {
+  ACTIVE_SLOT_STATUSES,
+  UPCOMING_ACTIVE_STATUSES,
+} from '../appointments/status-transitions.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   AppointmentSource,
@@ -20,6 +29,7 @@ import {
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
+import { assertWithinMonthlyAppointmentLimit } from '../billing/billing.service.js';
 import {
   assertNoSlotOverlap,
   lockMastersForUpdate,
@@ -52,6 +62,11 @@ export interface PublicCompanySummaryDto {
   businessType: BusinessType;
   phone: string | null;
   address: string | null;
+  description: string | null;
+  brandColor: string | null;
+  customDomain: string | null;
+  instagramUrl: string | null;
+  defaultLocale: string;
   timezone: string;
   currency: string;
   bookingEnabled: boolean;
@@ -68,15 +83,59 @@ export interface PublicServiceDto {
   prepaymentAmount: string | null;
 }
 
+export interface PublicServicePackageDto {
+  id: string;
+  name: string;
+  description: string | null;
+  price: string;
+  catalogTotalPrice: string;
+  totalDurationMin: number;
+  serviceIds: string[];
+  items: Array<{
+    serviceId: string;
+    name: string;
+    durationMin: number;
+    price: string;
+  }>;
+  requiresPrepayment: boolean;
+  prepaymentAmount: string | null;
+}
+
+export interface PublicMasterServiceOverrideDto {
+  serviceId: string;
+  price: string;
+  durationMin: number;
+}
+
 export interface PublicMasterDto {
+  workingHours: {
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    breakStart: string | null;
+    breakEnd: string | null;
+  }[];
   id: string;
   name: string;
   serviceIds: string[];
+  serviceOverrides: PublicMasterServiceOverrideDto[];
+  biography: string;
+  specialties: string;
+  experienceYears: number | null;
+  portfolio: {
+    id: string;
+    kind: string;
+    caption: string;
+    isCover: boolean;
+    url: string;
+    posterUrl: string;
+  }[];
 }
 
 export interface PublicCompanyProfileDto {
   company: PublicCompanySummaryDto;
   services: PublicServiceDto[];
+  packages: PublicServicePackageDto[];
   masters: PublicMasterDto[];
 }
 
@@ -105,7 +164,13 @@ export interface PublicBookedAppointmentDto {
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
   manageUrl: string;
+  telegramBotUrl: string;
   prepayment: PublicPrepaymentBlock | null;
+}
+
+function buildClientTelegramBotUrl(manageToken: string): string {
+  const botUsername = env.TELEGRAM_BOT_USERNAME.trim() || 'zapis_kg_bot';
+  return `https://t.me/${botUsername}?start=client_${manageToken}`;
 }
 
 function isAnyMasterChoice(
@@ -138,43 +203,29 @@ async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<
   return company;
 }
 
-async function resolveActiveService(
+async function resolveActiveSelection(
   db: DbClient,
   companyId: string,
-  serviceId: string,
-): Promise<Service> {
-  const service = await db.service.findFirst({
-    where: { id: serviceId, companyId },
-  });
-
-  if (!service) {
-    throw new AppError('NOT_FOUND', 404, 'Service not found');
-  }
-
-  if (!service.isActive) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Selected service is not active', [
-      { path: 'serviceId', message: 'Selected service is not active' },
-    ]);
-  }
-
-  return service;
+  serviceId: string | undefined,
+  serviceIds?: string[],
+  packageId?: string,
+): Promise<ServiceSelectionResult> {
+  return resolveServiceSelection(db, companyId, serviceId, serviceIds, undefined, packageId);
 }
 
-async function resolveCandidateMastersForService(
+async function resolveCandidateMastersForServices(
   db: DbClient,
   companyId: string,
-  serviceId: string,
+  requiredServiceIds: string[],
 ): Promise<User[]> {
   return db.user.findMany({
     where: {
       companyId,
       isActive: true,
       isBookable: true,
-      services: {
-        some: {
-          serviceId,
-        },
-      },
+      AND: requiredServiceIds.map((id) => ({
+        services: { some: { serviceId: id } },
+      })),
       workingHours: {
         some: {},
       },
@@ -189,22 +240,21 @@ async function resolveBookableMasterAndService(
   db: DbClient,
   companyId: string,
   masterId: string,
-  serviceId: string,
-): Promise<{ master: User; service: Service }> {
-  const [master, service] = await Promise.all([
-    db.user.findFirst({
-      where: { id: masterId, companyId },
-    }),
-    db.service.findFirst({
-      where: { id: serviceId, companyId },
-    }),
-  ]);
-
+  serviceId: string | undefined,
+  serviceIds?: string[],
+  packageId?: string,
+): Promise<{
+  master: User;
+  service: Service;
+  services: Service[];
+  packageRef: { id: string; name: string } | null;
+}> {
+  // A transaction owns a single pg connection; execute its queries sequentially.
+  const master = await db.user.findFirst({
+    where: { id: masterId, companyId },
+  });
   if (!master) {
     throw new AppError('NOT_FOUND', 404, 'Master not found');
-  }
-  if (!service) {
-    throw new AppError('NOT_FOUND', 404, 'Service not found');
   }
 
   if (!master.isActive || !master.isBookable) {
@@ -213,31 +263,10 @@ async function resolveBookableMasterAndService(
     ]);
   }
 
-  if (!service.isActive) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Selected service is not active', [
-      { path: 'serviceId', message: 'Selected service is not active' },
-    ]);
-  }
-
-  const link = await db.masterService.findUnique({
-    where: {
-      userId_serviceId: {
-        userId: master.id,
-        serviceId: service.id,
-      },
-    },
-  });
-
-  if (!link) {
-    throw new AppError(
-      'VALIDATION_ERROR',
-      400,
-      'Selected master does not provide the selected service',
-      [{ path: 'serviceId', message: 'Selected master does not provide the selected service' }],
-    );
-  }
-
-  return { master, service };
+  return {
+    master,
+    ...(await resolveServiceSelection(db, companyId, serviceId, serviceIds, masterId, packageId)),
+  };
 }
 
 export async function getPublicCompanyProfileBySlug(
@@ -245,11 +274,38 @@ export async function getPublicCompanyProfileBySlug(
 ): Promise<PublicCompanyProfileDto> {
   const company = await resolveEnabledCompanyBySlug(prisma, slug);
 
-  const [activeServices, candidateUsers, sub] = await Promise.all([
+  const [activeServices, activePackages, candidateUsers, sub] = await Promise.all([
     prisma.service.findMany({
       where: {
         companyId: company.id,
         isActive: true,
+      },
+      orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.servicePackage.findMany({
+      where: {
+        companyId: company.id,
+        isActive: true,
+      },
+      include: {
+        items: {
+          orderBy: { position: 'asc' },
+          include: {
+            service: {
+              select: {
+                id: true,
+                name: true,
+                durationMin: true,
+                price: true,
+                requiresPrepayment: true,
+                prepaymentMode: true,
+                prepaymentValue: true,
+                isActive: true,
+                deletedAt: true,
+              },
+            },
+          },
+        },
       },
       orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
     }),
@@ -260,11 +316,18 @@ export async function getPublicCompanyProfileBySlug(
         isBookable: true,
       },
       include: {
+        portfolio: {
+          where: { companyId: company.id, status: 'READY' },
+          select: { id: true, kind: true, caption: true, isCover: true },
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        },
         services: {
           include: {
             service: {
               select: {
                 id: true,
+                price: true,
+                durationMin: true,
                 isActive: true,
                 deletedAt: true,
               },
@@ -272,7 +335,13 @@ export async function getPublicCompanyProfileBySlug(
           },
         },
         workingHours: {
-          select: { id: true },
+          select: {
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            breakStart: true,
+            breakEnd: true,
+          },
         },
       },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
@@ -292,23 +361,106 @@ export async function getPublicCompanyProfileBySlug(
     if (user.workingHours.length === 0) {
       continue;
     }
-    const assignedActiveServiceIds = user.services
-      .filter(
-        (ms) =>
-          ms.service.deletedAt === null &&
-          ms.service.isActive &&
-          activeServiceIdSet.has(ms.serviceId),
-      )
-      .map((ms) => ms.serviceId);
+    const assignedActiveLinks = user.services.filter(
+      (ms) =>
+        ms.service.deletedAt === null &&
+        ms.service.isActive &&
+        activeServiceIdSet.has(ms.serviceId),
+    );
+    const assignedActiveServiceIds = assignedActiveLinks.map((ms) => ms.serviceId);
 
     if (assignedActiveServiceIds.length === 0) {
       continue;
     }
 
+    const serviceOverrides: PublicMasterServiceOverrideDto[] = assignedActiveLinks
+      .filter((ms) => ms.customPrice !== null || ms.customDurationMin !== null)
+      .map((ms) => ({
+        serviceId: ms.serviceId,
+        price: (ms.customPrice ?? ms.service.price).toFixed(2),
+        durationMin: ms.customDurationMin ?? ms.service.durationMin,
+      }));
+
     bookableMasters.push({
       id: user.id,
       name: user.name,
       serviceIds: assignedActiveServiceIds,
+      serviceOverrides,
+      workingHours: user.workingHours,
+      biography: user.biography,
+      specialties: user.specialties,
+      experienceYears: user.experienceYears,
+      portfolio: user.portfolio.map((item) => {
+        const url = `/api/v1/public/companies/${company.slug}/masters/${user.id}/media/${item.id}`;
+        return { ...item, url, posterUrl: `${url}?poster=1` };
+      }),
+    });
+  }
+
+  const masterServiceSets = bookableMasters.map((m) => new Set(m.serviceIds));
+  const publicPackages: PublicServicePackageDto[] = [];
+
+  for (const pkg of activePackages) {
+    const validItems = pkg.items.filter(
+      (item) =>
+        item.service.deletedAt === null &&
+        item.service.isActive &&
+        activeServiceIdSet.has(item.serviceId),
+    );
+    if (validItems.length < 2 || validItems.length !== pkg.items.length) {
+      continue;
+    }
+    const pkgServiceIds = validItems.map((item) => item.serviceId);
+    const hasProvidingMaster = masterServiceSets.some((set) =>
+      pkgServiceIds.every((id) => set.has(id)),
+    );
+    if (!hasProvidingMaster) {
+      continue;
+    }
+
+    const catalogTotal = validItems.reduce((sum, item) => sum + Number(item.service.price), 0);
+    const totalDurationMin = validItems.reduce((sum, item) => sum + item.service.durationMin, 0);
+    if (totalDurationMin > 720) {
+      continue;
+    }
+
+    let rawPrepayment = 0;
+    if (planHasPrepayment) {
+      for (const item of validItems) {
+        if (
+          item.service.requiresPrepayment &&
+          item.service.prepaymentMode &&
+          item.service.prepaymentValue
+        ) {
+          rawPrepayment += Number(
+            computePrepaymentAmount(
+              item.service.price,
+              item.service.prepaymentMode,
+              item.service.prepaymentValue,
+            ),
+          );
+        }
+      }
+    }
+    const pkgPriceNum = Number(pkg.price);
+    const cappedPrepay = Math.min(rawPrepayment, pkgPriceNum);
+
+    publicPackages.push({
+      id: pkg.id,
+      name: pkg.name,
+      description: pkg.description,
+      price: pkg.price.toFixed(2),
+      catalogTotalPrice: catalogTotal.toFixed(2),
+      totalDurationMin,
+      serviceIds: pkgServiceIds,
+      items: validItems.map((item) => ({
+        serviceId: item.serviceId,
+        name: item.service.name,
+        durationMin: item.service.durationMin,
+        price: item.service.price.toFixed(2),
+      })),
+      requiresPrepayment: cappedPrepay > 0,
+      prepaymentAmount: cappedPrepay > 0 ? cappedPrepay.toFixed(2) : null,
     });
   }
 
@@ -319,6 +471,11 @@ export async function getPublicCompanyProfileBySlug(
       businessType: company.businessType,
       phone: company.phone,
       address: company.address,
+      description: company.description,
+      brandColor: company.brandColor,
+      customDomain: company.customDomain,
+      instagramUrl: company.instagramUrl,
+      defaultLocale: company.defaultLocale,
       timezone: company.timezone,
       currency: company.currency,
       bookingEnabled: company.publicBookingEnabled,
@@ -344,8 +501,23 @@ export async function getPublicCompanyProfileBySlug(
         prepaymentAmount: prepAmount,
       };
     }),
+    packages: publicPackages,
     masters: bookableMasters,
   };
+}
+
+export async function getPublicCompanyProfileByDomain(
+  domain: string,
+): Promise<PublicCompanyProfileDto> {
+  const normalized = domain.trim().toLowerCase();
+  const company = await prisma.company.findFirst({
+    where: { customDomain: normalized },
+    select: { slug: true },
+  });
+  if (!company) {
+    throw new AppError('NOT_FOUND', 404, 'Company not found for custom domain');
+  }
+  return getPublicCompanyProfileBySlug(company.slug);
 }
 
 export async function getPublicAvailabilityBySlug(
@@ -355,8 +527,18 @@ export async function getPublicAvailabilityBySlug(
   const company = await resolveEnabledCompanyBySlug(prisma, slug);
 
   if (isAnyMasterChoice(query.masterId)) {
-    const service = await resolveActiveService(prisma, company.id, query.serviceId);
-    const candidates = await resolveCandidateMastersForService(prisma, company.id, service.id);
+    const selection = await resolveActiveSelection(
+      prisma,
+      company.id,
+      query.serviceId,
+      query.serviceIds,
+      query.packageId,
+    );
+    const candidates = await resolveCandidateMastersForServices(
+      prisma,
+      company.id,
+      selection.services.map((s) => s.id),
+    );
 
     if (candidates.length === 0) {
       return {
@@ -368,15 +550,23 @@ export async function getPublicAvailabilityBySlug(
 
     const currentNow = clockNow();
     const perMasterResults = await Promise.all(
-      candidates.map((master) =>
-        computeAvailableSlotsForDate(prisma, {
+      candidates.map(async (master) => {
+        const masterSelection = await resolveServiceSelection(
+          prisma,
+          company.id,
+          query.serviceId,
+          query.serviceIds,
+          master.id,
+          query.packageId,
+        );
+        return computeAvailableSlotsForDate(prisma, {
           company,
-          service,
+          service: masterSelection.service,
           master,
           date: query.date,
           now: currentNow,
-        }),
-      ),
+        });
+      }),
     );
 
     const slotByStartAt = new Map<string, AvailableSlotDto>();
@@ -404,6 +594,8 @@ export async function getPublicAvailabilityBySlug(
     company.id,
     query.masterId,
     query.serviceId,
+    query.serviceIds,
+    query.packageId,
   );
 
   return computeAvailableSlotsForDate(prisma, {
@@ -426,11 +618,13 @@ async function bookSingleMasterInTransaction(
       await lockMastersForUpdate(tx, [masterId]);
 
       const company = await resolveEnabledCompanyBySlug(tx, slug);
-      const { master, service } = await resolveBookableMasterAndService(
+      const { master, service, services, packageRef } = await resolveBookableMasterAndService(
         tx,
         company.id,
         masterId,
         input.serviceId,
+        input.serviceIds,
+        input.packageId,
       );
 
       const currentNow = clockNow();
@@ -469,12 +663,12 @@ async function bookSingleMasterInTransaction(
         );
       }
 
-      // 4. BR-3 per-phone limit: at most 3 upcoming SCHEDULED appointments per phone per company
+      // 4. BR-3 per-phone limit: at most 3 upcoming active appointments per phone per company
       const upcomingForPhone = await tx.appointment.count({
         where: {
           companyId: company.id,
           clientPhone: input.clientPhone,
-          status: AppointmentStatus.SCHEDULED,
+          status: { in: [...UPCOMING_ACTIVE_STATUSES] },
           startAt: { gte: currentNow },
         },
       });
@@ -493,7 +687,6 @@ async function bookSingleMasterInTransaction(
         phone: input.clientPhone,
         overwriteName: false,
         currentTime: currentNow,
-        locale: input.locale ?? company.defaultLocale,
       });
 
       if (client.isBlocked) {
@@ -503,6 +696,13 @@ async function bookSingleMasterInTransaction(
           'Online booking is not available for this phone number. Please contact the business.',
         );
       }
+
+      // Language belongs to the public booking flow. Staff CRM upserts must
+      // preserve the existing preference. This write rolls back with booking.
+      await tx.client.update({
+        where: { id: client.id, companyId: company.id },
+        data: { locale: input.locale ?? company.defaultLocale },
+      });
 
       const sub = await tx.subscription.findUnique({
         where: { companyId: company.id },
@@ -532,6 +732,9 @@ async function bookSingleMasterInTransaction(
           companyId: company.id,
           masterId: master.id,
           serviceId: service.id,
+          packageId: packageRef?.id ?? null,
+          packageName: packageRef?.name ?? null,
+          items: { create: snapshotServices(services) },
           clientId: client.id,
           clientName: input.clientName,
           clientPhone: input.clientPhone,
@@ -617,6 +820,7 @@ async function bookSingleMasterInTransaction(
 
       return {
         manageUrl: `${env.APP_URL}/manage/${created.manageToken}`,
+        telegramBotUrl: buildClientTelegramBotUrl(created.manageToken),
         prepayment: buildPublicPrepaymentBlock(created, company, service.name),
         appointment: {
           id: created.id,
@@ -660,19 +864,27 @@ export async function createPublicAppointmentBySlug(
       ? null
       : input.clientNote;
 
+  if (input.website.trim().length === 0) {
+    await assertWithinMonthlyAppointmentLimit(preflightCompany.id, input.startAt);
+  }
+
   if (!isAnyMasterChoice(input.masterId)) {
     const preflightEntities = await resolveBookableMasterAndService(
       prisma,
       preflightCompany.id,
       input.masterId,
       input.serviceId,
+      input.serviceIds,
+      input.packageId,
     );
 
     // Honeypot `website`: if filled, return a fake 201 and write nothing to the DB
     if (input.website.trim().length > 0) {
       const fakeEndAt = addMinutesUtc(input.startAt, preflightEntities.service.durationMin);
+      const fakeToken = randomBytes(32).toString('base64url');
       return {
-        manageUrl: `${env.APP_URL}/manage/${randomBytes(32).toString('base64url')}`,
+        manageUrl: `${env.APP_URL}/manage/${fakeToken}`,
+        telegramBotUrl: buildClientTelegramBotUrl(fakeToken),
         prepayment: null,
         appointment: {
           id: randomUUID(),
@@ -702,11 +914,18 @@ export async function createPublicAppointmentBySlug(
   }
 
   // BR-12: Any-available-master booking
-  const preflightService = await resolveActiveService(prisma, preflightCompany.id, input.serviceId);
-  const candidates = await resolveCandidateMastersForService(
+  const preflightSelection = await resolveActiveSelection(
     prisma,
     preflightCompany.id,
-    preflightService.id,
+    input.serviceId,
+    input.serviceIds,
+    input.packageId,
+  );
+  const preflightService = preflightSelection.service;
+  const candidates = await resolveCandidateMastersForServices(
+    prisma,
+    preflightCompany.id,
+    preflightSelection.services.map((s) => s.id),
   );
 
   if (candidates.length === 0) {
@@ -720,8 +939,10 @@ export async function createPublicAppointmentBySlug(
   const firstCandidate = candidates[0];
   if (input.website.trim().length > 0 && firstCandidate) {
     const fakeEndAt = addMinutesUtc(input.startAt, preflightService.durationMin);
+    const fakeToken = randomBytes(32).toString('base64url');
     return {
-      manageUrl: `${env.APP_URL}/manage/${randomBytes(32).toString('base64url')}`,
+      manageUrl: `${env.APP_URL}/manage/${fakeToken}`,
+      telegramBotUrl: buildClientTelegramBotUrl(fakeToken),
       prepayment: null,
       appointment: {
         id: randomUUID(),
@@ -760,7 +981,7 @@ export async function createPublicAppointmentBySlug(
     where: {
       companyId: preflightCompany.id,
       masterId: { in: candidateIds },
-      status: { in: [AppointmentStatus.SCHEDULED, AppointmentStatus.COMPLETED] },
+      status: { in: [...ACTIVE_SLOT_STATUSES] },
       startAt: { lt: dayEndUtc },
       endAt: { gt: dayStartUtc },
     },

@@ -9,9 +9,20 @@ export interface EmailProvider {
   send(params: EmailSendParams): Promise<void>;
 }
 
+export interface TelegramInlineKeyboardButton {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
+
+export interface TelegramReplyMarkup {
+  inline_keyboard: TelegramInlineKeyboardButton[][];
+}
+
 export interface TelegramSendParams {
   chatId: string;
   html: string;
+  replyMarkup?: TelegramReplyMarkup | undefined;
 }
 
 export interface TelegramProvider {

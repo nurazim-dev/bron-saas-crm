@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { env } from '../../config/env.js';
 import {
-  AppointmentStatus,
+  type AppointmentStatus,
   type Locale,
   NotificationChannel,
   OutboxStatus,
@@ -15,6 +15,7 @@ import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import type { AuthenticatedActor } from '../../types/express.js';
 import type { TransactionClient } from '../appointments/appointments.service.js';
+import { REMINDABLE_STATUSES } from '../appointments/status-transitions.js';
 import { computeBillingState } from '../billing/billing-state.js';
 import { getPlatformSettings } from '../platform/platform-settings.service.js';
 import { registerOutboxRecheckHook } from './dispatcher.service.js';
@@ -86,6 +87,7 @@ export async function scheduleAppointmentReminders(
     appointment: {
       id: string;
       companyId: string;
+      clientId?: string;
       startAt: Date;
       clientPhone: string;
       clientLocale: Locale;
@@ -106,8 +108,18 @@ export async function scheduleAppointmentReminders(
   },
 ): Promise<void> {
   const { appointment, company } = params;
-  if (company.reminderMode !== ReminderMode.AUTO) return;
-  if (appointment.status !== AppointmentStatus.SCHEDULED) return;
+  if (!REMINDABLE_STATUSES.includes(appointment.status)) return;
+
+  const clientTelegramRow = await tx.client.findFirst({
+    where: {
+      companyId: company.id,
+      ...(appointment.clientId ? { id: appointment.clientId } : { phone: appointment.clientPhone }),
+    },
+    select: { telegramChatId: true },
+  });
+  const clientTelegramChatId = clientTelegramRow?.telegramChatId ?? null;
+
+  if (company.reminderMode !== ReminderMode.AUTO && !clientTelegramChatId) return;
 
   const currentNow = params.currentNow ?? clockNow();
   const channel =
@@ -137,23 +149,56 @@ export async function scheduleAppointmentReminders(
       continue;
     }
 
-    await enqueue(tx, {
-      companyId: company.id,
-      channel,
-      kind: offset.kind,
-      recipient: appointment.clientPhone,
-      appointmentId: appointment.id,
-      locale: appointment.clientLocale,
-      scheduledFor,
-      payload: {
-        companyName: company.name,
-        serviceName: params.serviceName,
-        localDateTime,
-        address: company.address ?? '',
-        manageUrl,
-      },
-      dedupeKey: `reminder:${appointment.id}:${appointment.startAt.toISOString()}:${offset.tag}`,
-    });
+    if (company.reminderMode === ReminderMode.AUTO) {
+      await enqueue(tx, {
+        companyId: company.id,
+        channel,
+        kind: offset.kind,
+        recipient: appointment.clientPhone,
+        appointmentId: appointment.id,
+        locale: appointment.clientLocale,
+        scheduledFor,
+        payload: {
+          companyName: company.name,
+          serviceName: params.serviceName,
+          localDateTime,
+          address: company.address ?? '',
+          manageUrl,
+        },
+        dedupeKey: `reminder:${appointment.id}:${appointment.startAt.toISOString()}:${offset.tag}`,
+      });
+    }
+
+    if (clientTelegramChatId) {
+      await enqueue(tx, {
+        companyId: company.id,
+        channel: NotificationChannel.TELEGRAM,
+        kind: offset.kind,
+        recipient: clientTelegramChatId,
+        appointmentId: appointment.id,
+        locale: appointment.clientLocale,
+        scheduledFor,
+        payload: {
+          companyName: company.name,
+          serviceName: params.serviceName,
+          localDateTime,
+          address: company.address ?? '',
+          manageUrl,
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                { text: '📋 Мои записи', callback_data: 'client:my' },
+                {
+                  text: '❌ Отменить запись',
+                  callback_data: `client:cancel:${appointment.id}`,
+                },
+              ],
+            ],
+          },
+        },
+        dedupeKey: `reminder-tg:${appointment.id}:${appointment.startAt.toISOString()}:${offset.tag}`,
+      });
+    }
   }
 }
 
@@ -180,11 +225,12 @@ export async function backfillCompanyAutoReminders(
     where: {
       companyId,
       deletedAt: null,
-      status: AppointmentStatus.SCHEDULED,
+      status: { in: [...REMINDABLE_STATUSES] },
       startAt: { gt: currentNow },
     },
     include: {
       service: { select: { name: true } },
+      items: { orderBy: { position: 'asc' }, select: { name: true } },
     },
   });
 
@@ -192,7 +238,9 @@ export async function backfillCompanyAutoReminders(
     await scheduleAppointmentReminders(tx, {
       appointment: appt,
       company,
-      serviceName: appt.service.name,
+      serviceName: appt.items.length
+        ? appt.items.map((item) => item.name).join(' + ')
+        : appt.service.name,
       currentNow,
     });
   }
@@ -217,13 +265,21 @@ export function buildManualReminderWhatsappUrl(params: {
           ...(params.address ? [`Дареги: ${params.address}`] : []),
           `Башкаруу: ${params.manageUrl}`,
         ]
-      : [
-          `${params.companyName}: напоминаем о вашей записи.`,
-          `Услуга: ${params.serviceName}`,
-          `Дата и время: ${params.localDateTime}`,
-          ...(params.address ? [`Адрес: ${params.address}`] : []),
-          `Управление записью: ${params.manageUrl}`,
-        ];
+      : params.locale === 'EN'
+        ? [
+            `${params.companyName}: appointment reminder.`,
+            `Service: ${params.serviceName}`,
+            `Date & time: ${params.localDateTime}`,
+            ...(params.address ? [`Address: ${params.address}`] : []),
+            `Manage appointment: ${params.manageUrl}`,
+          ]
+        : [
+            `${params.companyName}: напоминаем о вашей записи.`,
+            `Услуга: ${params.serviceName}`,
+            `Дата и время: ${params.localDateTime}`,
+            ...(params.address ? [`Адрес: ${params.address}`] : []),
+            `Управление записью: ${params.manageUrl}`,
+          ];
   return `https://wa.me/${digits}?text=${encodeURIComponent(lines.join('\n'))}`;
 }
 
@@ -250,12 +306,13 @@ export async function listManualRemindersQueue(actor: AuthenticatedActor) {
       companyId: actor.companyId,
       ...(actor.role === Role.MASTER ? { masterId: actor.userId } : {}),
       deletedAt: null,
-      status: AppointmentStatus.SCHEDULED,
+      status: { in: [...REMINDABLE_STATUSES] },
       manualReminderSentAt: null,
       startAt: { gt: currentNow, lte: horizon },
     },
     include: {
       service: { select: { name: true } },
+      items: { orderBy: { position: 'asc' }, select: { name: true } },
       master: { select: { id: true, name: true } },
     },
     orderBy: { startAt: 'asc' },
@@ -340,7 +397,7 @@ export function registerReminderOutboxHooks(): void {
         },
       });
 
-      if (!appt || appt.deletedAt !== null || appt.status !== AppointmentStatus.SCHEDULED) {
+      if (!appt || appt.deletedAt !== null || !REMINDABLE_STATUSES.includes(appt.status)) {
         return { skip: true, reason: 'APPOINTMENT_NOT_SCHEDULED' };
       }
 
@@ -349,11 +406,14 @@ export function registerReminderOutboxHooks(): void {
         return { skip: true, reason: 'COMPANY_UNAVAILABLE' };
       }
 
-      if (company.reminderMode !== ReminderMode.AUTO) {
+      if (
+        message.channel !== NotificationChannel.TELEGRAM &&
+        company.reminderMode !== ReminderMode.AUTO
+      ) {
         return { skip: true, reason: 'REMINDER_MODE_CHANGED' };
       }
 
-      if (company.subscription) {
+      if (message.channel !== NotificationChannel.TELEGRAM && company.subscription) {
         const settings = await getPlatformSettings(db);
         const billingState = computeBillingState(
           {

@@ -11,7 +11,7 @@ import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
-import { assertPlanFeature } from '../billing/billing.service.js';
+import { assertOptionalPlanFeature, assertPlanFeature } from '../billing/billing.service.js';
 import {
   backfillCompanyAutoReminders,
   cancelAllPendingCompanyReminders,
@@ -25,6 +25,10 @@ export interface CompanyDto {
   businessType: BusinessType;
   phone: string | null;
   address: string | null;
+  description: string | null;
+  brandColor: string | null;
+  customDomain: string | null;
+  instagramUrl: string | null;
   timezone: string;
   currency: string;
   slotIntervalMin: number;
@@ -63,6 +67,10 @@ export function serializeCompany(company: Company): CompanyDto {
     businessType: company.businessType,
     phone: company.phone,
     address: company.address,
+    description: company.description,
+    brandColor: company.brandColor,
+    customDomain: company.customDomain,
+    instagramUrl: company.instagramUrl,
     timezone: company.timezone,
     currency: company.currency,
     slotIntervalMin: company.slotIntervalMin,
@@ -118,6 +126,48 @@ export async function updateCompanyById(
     normalizedAddress = input.address === null || input.address.length === 0 ? null : input.address;
   }
 
+  let normalizedDescription: string | null | undefined;
+  if (input.description !== undefined) {
+    normalizedDescription =
+      input.description === null || input.description.length === 0 ? null : input.description;
+  }
+
+  let normalizedBrandColor: string | null | undefined;
+  if (input.brandColor !== undefined) {
+    normalizedBrandColor =
+      input.brandColor === null || input.brandColor.length === 0
+        ? null
+        : input.brandColor.toLowerCase();
+  }
+
+  let normalizedCustomDomain: string | null | undefined;
+  if (input.customDomain !== undefined) {
+    normalizedCustomDomain =
+      input.customDomain === null || input.customDomain.length === 0
+        ? null
+        : input.customDomain.toLowerCase();
+  }
+
+  let normalizedInstagramUrl: string | null | undefined;
+  if (input.instagramUrl !== undefined) {
+    normalizedInstagramUrl =
+      input.instagramUrl === null || input.instagramUrl.length === 0 ? null : input.instagramUrl;
+  }
+
+  if (
+    normalizedCustomDomain !== undefined &&
+    normalizedCustomDomain !== null &&
+    normalizedCustomDomain !== existing.customDomain
+  ) {
+    await assertOptionalPlanFeature(companyId, 'customBranding');
+    const domainCollision = await prismaUnfiltered.company.findUnique({
+      where: { customDomain: normalizedCustomDomain },
+    });
+    if (domainCollision && domainCollision.id !== companyId) {
+      throw new AppError('CONFLICT', 409, 'Этот домен уже привязан к другой компании');
+    }
+  }
+
   if (input.slug !== undefined && input.slug !== existing.slug) {
     const slugCollision = await prismaUnfiltered.company.findUnique({
       where: { slug: input.slug },
@@ -144,6 +194,10 @@ export async function updateCompanyById(
     ...(input.businessType !== undefined ? { businessType: input.businessType } : {}),
     ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
     ...(normalizedAddress !== undefined ? { address: normalizedAddress } : {}),
+    ...(normalizedDescription !== undefined ? { description: normalizedDescription } : {}),
+    ...(normalizedBrandColor !== undefined ? { brandColor: normalizedBrandColor } : {}),
+    ...(normalizedCustomDomain !== undefined ? { customDomain: normalizedCustomDomain } : {}),
+    ...(normalizedInstagramUrl !== undefined ? { instagramUrl: normalizedInstagramUrl } : {}),
     ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
     ...(input.slug !== undefined ? { slug: input.slug } : {}),
     ...(input.slotIntervalMin !== undefined ? { slotIntervalMin: input.slotIntervalMin } : {}),

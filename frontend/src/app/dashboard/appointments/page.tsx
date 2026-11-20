@@ -52,7 +52,14 @@ import type {
 type PeriodTab = 'upcoming' | 'past' | 'custom' | 'reminders';
 const PAGE_LIMIT = 20;
 
-const ALL_STATUSES: AppointmentStatus[] = ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+const ALL_STATUSES: AppointmentStatus[] = [
+  'SCHEDULED',
+  'CONFIRMED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+];
 
 export default function AppointmentsPage() {
   const user = useAuthStore((s) => s.user);
@@ -334,7 +341,7 @@ export default function AppointmentsPage() {
               />
             </div>
 
-            {user.role === 'OWNER' && (
+            {user.role !== 'MASTER' && (
               <div className="space-y-1">
                 <Label htmlFor="filter-master" className="text-xs">
                   {ru.appointmentsPage.masterFilterLabel}

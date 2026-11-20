@@ -6,6 +6,7 @@ const backendInternalUrl = (process.env.BACKEND_INTERNAL_URL ?? 'http://localhos
 );
 
 const nextConfig: NextConfig = {
+  experimental: { proxyClientMaxBodySize: '21mb', proxyTimeout: 75_000 },
   turbopack: {
     rules: {
       '*.css': {
@@ -23,6 +24,7 @@ const nextConfig: NextConfig = {
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
       "font-src 'self' data:",
       `connect-src ${connectSrc}`,
       "worker-src 'self'",

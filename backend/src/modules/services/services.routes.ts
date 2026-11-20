@@ -6,18 +6,53 @@ import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createServiceController,
+  createServicePackageController,
   deleteServiceController,
+  deleteServicePackageController,
   getServiceController,
+  listServicePackagesController,
   listServicesController,
   updateServiceController,
+  updateServicePackageController,
 } from './services.controller.js';
 import {
   createServiceBodySchema,
+  createServicePackageBodySchema,
   serviceIdParamsSchema,
   updateServiceBodySchema,
+  updateServicePackageBodySchema,
 } from './services.schemas.js';
 
 export const servicesRouter = Router();
+
+servicesRouter.get('/packages', authenticate, listServicePackagesController);
+
+servicesRouter.post(
+  '/packages',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ body: createServicePackageBodySchema }),
+  createServicePackageController,
+);
+
+servicesRouter.patch(
+  '/packages/:id',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: serviceIdParamsSchema, body: updateServicePackageBodySchema }),
+  updateServicePackageController,
+);
+
+servicesRouter.delete(
+  '/packages/:id',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: serviceIdParamsSchema }),
+  deleteServicePackageController,
+);
 
 servicesRouter.get('/', authenticate, listServicesController);
 

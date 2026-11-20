@@ -28,41 +28,38 @@ export async function notifyCompanyStaff(
 ): Promise<void> {
   const includeOwner = params.includeOwner ?? true;
 
-  const [owner, master] = await Promise.all([
-    includeOwner
-      ? tx.user.findFirst({
-          where: {
-            companyId: params.companyId,
-            role: Role.OWNER,
-            isActive: true,
-            deletedAt: null,
-          },
-          select: {
-            id: true,
-            email: true,
-            notifyEmail: true,
-            notifyTelegram: true,
-            telegramChatId: true,
-          },
-        })
-      : Promise.resolve(null),
-    tx.user.findFirst({
-      where: {
-        id: params.masterId,
-        companyId: params.companyId,
-        isActive: true,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        email: true,
-        notifyEmail: true,
-        notifyTelegram: true,
-        telegramChatId: true,
-      },
-    }),
-  ]);
-
+  const ownersAndManagers = includeOwner
+    ? await tx.user.findMany({
+        where: {
+          companyId: params.companyId,
+          role: { in: [Role.OWNER, Role.MANAGER] },
+          isActive: true,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          email: true,
+          notifyEmail: true,
+          notifyTelegram: true,
+          telegramChatId: true,
+        },
+      })
+    : [];
+  const master = await tx.user.findFirst({
+    where: {
+      id: params.masterId,
+      companyId: params.companyId,
+      isActive: true,
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      email: true,
+      notifyEmail: true,
+      notifyTelegram: true,
+      telegramChatId: true,
+    },
+  });
   const recipients = new Map<
     string,
     {
@@ -73,8 +70,10 @@ export async function notifyCompanyStaff(
       telegramChatId: string | null;
     }
   >();
-  if (owner && owner.id !== params.excludeUserId) {
-    recipients.set(owner.id, owner);
+  for (const staffUser of ownersAndManagers) {
+    if (staffUser.id !== params.excludeUserId) {
+      recipients.set(staffUser.id, staffUser);
+    }
   }
   if (master && master.id !== params.excludeUserId) {
     recipients.set(master.id, master);
@@ -101,6 +100,23 @@ export async function notifyCompanyStaff(
     masterName: params.masterName,
     clientName: params.clientName,
     localDateTime,
+    appointmentId: params.appointmentId,
+    replyMarkup: {
+      inline_keyboard: [
+        [
+          { text: '✅ Подтвердить', callback_data: `appt:${params.appointmentId}:CONFIRMED` },
+          { text: '✂️ Начать', callback_data: `appt:${params.appointmentId}:IN_PROGRESS` },
+        ],
+        [
+          { text: '🏁 Завершить', callback_data: `appt:${params.appointmentId}:COMPLETED` },
+          { text: '🚫 Не пришёл', callback_data: `appt:${params.appointmentId}:NO_SHOW` },
+        ],
+        [
+          { text: '❌ Отменить', callback_data: `appt:${params.appointmentId}:CANCELLED` },
+          { text: '📅 Сегодня', callback_data: 'cmd:today' },
+        ],
+      ],
+    },
   };
 
   for (const recipient of recipients.values()) {

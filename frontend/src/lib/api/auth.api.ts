@@ -1,6 +1,12 @@
-import { apiClient, performSingleFlightRefresh } from '@/lib/api/client';
+import { apiClient, performSingleFlightRefresh, resetTenantRequestContext } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/auth.store';
-import type { ApiSuccessEnvelope, AuthSessionDto, BusinessType, MeResponseDto } from '@/types/api';
+import type {
+  ApiSuccessEnvelope,
+  AuthSessionDto,
+  BusinessType,
+  CompanyMembershipDto,
+  MeResponseDto,
+} from '@/types/api';
 
 export interface RegisterOwnerPayload {
   companyName: string;
@@ -48,11 +54,45 @@ export async function getMe(): Promise<MeResponseDto> {
 }
 
 export async function logoutSession(): Promise<void> {
+  resetTenantRequestContext();
   try {
     await apiClient.post('/auth/logout', {});
   } finally {
     useAuthStore.getState().clearSession();
   }
+}
+
+export async function listMyCompanies(): Promise<CompanyMembershipDto[]> {
+  const res = await apiClient.get<ApiSuccessEnvelope<CompanyMembershipDto[]>>('/auth/companies');
+  const companies = res.data.data;
+  useAuthStore.getState().setCompanies(companies);
+  return companies;
+}
+
+export async function switchCompany(companyId: string): Promise<AuthSessionDto> {
+  resetTenantRequestContext();
+  const res = await apiClient.post<ApiSuccessEnvelope<AuthSessionDto>>('/auth/switch-company', {
+    companyId,
+  });
+  resetTenantRequestContext();
+  const session = res.data.data;
+  useAuthStore.getState().setSession(session);
+  await listMyCompanies().catch(() => undefined);
+  return session;
+}
+
+export async function createAdditionalCompany(payload: {
+  companyName: string;
+  businessType: BusinessType;
+  phone?: string;
+}): Promise<AuthSessionDto> {
+  resetTenantRequestContext();
+  const res = await apiClient.post<ApiSuccessEnvelope<AuthSessionDto>>('/auth/companies', payload);
+  resetTenantRequestContext();
+  const session = res.data.data;
+  useAuthStore.getState().setSession(session);
+  await listMyCompanies().catch(() => undefined);
+  return session;
 }
 
 export async function changePassword(payload: ChangePasswordPayload): Promise<AuthSessionDto> {
@@ -110,6 +150,7 @@ export async function exchangeImpersonationCode(code: string): Promise<{
 }
 
 export async function exitImpersonation(): Promise<void> {
+  resetTenantRequestContext();
   try {
     await apiClient.post('/auth/impersonate/exit', {});
   } finally {

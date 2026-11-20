@@ -10,8 +10,12 @@ import {
   type AnalyticsTimeseriesQuery,
   analyticsTimeseriesQuerySchema,
 } from './analytics.schemas.js';
+import { type ExportClientsQuery, exportClientsQuerySchema } from '../clients/clients.schemas.js';
+import { exportClientsCsv } from '../clients/clients.service.js';
 import {
   exportAppointmentsCsv,
+  exportPaymentsCsv,
+  getAnalyticsCrm,
   getAnalyticsHeatmap,
   getAnalyticsMasters,
   getAnalyticsServices,
@@ -103,6 +107,19 @@ analyticsRouter.get(
   },
 );
 
+analyticsRouter.get(
+  '/crm',
+  requireRole(Role.OWNER),
+  requireFeature('analytics'),
+  validate({ query: analyticsRangeQuerySchema }),
+  async (req, res) => {
+    const actor = getAuthActor(req);
+    const query = getValidatedQuery<AnalyticsRangeQuery>(req);
+    const data = await getAnalyticsCrm(actor.companyId, query);
+    res.status(200).json({ data });
+  },
+);
+
 export const exportRouter = Router();
 exportRouter.use(authenticate);
 
@@ -118,6 +135,38 @@ exportRouter.get(
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="appointments-${query.from}-to-${query.to}.csv"`,
+    );
+    res.status(200).send(csv);
+  },
+);
+
+exportRouter.get(
+  '/clients.csv',
+  requireRole(Role.OWNER),
+  validate({ query: exportClientsQuerySchema }),
+  async (req, res) => {
+    const actor = getAuthActor(req);
+    const query = getValidatedQuery<ExportClientsQuery>(req);
+    const csv = await exportClientsCsv(actor, query);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="clients.csv"');
+    res.status(200).send(csv);
+  },
+);
+
+exportRouter.get(
+  '/payments.csv',
+  requireRole(Role.OWNER),
+  requireFeature('analytics'),
+  validate({ query: analyticsRangeQuerySchema }),
+  async (req, res) => {
+    const actor = getAuthActor(req);
+    const query = getValidatedQuery<AnalyticsRangeQuery>(req);
+    const csv = await exportPaymentsCsv(actor.companyId, query);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="payments-${query.from}-to-${query.to}.csv"`,
     );
     res.status(200).send(csv);
   },

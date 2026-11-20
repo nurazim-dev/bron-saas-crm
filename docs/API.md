@@ -91,10 +91,36 @@ Clears the `zapis_rt` cookie.
 
 ### `GET /api/v1/auth/me`
 Returns the currently authenticated user and their company.
-- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER`)
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER`, `MANAGER`, or `MASTER`)
 - **Responses**:
   - `200 OK`: `{ "data": { "user": UserDto, "company": CompanyDto } }`
   - `401 UNAUTHENTICATED`: Missing, invalid, or revoked token.
+
+### `GET /api/v1/auth/companies`
+Lists all active company memberships belonging to the authenticated account's `Identity` (during read-only impersonation, returns only the impersonated company).
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER`, `MANAGER`, or `MASTER`)
+- **Responses**:
+  - `200 OK`: `{ "data": CompanyMembershipDto[] }` (`companyId`, `companyName`, `companySlug`, `businessType`, `role`, `isCurrent`, `isSuspended`)
+  - `401 UNAUTHENTICATED`
+
+### `POST /api/v1/auth/companies`
+Creates an additional company under the authenticated owner's shared `Identity`, creates a new `OWNER` membership for it with a trial subscription, revokes the current session, and issues a fresh access token + `zapis_rt` cookie scoped to the new company.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only; `MANAGER` / `MASTER` receive `403 FORBIDDEN`; impersonation returns `403 IMPERSONATION_READ_ONLY`)
+- **Request Body**: `{ "companyName": "...", "businessType"?: "BARBERSHOP" | "BEAUTY_SALON", "phone"?: "+996..." }`
+- **Responses**:
+  - `201 Created`: `{ "data": { "accessToken": "...", "user": UserDto, "company": CompanyDto } }`
+  - `409 COMPANY_LIMIT_REACHED`: Maximum companies per identity (20) reached.
+
+### `POST /api/v1/auth/switch-company`
+Explicitly switches the active session to another company where the authenticated `Identity` holds an active membership. Revokes the previous session (`sid`), updates `lastCompanyId`, and issues a fresh access token + `zapis_rt` cookie with that membership's `userId`, `companyId`, and `role`.
+- **Auth**: `Authorization: Bearer <accessToken>` (impersonation returns `403 IMPERSONATION_READ_ONLY`)
+- **Request Body**: `{ "companyId": "uuid" }` (strict schema; extra fields such as `role` return `400 VALIDATION_ERROR`)
+- **Responses**:
+  - `200 OK`: `{ "data": { "accessToken": "...", "user": UserDto, "company": CompanyDto } }`
+  - `403 COMPANY_SUSPENDED`: Target company is suspended.
+  - `404 NOT_FOUND`: Target company does not exist or the identity has no active membership in it.
+
+> **Shared-identity staff protection**: When a staff member's `Identity` also belongs to another company, staff-management credential updates (`PATCH /api/v1/staff/:id` changing `email` or `password`, and `POST /api/v1/staff/:id/password-reset-link`) return `409 SHARED_IDENTITY`.
 
 ### `PATCH /api/v1/auth/password`
 Changes the authenticated user's password, increments `tokenVersion` (immediately invalidating all previous tokens), and issues a fresh access token + refresh cookie.
@@ -242,11 +268,27 @@ Soft-deletes a service (`deletedAt = now()`) and removes its `MasterService` lin
 
 `StaffDto` includes `hasLogin: boolean`, `serviceIds: string[]`, and `workingHours: [{ dayOfWeek, startTime, endTime }]`.
 
+### Staff permissions
+
+| Capability | OWNER | MANAGER | MASTER |
+| --- | --- | --- | --- |
+| Appointments, availability, time off and reminders | Company-wide | Company-wide | Own schedule |
+| Client directory and history | Company-wide | Company-wide | Own clients and visits |
+| Mark prepayment received or waive it | Company-wide | Company-wide | Own appointments |
+| Refunds, appointment deletion and reactivation | Company-wide | Forbidden | Forbidden |
+| Staff administration, catalog changes, client edits and erasure, billing and analytics | Company-wide | Forbidden | Forbidden |
+
+Operational writes require a writable subscription. Manager accounts are excluded from staff and public booking choices.
+
 ### `GET /api/v1/staff`
-Lists all non-deleted staff members (`OWNER` and `MASTER`s) of the company.
-- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only; `MASTER` receives `403 FORBIDDEN`)
+Lists non-deleted staff of the company. A manager sees bookable staff with `email` and `phone` set to `null` and `hasLogin` set to `false`.
+- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MANAGER`; `MASTER` receives `403 FORBIDDEN`)
 - **Responses**:
   - `200 OK`: `{ "data": [StaffDto, ...] }`
+
+### `POST /api/v1/staff/invite`
+
+An owner with a writable subscription may invite a staff member by sending `name`, `email`, and optional `role` (`MASTER` by default, or `MANAGER`). Returns `201` with `{ "data": { "id": "...", "url": "...", "expiresAt": "..." } }`. The invitation queues an email and counts toward the active staff limit. The link is single-use and expires after 60 minutes. The employee sets their own password.
 
 ### `POST /api/v1/staff`
 Creates a `MASTER` staff member. Login is optional: `email` and `password` must either both be provided or both be omitted. If `email` matches a soft-deleted `MASTER` of the **same** company, that record is restored and updated (§3.3); any other email collision returns `409 CONFLICT`.
@@ -268,14 +310,14 @@ Creates a `MASTER` staff member. Login is optional: `email` and `password` must 
   - `409 CONFLICT`
 
 ### `GET /api/v1/staff/:id`
-Returns a staff member by ID, including `serviceIds` and `workingHours`. A `MASTER` may only read their own record (reading another staff member's ID returns `404 NOT_FOUND`).
-- **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` or `MASTER` for self)
+Returns a staff member by ID, including `serviceIds` and `workingHours`. A `MASTER` may read their own record. A `MANAGER` may read their own record and the bookable staff records visible in the directory.
+- **Auth**: `Authorization: Bearer <accessToken>`
 - **Responses**:
   - `200 OK`: `{ "data": StaffDto }`
   - `404 NOT_FOUND`
 
 ### `PATCH /api/v1/staff/:id`
-Updates a staff member (`name`, `phone`, `email`, `password`, `isActive`, `isBookable`). Changing `password`, setting `isActive: false`, or clearing `email` increments `tokenVersion` so existing sessions are revoked immediately. The `OWNER` may update their own `name`, `phone`, `email`, `password`, and `isBookable`, but cannot set `isActive: false` or clear their own login.
+Updates a staff member (`name`, `phone`, `email`, `password`, `isActive`, `isBookable`). Changing email or password or deactivating an account invalidates existing sessions and unused reset links. Owners must retain an active login. Managers must retain a login email and have `isBookable: false`.
 - **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
 - **Responses**:
   - `200 OK`: `{ "data": StaffDto }`
@@ -284,7 +326,7 @@ Updates a staff member (`name`, `phone`, `email`, `password`, `isActive`, `isBoo
   - `409 CONFLICT`
 
 ### `DELETE /api/v1/staff/:id`
-Soft-deletes a `MASTER` record, clears their `MasterService` and `WorkingHours` links, and increments `tokenVersion`. The `OWNER` cannot delete himself (`403 FORBIDDEN`). Refuses with `409 HAS_UPCOMING_APPOINTMENTS` (with count) if the master has upcoming `SCHEDULED` appointments (BR-7).
+Soft-deletes a `MASTER` or `MANAGER` record, clears their `MasterService` and `WorkingHours` links, and increments `tokenVersion`. Deleting an owner returns `403 FORBIDDEN`. Refuses with `409 HAS_UPCOMING_APPOINTMENTS` (with count) if the master has upcoming `SCHEDULED` appointments (BR-7).
 - **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
 - **Responses**:
   - `204 No Content`
@@ -324,13 +366,13 @@ Replaces the weekly working-hours schedule for a staff member (BR-10). `dayOfWee
   - `404 NOT_FOUND`
 
 ### `POST /api/v1/staff/:id/password-reset-link`
-Generates a single-use password reset link (60-minute TTL) for an active `MASTER` with a login in the same company. Token is shown only in this response and audit-logged.
+Generates a single-use password reset link (60-minute TTL) for an active `MASTER` or `MANAGER` with an email in the same company. The audit log records the action.
 - **Auth**: `Authorization: Bearer <accessToken>` (`OWNER` only)
 - **Request Body** (optional): `{ "sendEmail": false }` (`true` also enqueues `PASSWORD_RESET` email)
 - **Responses**:
   - `200 OK`: `{ "data": { "url": "http://localhost:3000/reset-password?token=...", "expiresAt": "2026-11-16T11:00:00.000Z" } }`
   - `403 FORBIDDEN`: Caller is not `OWNER`.
-  - `404 NOT_FOUND`: Staff member not found, cross-tenant, inactive, not `MASTER`, or has no login.
+  - `404 NOT_FOUND`: Staff member outside the caller's company, inactive, an owner, or missing a login email.
 
 ---
 
@@ -661,3 +703,73 @@ All `/api/v1/admin/*` routes require `aud: "zapis-admin"` JWTs (`ADMIN_JWT_ACCES
 
 
 
+
+## Дополнение: несколько услуг (BRON Phase 2)
+
+Публичное создание записи и staff create/update принимают необязательный массив
+`serviceIds` (1–10 различных UUID). При создании `serviceId` остаётся обязательным
+и должен совпадать с первым элементом массива. Без массива сохраняется старый
+контракт одной услуги. В PATCH без изменения serviceId отсутствие массива
+сохраняет весь состав; изменение serviceId без массива выбирает одну новую услугу.
+
+Public/staff availability принимают serviceIds как строку UUID через запятую,
+в дополнение к основному serviceId. Мастер должен предоставлять все услуги;
+ANY отбирает только таких мастеров. Все услуги принадлежат компании запроса.
+Итог ограничен 720 минутами и 1 000 000 KGS; дубли/нарушения дают 400,
+чужие/удалённые услуги — 404. Предоплата нового online-визита суммируется по услугам.
+
+В staff AppointmentDto добавлен serviceIds. service.name содержит полный состав,
+service.durationMin — длительность визита. Старые serviceId/service остаются для
+совместимости. Итоговая price может отличаться от суммы каталожных снимков, если
+сотрудник вручную назначил цену. Перенос не меняет итоговую цену и длительность.
+Уже зафиксированная предоплата при редактировании состава автоматически не
+пересчитывается; возвраты и частичные оплаты относятся к развитию Manual Payments.
+
+## Дополнение: пакеты услуг, цены мастеров и статусы (BRON Core Booking)
+
+- **Пакеты и комплексы услуг (`/api/v1/services/packages`)**: `GET` (все штатные роли компании), `POST`, `PATCH /:id`, `DELETE /:id` (`OWNER`, `MANAGER` или права услуг). Пакет включает от 2 до 10 активных услуг компании, фиксирует пакетную цену `price`, рассчитывает `catalogTotalPrice` и `totalDurationMin`. При удалении пакет помечается `deletedAt` с сохранением снимков в прошлых визитах.
+- **Персональные цены и длительность мастера (`PUT /api/v1/staff/:id/services`)**: в дополнение к `serviceIds` принимает необязательный массив `serviceOverrides` (`{ serviceId, customPrice?, customDurationMin? }`). Ответ `StaffDto` включает `serviceOverrides`, а публичный `GET /api/v1/public/companies/:slug` отдаёт `packages` и массив `serviceOverrides` у каждого мастера.
+- **Бронирование и доступность по пакету**: `POST /api/v1/appointments`, `POST /api/v1/public/companies/:slug/appointments`, `GET /api/v1/availability` и `GET /api/v1/public/companies/:slug/availability` принимают `packageId` (взаимоисключаем с `serviceId`/`serviceIds`). При расчёте слотов (включая `masterId=ANY`) учитывается `customDurationMin` конкретного мастера. Предоплата пакета ограничена сверху ценой пакета.
+- **Статусы визита (`POST /api/v1/appointments/:id/status`)**: поддержаны переходы между `SCHEDULED`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW` по серверной таблице переходов (`CONFIRMED` и `IN_PROGRESS` удерживают слот в `Appointment_no_overlapping_active_slots`; отмена из `IN_PROGRESS` доступна `OWNER`/`MANAGER`, восстановление из `CANCELLED` — `OWNER`). Клиентское управление по токену (`/api/v1/public/manage/:token`) разрешает перенос и отмену в статусах `SCHEDULED` и `CONFIRMED`.
+
+## Дополнение: CRM, теги, объединение, импорт и глобальный поиск (Phase 3 CRM)
+
+- **Теги клиентов**: `GET /api/v1/clients/tags` (все штатные роли), `POST /api/v1/clients/tags`, `PATCH /api/v1/clients/tags/:tagId`, `DELETE /api/v1/clients/tags/:tagId` (`OWNER`), `PUT /api/v1/clients/:id/tags` (`OWNER`). Имена тегов уникальны в компании без учёта регистра.
+- **Сегментация и фильтры клиентов (`GET /api/v1/clients`, `POST /api/v1/clients`)**: добавлены фильтры `tagId`, `segment` (`ALL`, `NEW`, `REPEAT`, `VIP`, `AT_RISK`, `LOST`, `NO_SHOW_RISK`, `BLOCKED`), `minVisits`, `inactiveDays` и сортировка `sort=totalSpent`.
+- **Объединение дубликатов (`POST /api/v1/clients/merge/preview`, `POST /api/v1/clients/merge`)**: `OWNER` выбирает `sourceClientId`, `targetClientId` и `notesStrategy` (`CONCAT`/`KEEP_TARGET`/`KEEP_SOURCE`). Preview не меняет БД; подтверждённое слияние переносит все записи и теги, помечает дубль `mergedAt` и освобождает прежний номер телефона.
+- **CSV-импорт и экспорт (`POST /api/v1/clients/import/preview`, `POST /api/v1/clients/import`, `GET /api/v1/export/clients.csv`)**: импорт до 500 строк (UTF-8 BOM, `,`/`;`, авто-создание тегов, стратегии `SKIP`/`UPDATE_EMPTY`/`MERGE_TAGS`) и экспорт клиентов с защитой от CSV-инъекций формул.
+- **Глобальный поиск и CRM-аналитика**: `GET /api/v1/search?q=...` возвращает клиентов, записи, услуги, пакеты и команду в пределах компании с ролевыми ограничениями (`MANAGER`/`MASTER` без PII персонала); `GET /api/v1/analytics/crm` отдаёт сводку сегментов, `repeatRate`, `retentionRate`, `topClients`, `byTag` и `revenueBasis: "COMPLETED_VISITS_ESTIMATE"`.
+
+## Дополнение: ручной журнал платежей и приватные чеки (Phase 4 Manual Payments)
+
+- **Журнал платежей компании (`/api/v1/payments`)** (доступно только `OWNER`, все запросы и маршруты привязаны к `companyId`):
+  - `GET /api/v1/payments`: список операций (`BusinessPaymentDto`) с фильтрами `status` (`PENDING`, `CONFIRMED`, `REJECTED`, `VOIDED`), `kind` (`PAYMENT`, `PREPAYMENT`, `REFUND`), `method`, `appointmentId`, `clientId`, `from`, `to` и пагинацией; в каждой записи отдаётся `proofs` (без бинарных байт).
+  - `GET /api/v1/payments/summary`: сводка за локальный период `from`/`to` (`confirmedPayments`, `confirmedRefunds`, `netConfirmedRevenue`, `pendingAmount`, `pendingCount`, `completedAppointmentsEstimate`, `byMethod`), отделяющая реальные подтверждённые поступления от оценки по завершённым визитам.
+  - `POST /api/v1/payments`: создание оплаты, предоплаты или возврата (`amount`, `method`, `appointmentId?`, `clientId?`, `reference?`, `note?`, `confirmImmediately?`) через `ManualPaymentProvider`; возврат проверяет, что сумма подтверждённых возвратов не превышает подтверждённые поступления по компании (и по записи, если указан `appointmentId`).
+  - `POST /api/v1/payments/:id/confirm` и `POST /api/v1/payments/:id/reject`: ручное подтверждение или отклонение ожидающей операции под строчной блокировкой `FOR UPDATE` с записью в `AuditLog`, синхронизацией `Appointment.prepaymentAmount` и постановкой уведомления в `OutboxMessage`. Повторное подтверждение/отклонение возвращает `409`.
+  - `POST /api/v1/payments/:id/proofs` и `GET /api/v1/payments/:id/proofs/:proofId`: загрузка и приватная выдача чеков (JPEG/PNG/WebP/PDF до 5 МБ, перекодирование изображений в WebP, до 5 файлов на платёж, лимит 50 МБ на компанию; `Cache-Control: private, no-store`). Загрузка чека не меняет статус платежа.
+- **Приватные чеки подписки (`/api/v1/billing/payments/:id/proofs*` и `/api/v1/admin/payments/:id/proofs/:proofId`)**:
+  - `POST /api/v1/billing/payments/:id/proofs` (`OWNER`, доступно также в статусе подписки `LOCKED`) прикрепляет чек к ожидающей (`PENDING`) заявке подписки без автоподтверждения; `GET /api/v1/billing/payments/:id/proofs/:proofId` выдаёт файл владельцу компании с проверкой `companyId`.
+  - `GET /api/v1/admin/payments` включает список `proofs`, а `GET /api/v1/admin/payments/:id/proofs/:proofId` выдаёт чеки подписки администратору платформы (`SUBSCRIPTION_PAYMENT` — к клиентским оплатам `BUSINESS_PAYMENT` доступа нет).
+
+## Дополнение: матрица тарифов, лимиты и переход на FREE (Phase 5 SaaS Monetization)
+
+- **Модель и ответы тарифов (`PlanDto` / `PublicPlanDto`)**: добавлены поля `description`, `maxServices`, `maxAppointmentsPerMonth`, `featureCrmAdvanced`, `featureManualPayments`, `featureMultiCompany`, `featureCustomBranding`, `isLegacy`. Публичная линейка в `GET /api/v1/public/platform` и `GET /api/v1/billing/plans` включает `FREE`, `BUSINESS`, `PRO`; архивный `START` (`isLegacy: true, isPublic: false, isActive: true`) сохранён для существующих компаний.
+- **Счётчики использования в `GET /api/v1/billing`**: блок `usage` дополнительно возвращает `activeServicesCount`, `maxServices`, `isOverServicesLimit`, `monthlyAppointmentsCount`, `maxAppointmentsPerMonth`, `isOverAppointmentsLimit`, `monthlyRemindersCount`, `maxRemindersPerMonth`, `isOverRemindersLimit`.
+- **Переход на бесплатный тариф (`POST /api/v1/billing/switch-free`)**: доступно `OWNER` (включая `LOCKED`), переводит подписку на `FREE` с сохранением всех услуг, клиентов, записей и платежей; при наличии активной заявки `PENDING` возвращает `409 PAYMENT_CLAIM_PENDING`.
+- **Серверные ограничения тарифа (`402 PLAN_LIMIT_REACHED` / `402 FEATURE_NOT_IN_PLAN`)**:
+  - квоты `maxServices` (`POST /services`, активация в `PATCH /services/:id`) и `maxAppointmentsPerMonth` (`POST /appointments`, `POST /public/companies/:slug/appointments`);
+  - флаги `featureCrmAdvanced` (теги, слияние и CSV-импорт клиентов), `featureManualPayments` (создание/подтверждение/отклонение/загрузка чеков `BusinessPayment` при сохранении чтения истории), `featureMultiCompany` (`POST /auth/companies`);
+  - `POST /api/v1/billing/payments` отклоняет `FREE` (`422`) и непубличные чужие тарифы (`404`); `PATCH /api/v1/admin/plans/:id` запрещает отключать `trialPlanCode` (`409`).
+
+## Дополнение: локализация RU/KY/EN, брендинг, домены и экспорт платежей (Phase 6 Business Features)
+
+- **Локализация `RU` / `KY` / `EN`**:
+  - `Company.defaultLocale` (`PATCH /api/v1/companies/me`) и `locale` при публичной записи (`POST /api/v1/public/companies/:slug/appointments`) принимают `'RU' | 'KY' | 'EN'`.
+  - Публичные шаблоны подтверждения, переноса, отмены, напоминаний (`24h`/`2h`) и инструкций по предоплате формируются на `RU`, `KY` или `EN`.
+- **Брендинг и собственные домены**:
+  - `GET /api/v1/companies/me`, `PATCH /api/v1/companies/me` и `GET /api/v1/public/companies/:slug` поддерживают `description` (`<= 500` симв.), `brandColor` (`#RRGGBB`), `instagramUrl` (нормализуется из `@handle` или URL) и `customDomain` (`@unique`, формат `hostname.tld`).
+  - Установка непустого `customDomain` требует тарифного флага `featureCustomBranding` (`402 FEATURE_NOT_IN_PLAN` на `FREE`/`BUSINESS`, доступно на `PRO`) и проверяет глобальную уникальность (`409 CONFLICT`).
+  - `GET /api/v1/public/domains/:domain` разрешает активную компанию по привязанному `customDomain` и возвращает `{ companyId, slug, name, customDomain }` (`404 NOT_FOUND`, если домен не найден или онлайн-запись отключена).
+- **Экспорт журнала платежей CSV (`GET /api/v1/export/payments.csv`)**:
+  - Доступно `OWNER`; принимает параметры `from` и `to` (`YYYY-MM-DD`), возвращает UTF-8 CSV с BOM и экранированием формул (`sanitizeCsvCell`) по всем платежам и возвратам компании за выбранный период.

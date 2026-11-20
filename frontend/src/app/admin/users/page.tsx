@@ -157,6 +157,7 @@ export default function AdminUsersPage() {
             <option value="">Все роли</option>
             <option value="OWNER">Владельцы</option>
             <option value="MASTER">Мастера</option>
+            <option value="MANAGER">Менеджеры</option>
           </select>
         </CardContent>
       </Card>

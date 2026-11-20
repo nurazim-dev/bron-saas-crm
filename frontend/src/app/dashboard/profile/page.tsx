@@ -3,6 +3,8 @@
 import { Bell, ExternalLink, Send, Unlink, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { EmailVerification } from '@/components/auth/email-verification';
+import { SessionManager } from '@/components/auth/session-manager';
 import { PwaInstallCard } from '@/components/pwa/pwa-provider';
 import { TimeOffManager } from '@/components/time-off/time-off-manager';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +52,38 @@ export default function DashboardProfilePage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!linkData) return;
+    let cancelled = false;
+    let inFlight = false;
+    async function refreshConnection() {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const settings = await getMyNotificationSettings();
+        if (!cancelled) {
+          setNotifSettings(settings);
+          if (settings.telegramConnected) {
+            setLinkData(null);
+            toast.success('Telegram подключён');
+          }
+        }
+      } catch {
+        // Retry while the user completes the linking flow in Telegram.
+      } finally {
+        inFlight = false;
+      }
+    }
+    const refresh = () => void refreshConnection();
+    const timer = window.setInterval(refresh, 3000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [linkData]);
 
   async function handleToggle(field: 'notifyEmail' | 'notifyTelegram', nextVal: boolean) {
     if (!notifSettings || isImpersonating) return;
@@ -210,12 +244,15 @@ export default function DashboardProfilePage() {
                       </code>
                     </p>
                     {linkData.deepLink ? (
-                      <Button asChild size="sm" variant="default" className="gap-1.5">
-                        <a href={linkData.deepLink} target="_blank" rel="noreferrer">
-                          Открыть бота в Telegram
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      </Button>
+                      <>
+                        <p>Откройте бота и нажмите «Запустить» / Start для завершения привязки.</p>
+                        <Button asChild size="sm" variant="default" className="gap-1.5">
+                          <a href={linkData.deepLink} target="_blank" rel="noreferrer">
+                            Открыть бота в Telegram
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        </Button>
+                      </>
                     ) : (
                       <p className="text-muted-foreground">
                         Telegram-бот не настроен на сервере (`TELEGRAM_BOT_USERNAME` не задан).
@@ -242,6 +279,8 @@ export default function DashboardProfilePage() {
         />
       )}
 
+      <EmailVerification />
+      <SessionManager />
       <PwaInstallCard />
     </div>
   );

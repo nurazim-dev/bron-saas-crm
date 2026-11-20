@@ -37,6 +37,18 @@ export function PublicLangSwitcher({
       >
         {t.langKy}
       </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={lang === 'en' ? 'default' : 'ghost'}
+        onClick={() => {
+          setPublicLangCookie('en');
+          onChange('en');
+        }}
+        className="h-7 px-2.5 text-xs"
+      >
+        {t.langEn}
+      </Button>
     </div>
   );
 }

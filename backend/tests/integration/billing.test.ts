@@ -93,7 +93,7 @@ describe('Billing Core (Phase 14 / BR-19)', () => {
     const platformBody = platformRes.body as {
       data: { plans: Array<{ code: string }>; registrationOpen: boolean };
     };
-    expect(platformBody.data.plans.map((p) => p.code)).toEqual(['START', 'BUSINESS', 'PRO']);
+    expect(platformBody.data.plans.map((p) => p.code)).toEqual(['FREE', 'BUSINESS', 'PRO']);
     expect(platformBody.data.registrationOpen).toBe(true);
 
     // Close registration
@@ -191,7 +191,7 @@ describe('Billing Core (Phase 14 / BR-19)', () => {
       .set('Authorization', `Bearer ${lockedToken}`);
     expect(readAll.status).toBe(200);
 
-    const plans = await prisma.plan.findMany({ where: { code: 'START' } });
+    const plans = await prisma.plan.findMany({ where: { code: 'BUSINESS' } });
     const claimRes = await request(app)
       .post('/api/v1/billing/payments')
       .set('Authorization', `Bearer ${lockedToken}`)
