@@ -15,6 +15,7 @@
     "lint": "eslint . --max-warnings 0 && prettier --check .",
     "format": "prettier --write .",
     "test": "cross-env TZ=UTC NODE_ENV=test vitest run",
+    "test:security": "cross-env TZ=UTC NODE_ENV=test vitest run tests/security",
     "db:migrate": "prisma migrate dev",
     "db:seed": "cross-env TZ=UTC tsx prisma/seed.ts",
     "db:reset": "cross-env TZ=UTC tsx scripts/db-reset.ts"
@@ -27,6 +28,8 @@
     "cors": "^2.8.6",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.4",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "libphonenumber-js": "^1.13.16",
@@ -36,6 +39,7 @@
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "sharp": "^0.35.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {

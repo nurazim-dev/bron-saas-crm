@@ -136,6 +136,10 @@ const envSchema = z
 
 export type Env = z.infer<typeof envSchema>;
 
+export function validateEnvConfig(rawEnv: Record<string, string | undefined>) {
+  return envSchema.safeParse(rawEnv);
+}
+
 function loadEnv(): Env {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
