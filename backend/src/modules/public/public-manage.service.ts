@@ -1,10 +1,12 @@
-import { AppointmentStatus } from '../../generated/prisma/client.js';
+import { AppointmentStatus, type Prisma } from '../../generated/prisma/client.js';
+import { env } from '../../config/env.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
 import { assertNoSlotOverlap, lockMastersForUpdate } from '../appointments/appointments.service.js';
+import { EDITABLE_APPOINTMENT_STATUSES } from '../appointments/status-transitions.js';
 import {
   buildPublicPrepaymentBlock,
   type PublicPrepaymentBlock,
@@ -57,6 +59,7 @@ export interface PublicManageAppointmentDto {
     canReschedule: boolean;
     rescheduleDisabledReason: ManageDisableReason | null;
   };
+  telegramBotUrl: string;
   prepayment: PublicPrepaymentBlock | null;
 }
 
@@ -77,8 +80,10 @@ function computeActions(
   const cutoffMs = appt.startAt.getTime() - company.clientCancelMinHours * 3_600_000;
   const withinWindow = currentNow.getTime() <= cutoffMs;
 
+  const isEditable = EDITABLE_APPOINTMENT_STATUSES.includes(appt.status);
+
   let cancelDisabledReason: ManageDisableReason | null = null;
-  if (appt.status !== AppointmentStatus.SCHEDULED) {
+  if (!isEditable) {
     cancelDisabledReason = 'NOT_SCHEDULED';
   } else if (!withinWindow) {
     cancelDisabledReason = 'WINDOW_CLOSED';
@@ -87,7 +92,7 @@ function computeActions(
   let rescheduleDisabledReason: ManageDisableReason | null = null;
   if (!company.allowClientReschedule) {
     rescheduleDisabledReason = 'RESCHEDULE_DISABLED';
-  } else if (appt.status !== AppointmentStatus.SCHEDULED) {
+  } else if (!isEditable) {
     rescheduleDisabledReason = 'NOT_SCHEDULED';
   } else if (!withinWindow) {
     rescheduleDisabledReason = 'WINDOW_CLOSED';
@@ -103,12 +108,13 @@ function computeActions(
   };
 }
 
-async function resolveManageAppointment(token: string) {
-  const appt = await prisma.appointment.findUnique({
+async function resolveManageAppointment(token: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const appt = await db.appointment.findUnique({
     where: { manageToken: token },
     include: {
       company: true,
       service: true,
+      items: { orderBy: { position: 'asc' } },
       master: true,
     },
   });
@@ -140,8 +146,10 @@ function serializeManageAppointment(
     cancelReason: appt.cancelReason,
     service: {
       id: appt.service.id,
-      name: appt.service.name,
-      durationMin: appt.service.durationMin,
+      name:
+        appt.packageName ??
+        (appt.items.length ? appt.items.map((item) => item.name).join(' + ') : appt.service.name),
+      durationMin: (appt.endAt.getTime() - appt.startAt.getTime()) / 60000,
       price: appt.price.toFixed(2),
     },
     master: {
@@ -159,6 +167,7 @@ function serializeManageAppointment(
       allowClientReschedule: appt.company.allowClientReschedule,
     },
     actions: computeActions(appt, appt.company, currentNow),
+    telegramBotUrl: `https://t.me/${env.TELEGRAM_BOT_USERNAME.trim() || 'zapis_kg_bot'}?start=client_${appt.manageToken}`,
     prepayment: buildPublicPrepaymentBlock(appt, appt.company, appt.service.name),
   };
 }
@@ -174,7 +183,10 @@ export async function getPublicManageAvailability(token: string, date: string) {
   const appt = await resolveManageAppointment(token);
   return computeAvailableSlotsForDate(prisma, {
     company: appt.company,
-    service: appt.service,
+    service: {
+      id: appt.serviceId,
+      durationMin: (appt.endAt.getTime() - appt.startAt.getTime()) / 60000,
+    },
     master: appt.master,
     date,
     now: clockNow(),
@@ -200,8 +212,20 @@ export async function cancelPublicManageAppointment(
   }
 
   const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Appointment" WHERE "id" = ${appt.id}::uuid FOR UPDATE`;
+    const freshAppt = await resolveManageAppointment(token, tx);
+    const freshActions = computeActions(freshAppt, freshAppt.company, currentNow);
+    if (!freshActions.canCancel) {
+      throw new AppError('CHANGE_NOT_ALLOWED', 422, 'Appointment cannot be cancelled', [
+        {
+          reason: freshActions.cancelDisabledReason ?? 'NOT_SCHEDULED',
+          message: 'Appointment cannot be cancelled',
+        },
+      ]);
+    }
+
     const row = await tx.appointment.update({
-      where: { id: appt.id },
+      where: { id: freshAppt.id },
       data: {
         status: AppointmentStatus.CANCELLED,
         cancelledBy: 'CLIENT',
@@ -211,6 +235,7 @@ export async function cancelPublicManageAppointment(
       include: {
         company: true,
         service: true,
+        items: { orderBy: { position: 'asc' } },
         master: true,
       },
     });
@@ -225,7 +250,9 @@ export async function cancelPublicManageAppointment(
       appointmentId: row.id,
       masterId: row.masterId,
       masterName: row.master.name,
-      serviceName: row.service.name,
+      serviceName: row.items.length
+        ? row.items.map((item) => item.name).join(' + ')
+        : row.service.name,
       clientName: row.clientName,
       startAt: row.startAt,
       dedupeSuffix: 'cancel',
@@ -268,11 +295,25 @@ export async function reschedulePublicManageAppointment(
   try {
     const updated = await prisma.$transaction(async (tx) => {
       await lockMastersForUpdate(tx, [appt.masterId]);
+      await tx.$queryRaw`SELECT "id" FROM "Appointment" WHERE "id" = ${appt.id}::uuid FOR UPDATE`;
+      const freshAppt = await resolveManageAppointment(token, tx);
+      const freshActions = computeActions(freshAppt, freshAppt.company, currentNow);
+      if (!freshActions.canReschedule) {
+        throw new AppError('CHANGE_NOT_ALLOWED', 422, 'Appointment cannot be rescheduled', [
+          {
+            reason: freshActions.rescheduleDisabledReason ?? 'NOT_SCHEDULED',
+            message: 'Appointment cannot be rescheduled',
+          },
+        ]);
+      }
 
       const { endAt } = await assertPublicSlotValidForSchedule(tx, {
-        company: appt.company,
-        service: appt.service,
-        master: appt.master,
+        company: freshAppt.company,
+        service: {
+          id: freshAppt.serviceId,
+          durationMin: (freshAppt.endAt.getTime() - freshAppt.startAt.getTime()) / 60000,
+        },
+        master: freshAppt.master,
         startAt: input.startAt,
         now: currentNow,
       });
@@ -295,6 +336,7 @@ export async function reschedulePublicManageAppointment(
         include: {
           company: true,
           service: true,
+          items: { orderBy: { position: 'asc' } },
           master: true,
         },
       });
@@ -303,7 +345,9 @@ export async function reschedulePublicManageAppointment(
       await scheduleAppointmentReminders(tx, {
         appointment: row,
         company: row.company,
-        serviceName: row.service.name,
+        serviceName: row.items.length
+          ? row.items.map((item) => item.name).join(' + ')
+          : row.service.name,
         currentNow,
       });
 
@@ -315,7 +359,9 @@ export async function reschedulePublicManageAppointment(
         appointmentId: row.id,
         masterId: row.masterId,
         masterName: row.master.name,
-        serviceName: row.service.name,
+        serviceName: row.items.length
+          ? row.items.map((item) => item.name).join(' + ')
+          : row.service.name,
         clientName: row.clientName,
         startAt: row.startAt,
         dedupeSuffix: `r${row.rescheduledCount}`,

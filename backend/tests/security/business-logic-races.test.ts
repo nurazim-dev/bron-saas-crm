@@ -133,8 +133,13 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
       endAt: DateTime.fromISO('2026-11-18T05:30:00.000Z').toJSDate(),
       manageToken: 'sec_race_manage_tok_000000000000000000000001',
     });
+    // Pre-set rescheduledCount = 1 (MAX_CLIENT_RESCHEDULES = 2 -> only 1 reschedule left)
+    await prisma.appointment.update({
+      where: { id: appt.id },
+      data: { rescheduledCount: 1 },
+    });
 
-    // 20 parallel reschedules to distinct valid slots (06:00, 06:30, ..., 15:30)
+    // 20 parallel reschedules to distinct valid slots (06:00, 06:30, ..., 15:30) -> exactly 1 winner (200), 19 (422)
     const rescheduleResults = await Promise.all(
       Array.from({ length: 20 }, (_, i) => {
         const slot = DateTime.fromISO('2026-11-18T06:00:00.000Z')
@@ -152,7 +157,7 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
     expect(rescheduleResults.some((r) => r.status >= 500)).toBe(false);
 
     const afterReschedule = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } });
-    expect(afterReschedule.rescheduledCount).toBe(1);
+    expect(afterReschedule.rescheduledCount).toBe(2);
 
     // 20 parallel cancels on the same appointment -> exactly 1 succeeds (200), 19 fail (422)
     const cancelResults = await Promise.all(
