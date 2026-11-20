@@ -1,5 +1,4 @@
 import {
-  AppointmentStatus,
   AuditActor,
   Prisma,
   Role,
@@ -14,6 +13,15 @@ import { hashPassword } from '../../lib/password.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
 import type { AuthenticatedActor } from '../../types/express.js';
+import { UPCOMING_ACTIVE_STATUSES } from '../appointments/status-transitions.js';
+import {
+  applyIdentityEmail,
+  applyIdentityPassword,
+  assertIdentityNotShared,
+  deleteIdentityIfOrphan,
+  isLoginEmailTaken,
+  lockIdentity,
+} from '../auth/identity.service.js';
 import { assertWithinStaffLimit } from '../billing/billing.service.js';
 import type {
   CreateStaffBody,
@@ -30,6 +38,12 @@ export interface WorkingHoursDto {
   breakEnd: string | null;
 }
 
+export interface StaffServiceOverrideDto {
+  serviceId: string;
+  customPrice: string | null;
+  customDurationMin: number | null;
+}
+
 export interface StaffDto {
   id: string;
   companyId: string;
@@ -38,9 +52,12 @@ export interface StaffDto {
   email: string | null;
   phone: string | null;
   hasLogin: boolean;
+  telegramConnected: boolean;
+  notifyTelegram: boolean;
   isActive: boolean;
   isBookable: boolean;
   serviceIds: string[];
+  serviceOverrides: StaffServiceOverrideDto[];
   workingHours: WorkingHoursDto[];
   createdAt: string;
   updatedAt: string;
@@ -65,9 +82,15 @@ const staffInclude = {
 };
 
 export function serializeStaff(user: UserWithRelations): StaffDto {
-  const activeServiceIds = user.services
-    .filter((ms) => ms.service.deletedAt === null)
-    .map((ms) => ms.serviceId);
+  const activeLinks = user.services.filter((ms) => ms.service.deletedAt === null);
+  const activeServiceIds = activeLinks.map((ms) => ms.serviceId);
+  const serviceOverrides: StaffServiceOverrideDto[] = activeLinks
+    .filter((ms) => ms.customPrice !== null || ms.customDurationMin !== null)
+    .map((ms) => ({
+      serviceId: ms.serviceId,
+      customPrice: ms.customPrice !== null ? ms.customPrice.toFixed(2) : null,
+      customDurationMin: ms.customDurationMin,
+    }));
 
   const workingHours = [...user.workingHours]
     .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
@@ -87,22 +110,43 @@ export function serializeStaff(user: UserWithRelations): StaffDto {
     email: user.email,
     phone: user.phone,
     hasLogin: user.email !== null && user.passwordHash !== null,
+    telegramConnected: Boolean(user.telegramChatId),
+    notifyTelegram: user.notifyTelegram,
     isActive: user.isActive,
     isBookable: user.isBookable,
     serviceIds: activeServiceIds,
+    serviceOverrides,
     workingHours,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };
 }
 
-export async function listStaffForCompany(companyId: string): Promise<StaffDto[]> {
+function serializeStaffForActor(user: UserWithRelations, actor: AuthenticatedActor): StaffDto {
+  const staff = serializeStaff(user);
+  if (actor.role === Role.MANAGER && user.id !== actor.userId) {
+    return {
+      ...staff,
+      email: null,
+      phone: null,
+      hasLogin: false,
+      telegramConnected: false,
+      notifyTelegram: false,
+    };
+  }
+  return staff;
+}
+
+export async function listStaffForCompany(actor: AuthenticatedActor): Promise<StaffDto[]> {
   const staff = await prisma.user.findMany({
-    where: { companyId },
+    where: {
+      companyId: actor.companyId,
+      ...(actor.role === Role.MANAGER ? { isBookable: true } : {}),
+    },
     include: staffInclude,
     orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
   });
-  return staff.map(serializeStaff);
+  return staff.map((user) => serializeStaffForActor(user, actor));
 }
 
 export async function getStaffByIdForActor(
@@ -114,14 +158,18 @@ export async function getStaffByIdForActor(
   }
 
   const user = await prisma.user.findFirst({
-    where: { id: staffId, companyId: actor.companyId },
+    where: {
+      id: staffId,
+      companyId: actor.companyId,
+      ...(actor.role === Role.MANAGER && actor.userId !== staffId ? { isBookable: true } : {}),
+    },
     include: staffInclude,
   });
   if (!user) {
     throw new AppError('NOT_FOUND', 404, 'Staff member not found');
   }
 
-  return serializeStaff(user);
+  return serializeStaffForActor(user, actor);
 }
 
 export async function createStaffForCompany(
@@ -137,27 +185,60 @@ export async function createStaffForCompany(
   const passwordHash = input.password !== undefined ? await hashPassword(input.password) : null;
 
   if (input.email !== undefined) {
-    const existingByEmail = await prismaUnfiltered.user.findUnique({
+    const existingIdentity = await prismaUnfiltered.identity.findUnique({
       where: { email: input.email },
+      include: { members: true },
     });
+    const existingByEmail =
+      existingIdentity?.members.find((m) => m.companyId === companyId) ??
+      (await prismaUnfiltered.user.findFirst({
+        where: { email: input.email },
+      }));
 
-    if (existingByEmail) {
-      // §3.3: Creating a staff member whose email belongs to a soft-deleted user of the SAME
-      // company restores and updates that record; any other collision is 409 CONFLICT.
+    if (existingIdentity || existingByEmail) {
+      // §3.3: Creating a staff member whose email belongs to a soft-deleted MASTER of the
+      // SAME company (and not shared with any other company) restores and updates that record;
+      // any other collision is 409 CONFLICT — email match alone never grants company access.
+      const onlyThisCompany =
+        !existingIdentity || existingIdentity.members.every((m) => m.companyId === companyId);
+
       if (
+        onlyThisCompany &&
+        existingByEmail &&
         existingByEmail.companyId === companyId &&
         existingByEmail.deletedAt !== null &&
         existingByEmail.role === Role.MASTER
       ) {
-        if (input.isActive !== false) {
-          await assertWithinStaffLimit(companyId, 1);
-        }
-        await prismaUnfiltered.$transaction([
-          prismaUnfiltered.masterService.deleteMany({ where: { userId: existingByEmail.id } }),
-          prismaUnfiltered.workingHours.deleteMany({ where: { userId: existingByEmail.id } }),
-          prismaUnfiltered.user.update({
+        await prismaUnfiltered.$transaction(async (tx) => {
+          if (input.isActive !== false) {
+            await assertWithinStaffLimit(companyId, 1, tx);
+          }
+          await tx.masterService.deleteMany({ where: { userId: existingByEmail.id } });
+          await tx.workingHours.deleteMany({ where: { userId: existingByEmail.id } });
+          let targetIdentityId = existingByEmail.identityId ?? existingIdentity?.id ?? null;
+          if (targetIdentityId) {
+            await tx.identity.update({
+              where: { id: targetIdentityId },
+              data: {
+                passwordHash,
+                credentialVersion: { increment: 1 },
+                lastCompanyId: companyId,
+              },
+            });
+          } else {
+            const createdIdentity = await tx.identity.create({
+              data: {
+                email: input.email as string,
+                passwordHash,
+                lastCompanyId: companyId,
+              },
+            });
+            targetIdentityId = createdIdentity.id;
+          }
+          await tx.user.update({
             where: { id: existingByEmail.id },
             data: {
+              identityId: targetIdentityId,
               name: input.name,
               phone: normalizedPhone,
               email: input.email,
@@ -167,8 +248,8 @@ export async function createStaffForCompany(
               deletedAt: null,
               tokenVersion: { increment: 1 },
             },
-          }),
-        ]);
+          });
+        });
 
         const restored = await prisma.user.findUniqueOrThrow({
           where: { id: existingByEmail.id },
@@ -191,23 +272,36 @@ export async function createStaffForCompany(
     }
   }
 
-  if (input.isActive !== false) {
-    await assertWithinStaffLimit(companyId, 1);
-  }
-
   try {
-    const created = await prisma.user.create({
-      data: {
-        companyId,
-        role: Role.MASTER,
-        name: input.name,
-        phone: normalizedPhone,
-        email: input.email ?? null,
-        passwordHash,
-        isActive: input.isActive,
-        isBookable: input.isBookable,
-      },
-      include: staffInclude,
+    const created = await prisma.$transaction(async (tx) => {
+      if (input.isActive !== false) {
+        await assertWithinStaffLimit(companyId, 1, tx);
+      }
+      let identityId: string | null = null;
+      if (input.email !== undefined) {
+        const identity = await tx.identity.create({
+          data: {
+            email: input.email,
+            passwordHash,
+            lastCompanyId: companyId,
+          },
+        });
+        identityId = identity.id;
+      }
+      return tx.user.create({
+        data: {
+          companyId,
+          identityId,
+          role: Role.MASTER,
+          name: input.name,
+          phone: normalizedPhone,
+          email: input.email ?? null,
+          passwordHash,
+          isActive: input.isActive,
+          isBookable: input.isBookable,
+        },
+        include: staffInclude,
+      });
     });
     await audit(prisma, {
       actorType: AuditActor.USER,
@@ -247,6 +341,9 @@ export async function updateStaffForCompany(
       { path: 'isActive', message: 'Owner account cannot be deactivated' },
     ]);
   }
+  if (existing.role === Role.MANAGER && input.isBookable === true) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Managers cannot be booked');
+  }
 
   let normalizedPhone: string | null | undefined;
   if (input.phone !== undefined) {
@@ -266,11 +363,15 @@ export async function updateStaffForCompany(
       { path: 'email', message: 'Owner must keep a login email' },
     ]);
   }
+  if (existing.role === Role.MANAGER && nextEmail === null) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Manager must keep a login email');
+  }
 
   // If enabling login on a user that currently has no passwordHash, require password
   if (
     nextEmail !== undefined &&
     nextEmail !== null &&
+    nextEmail !== existing.email &&
     existing.passwordHash === null &&
     input.password === undefined
   ) {
@@ -283,10 +384,16 @@ export async function updateStaffForCompany(
   }
 
   if (nextEmail !== undefined && nextEmail !== null && nextEmail !== existing.email) {
-    const emailOwner = await prismaUnfiltered.user.findUnique({
+    const emailIdentity = await prismaUnfiltered.identity.findUnique({
       where: { email: nextEmail },
     });
-    if (emailOwner && emailOwner.id !== existing.id) {
+    const emailOwner = await prismaUnfiltered.user.findFirst({
+      where: { email: nextEmail },
+    });
+    if (
+      (emailIdentity && emailIdentity.id !== existing.identityId) ||
+      (emailOwner && emailOwner.id !== existing.id)
+    ) {
       throw new AppError('CONFLICT', 409, 'Email is already in use');
     }
   }
@@ -298,29 +405,103 @@ export async function updateStaffForCompany(
     nextPasswordHash = await hashPassword(input.password);
   }
 
-  // BR-11: tokenVersion is incremented on password change, deactivation, or login removal
+  const emailChanged = nextEmail !== undefined && nextEmail !== existing.email;
+  const credentialsChanging =
+    emailChanged || input.password !== undefined || (nextEmail === null && existing.email !== null);
   const shouldBumpTokenVersion =
-    input.password !== undefined ||
-    nextEmail === null ||
-    (input.isActive === false && existing.isActive);
+    credentialsChanging || (input.isActive === false && existing.isActive);
 
-  if (!existing.isActive && input.isActive === true) {
-    await assertWithinStaffLimit(companyId, 1);
-  }
+  const currentNow = clockNow();
 
   try {
-    const updated = await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
-        ...(nextEmail !== undefined ? { email: nextEmail } : {}),
-        ...(nextPasswordHash !== undefined ? { passwordHash: nextPasswordHash } : {}),
-        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        ...(input.isBookable !== undefined ? { isBookable: input.isBookable } : {}),
-        ...(shouldBumpTokenVersion ? { tokenVersion: { increment: 1 } } : {}),
-      },
-      include: staffInclude,
+    const updated = await prisma.$transaction(async (tx) => {
+      if (!existing.isActive && input.isActive === true) {
+        await assertWithinStaffLimit(companyId, 1, tx);
+      }
+      if (credentialsChanging && existing.identityId) {
+        await lockIdentity(tx, existing.identityId);
+        await assertIdentityNotShared(tx, existing.identityId, companyId);
+      }
+
+      let nextIdentityId: string | null | undefined;
+      let identityPasswordHandled = false;
+
+      if (nextEmail === null) {
+        nextIdentityId = null;
+      } else if (emailChanged && nextEmail !== undefined) {
+        if (await isLoginEmailTaken(tx, nextEmail)) {
+          throw new AppError('CONFLICT', 409, 'Email is already in use');
+        }
+        if (existing.identityId) {
+          await applyIdentityEmail(tx, existing.identityId, nextEmail, currentNow);
+          if (nextPasswordHash !== undefined) {
+            await applyIdentityPassword(tx, existing.identityId, nextPasswordHash, currentNow);
+            identityPasswordHandled = true;
+          }
+        } else {
+          const createdIdentity = await tx.identity.create({
+            data: {
+              email: nextEmail,
+              passwordHash: nextPasswordHash ?? null,
+              lastCompanyId: companyId,
+            },
+          });
+          nextIdentityId = createdIdentity.id;
+        }
+      } else if (input.password !== undefined && existing.identityId) {
+        await applyIdentityPassword(tx, existing.identityId, nextPasswordHash ?? null, currentNow);
+        identityPasswordHandled = true;
+      }
+
+      if (shouldBumpTokenVersion && !identityPasswordHandled) {
+        await tx.authSession.updateMany({
+          where: { userId: existing.id, companyId, revokedAt: null },
+          data: { revokedAt: currentNow },
+        });
+        await tx.passwordResetToken.updateMany({
+          where: { userId: existing.id, user: { companyId }, usedAt: null },
+          data: { usedAt: currentNow },
+        });
+      }
+
+      const saved = await tx.user.update({
+        where: { id: existing.id, companyId },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
+          ...(nextIdentityId !== undefined ? { identityId: nextIdentityId } : {}),
+          ...(nextEmail !== undefined && !existing.identityId
+            ? {
+                email: nextEmail,
+                ...(emailChanged
+                  ? { emailVerifiedAt: null, emailVerifyHash: null, emailVerifyExpiresAt: null }
+                  : {}),
+              }
+            : nextEmail === null
+              ? {
+                  email: null,
+                  emailVerifiedAt: null,
+                  emailVerifyHash: null,
+                  emailVerifyExpiresAt: null,
+                }
+              : {}),
+          ...(!identityPasswordHandled && nextPasswordHash !== undefined
+            ? { passwordHash: nextPasswordHash }
+            : {}),
+          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+          ...(input.isBookable !== undefined ? { isBookable: input.isBookable } : {}),
+          ...(shouldBumpTokenVersion && !identityPasswordHandled
+            ? { tokenVersion: { increment: 1 } }
+            : {}),
+        },
+        include: staffInclude,
+      });
+
+      if (nextEmail === null && existing.identityId) {
+        await deleteIdentityIfOrphan(tx, existing.identityId);
+      }
+
+      return saved;
     });
     const isDeactivation = input.isActive === false && existing.isActive;
     await audit(prisma, {
@@ -359,7 +540,7 @@ export async function deleteStaffForCompany(
     throw new AppError('NOT_FOUND', 404, 'Staff member not found');
   }
 
-  // BR-7: The OWNER can never delete himself; DELETE /staff/:id is for MASTER records only.
+  // BR-7: The OWNER can never delete himself.
   if (existing.role === Role.OWNER) {
     throw new AppError('FORBIDDEN', 403, 'Owner account cannot be deleted');
   }
@@ -369,7 +550,7 @@ export async function deleteStaffForCompany(
     where: {
       companyId,
       masterId: staffId,
-      status: AppointmentStatus.SCHEDULED,
+      status: { in: [...UPCOMING_ACTIVE_STATUSES] },
       startAt: { gte: now },
     },
   });
@@ -392,8 +573,17 @@ export async function deleteStaffForCompany(
   await prisma.$transaction([
     prisma.masterService.deleteMany({ where: { userId: staffId } }),
     prisma.workingHours.deleteMany({ where: { userId: staffId } }),
+    prisma.staffMedia.deleteMany({ where: { companyId, userId: staffId } }),
+    prisma.authSession.updateMany({
+      where: { userId: staffId, companyId, revokedAt: null },
+      data: { revokedAt: now },
+    }),
+    prisma.passwordResetToken.updateMany({
+      where: { userId: staffId, user: { companyId }, usedAt: null },
+      data: { usedAt: now },
+    }),
     prisma.user.update({
-      where: { id: staffId },
+      where: { id: staffId, companyId },
       data: {
         deletedAt: now,
         tokenVersion: { increment: 1 },
@@ -424,6 +614,9 @@ export async function replaceStaffServicesForCompany(
   if (!staff) {
     throw new AppError('NOT_FOUND', 404, 'Staff member not found');
   }
+  if (staff.role === Role.MANAGER) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Managers do not provide booking services');
+  }
 
   if (input.serviceIds.length > 0) {
     const matchingServices = await prisma.service.findMany({
@@ -449,15 +642,27 @@ export async function replaceStaffServicesForCompany(
     }
   }
 
+  const overrideByServiceId = new Map(
+    (input.serviceOverrides ?? []).map((item) => [item.serviceId, item]),
+  );
+
   await prisma.$transaction([
     prisma.masterService.deleteMany({ where: { userId: staffId } }),
     ...(input.serviceIds.length > 0
       ? [
           prisma.masterService.createMany({
-            data: input.serviceIds.map((serviceId) => ({
-              userId: staffId,
-              serviceId,
-            })),
+            data: input.serviceIds.map((serviceId) => {
+              const override = overrideByServiceId.get(serviceId);
+              return {
+                userId: staffId,
+                serviceId,
+                customPrice:
+                  override?.customPrice !== undefined && override.customPrice !== null
+                    ? new Prisma.Decimal(override.customPrice)
+                    : null,
+                customDurationMin: override?.customDurationMin ?? null,
+              };
+            }),
           }),
         ]
       : []),
@@ -480,6 +685,9 @@ export async function replaceStaffWorkingHoursForCompany(
   });
   if (!staff) {
     throw new AppError('NOT_FOUND', 404, 'Staff member not found');
+  }
+  if (staff.role === Role.MANAGER) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Managers do not have bookable hours');
   }
 
   await prisma.$transaction([

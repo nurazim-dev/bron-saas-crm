@@ -1,5 +1,4 @@
 import {
-  AppointmentStatus,
   AuditActor,
   type PrepaymentMode,
   Prisma,
@@ -10,7 +9,8 @@ import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
-import { assertPlanFeature } from '../billing/billing.service.js';
+import { UPCOMING_ACTIVE_STATUSES } from '../appointments/status-transitions.js';
+import { assertPlanFeature, assertWithinServiceLimit } from '../billing/billing.service.js';
 import type { CreateServiceBody, UpdateServiceBody } from './services.schemas.js';
 
 export interface ServiceDto {
@@ -151,18 +151,23 @@ export async function createServiceForCompany(
     input.prepaymentValue,
   );
 
-  const created = await prisma.service.create({
-    data: {
-      companyId,
-      name: input.name,
-      description,
-      durationMin: input.durationMin,
-      price: new Prisma.Decimal(input.price),
-      requiresPrepayment: prepay.requiresPrepayment,
-      prepaymentMode: prepay.prepaymentMode,
-      prepaymentValue: prepay.prepaymentValue,
-      isActive: input.isActive,
-    },
+  const created = await prisma.$transaction(async (tx) => {
+    if (input.isActive !== false) {
+      await assertWithinServiceLimit(companyId, 1, tx);
+    }
+    return tx.service.create({
+      data: {
+        companyId,
+        name: input.name,
+        description,
+        durationMin: input.durationMin,
+        price: new Prisma.Decimal(input.price),
+        requiresPrepayment: prepay.requiresPrepayment,
+        prepaymentMode: prepay.prepaymentMode,
+        prepaymentValue: prepay.prepaymentValue,
+        isActive: input.isActive,
+      },
+    });
   });
   return serializeService(created);
 }
@@ -202,22 +207,27 @@ export async function updateServiceForCompany(
       ? await resolveServicePrepaymentConfig(companyId, nextRequiresPrepayment, nextMode, nextValue)
       : undefined;
 
-  const updated = await prisma.service.update({
-    where: { id: serviceId },
-    data: {
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(normalizedDescription !== undefined ? { description: normalizedDescription } : {}),
-      ...(input.durationMin !== undefined ? { durationMin: input.durationMin } : {}),
-      ...(input.price !== undefined ? { price: new Prisma.Decimal(input.price) } : {}),
-      ...(prepay
-        ? {
-            requiresPrepayment: prepay.requiresPrepayment,
-            prepaymentMode: prepay.prepaymentMode,
-            prepaymentValue: prepay.prepaymentValue,
-          }
-        : {}),
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    if (!existing.isActive && input.isActive === true) {
+      await assertWithinServiceLimit(companyId, 1, tx);
+    }
+    return tx.service.update({
+      where: { id: serviceId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(normalizedDescription !== undefined ? { description: normalizedDescription } : {}),
+        ...(input.durationMin !== undefined ? { durationMin: input.durationMin } : {}),
+        ...(input.price !== undefined ? { price: new Prisma.Decimal(input.price) } : {}),
+        ...(prepay
+          ? {
+              requiresPrepayment: prepay.requiresPrepayment,
+              prepaymentMode: prepay.prepaymentMode,
+              prepaymentValue: prepay.prepaymentValue,
+            }
+          : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      },
+    });
   });
   return serializeService(updated);
 }
@@ -238,8 +248,8 @@ export async function deleteServiceForCompany(
   const upcomingCount = await prisma.appointment.count({
     where: {
       companyId,
-      serviceId,
-      status: AppointmentStatus.SCHEDULED,
+      OR: [{ serviceId }, { items: { some: { serviceId, companyId } } }],
+      status: { in: [...UPCOMING_ACTIVE_STATUSES] },
       startAt: { gte: now },
     },
   });

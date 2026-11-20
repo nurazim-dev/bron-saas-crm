@@ -1,9 +1,12 @@
 import { DateTime } from 'luxon';
 import {
+  AppointmentStatus,
   AuditActor,
   Locale,
   NotificationChannel,
+  OutboxStatus,
   type PaymentMethod,
+  PaymentProofScope,
   PaymentSource,
   PaymentStatus,
   type Plan,
@@ -23,20 +26,29 @@ import { enqueue } from '../notifications/outbox.service.js';
 import { getPlatformSettings } from '../platform/platform-settings.service.js';
 import { computeBillingState, computeConfirmedPeriod } from './billing-state.js';
 import type { CreatePaymentClaimBody, ListPaymentsQuery } from './billing.schemas.js';
+import type { PaymentProofSummaryDto } from '../payments/payment-proof.service.js';
 
 export interface PlanDto {
   id: string;
   code: string;
   name: string;
+  description: string | null;
   priceMonthly: string;
   currency: string;
   maxStaff: number;
+  maxServices: number | null;
+  maxAppointmentsPerMonth: number | null;
   maxRemindersPerMonth: number | null;
   featureAnalytics: boolean;
   featureAutoReminders: boolean;
   featurePrepayment: boolean;
+  featureCrmAdvanced: boolean;
+  featureManualPayments: boolean;
+  featureMultiCompany: boolean;
+  featureCustomBranding: boolean;
   isActive: boolean;
   isPublic: boolean;
+  isLegacy: boolean;
   sortOrder: number;
 }
 
@@ -59,6 +71,7 @@ export interface SubscriptionPaymentDto {
   source: PaymentSource;
   reviewedAt: string | null;
   createdAt: string;
+  proofs: PaymentProofSummaryDto[];
 }
 
 export interface BillingOverviewDto {
@@ -76,6 +89,15 @@ export interface BillingOverviewDto {
     activeStaffCount: number;
     maxStaff: number;
     isOverStaffLimit: boolean;
+    activeServicesCount: number;
+    maxServices: number | null;
+    isOverServicesLimit: boolean;
+    monthlyAppointmentsCount: number;
+    maxAppointmentsPerMonth: number | null;
+    isOverAppointmentsLimit: boolean;
+    monthlyRemindersCount: number;
+    maxRemindersPerMonth: number | null;
+    isOverRemindersLimit: boolean;
   };
   pendingClaim: SubscriptionPaymentDto | null;
   paymentInstructions: string;
@@ -86,21 +108,38 @@ export function serializePlan(plan: Plan): PlanDto {
     id: plan.id,
     code: plan.code,
     name: plan.name,
+    description: plan.description,
     priceMonthly: plan.priceMonthly.toFixed(2),
     currency: plan.currency,
     maxStaff: plan.maxStaff,
+    maxServices: plan.maxServices,
+    maxAppointmentsPerMonth: plan.maxAppointmentsPerMonth,
     maxRemindersPerMonth: plan.maxRemindersPerMonth,
     featureAnalytics: plan.featureAnalytics,
     featureAutoReminders: plan.featureAutoReminders,
     featurePrepayment: plan.featurePrepayment,
+    featureCrmAdvanced: plan.featureCrmAdvanced,
+    featureManualPayments: plan.featureManualPayments,
+    featureMultiCompany: plan.featureMultiCompany,
+    featureCustomBranding: plan.featureCustomBranding,
     isActive: plan.isActive,
     isPublic: plan.isPublic,
+    isLegacy: plan.isLegacy,
     sortOrder: plan.sortOrder,
   };
 }
 
 export function serializePayment(
-  payment: SubscriptionPayment & { plan: Pick<Plan, 'code' | 'name'> },
+  payment: SubscriptionPayment & {
+    plan: Pick<Plan, 'code' | 'name'>;
+    proofs?: Array<{
+      id: string;
+      fileName: string;
+      mime: string;
+      size: number;
+      createdAt: Date;
+    }>;
+  },
 ): SubscriptionPaymentDto {
   return {
     id: payment.id,
@@ -121,6 +160,13 @@ export function serializePayment(
     source: payment.source,
     reviewedAt: payment.reviewedAt ? payment.reviewedAt.toISOString() : null,
     createdAt: payment.createdAt.toISOString(),
+    proofs: (payment.proofs ?? []).map((p) => ({
+      id: p.id,
+      fileName: p.fileName,
+      mime: p.mime,
+      size: p.size,
+      createdAt: p.createdAt.toISOString(),
+    })),
   };
 }
 
@@ -161,13 +207,8 @@ export async function createTrialSubscriptionForCompany(
 }
 
 async function loadSubscriptionWithPlanAndSettings(companyId: string, db: DbClient = prisma) {
-  const [sub, settings] = await Promise.all([
-    db.subscription.findUnique({
-      where: { companyId },
-      include: { plan: true },
-    }),
-    getPlatformSettings(db),
-  ]);
+  const sub = await db.subscription.findUnique({ where: { companyId }, include: { plan: true } });
+  const settings = await getPlatformSettings(db);
 
   if (!sub) {
     throw new AppError('NOT_FOUND', 404, 'Subscription not found for company');
@@ -178,12 +219,49 @@ async function loadSubscriptionWithPlanAndSettings(companyId: string, db: DbClie
 }
 
 export async function getBillingOverview(companyId: string): Promise<BillingOverviewDto> {
-  const [{ sub, settings, computed }, activeStaffCount, pendingClaim] = await Promise.all([
+  const companyRow = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { timezone: true },
+  });
+  const timezone = companyRow?.timezone ?? 'Asia/Bishkek';
+  const localNow = DateTime.fromJSDate(clockNow(), { zone: timezone });
+  const monthStartUtc = localNow.startOf('month').toUTC().toJSDate();
+  const nextMonthStartUtc = localNow.startOf('month').plus({ months: 1 }).toUTC().toJSDate();
+
+  const [
+    { sub, settings, computed },
+    activeStaffCount,
+    activeServicesCount,
+    monthlyAppointmentsCount,
+    monthlyRemindersCount,
+    pendingClaim,
+  ] = await Promise.all([
     loadSubscriptionWithPlanAndSettings(companyId),
     prisma.user.count({
       where: {
         companyId,
         isActive: true,
+      },
+    }),
+    prisma.service.count({
+      where: {
+        companyId,
+        isActive: true,
+      },
+    }),
+    prisma.appointment.count({
+      where: {
+        companyId,
+        status: { not: AppointmentStatus.CANCELLED },
+        startAt: { gte: monthStartUtc, lt: nextMonthStartUtc },
+      },
+    }),
+    prisma.outboxMessage.count({
+      where: {
+        companyId,
+        kind: { in: ['REMINDER_24H', 'REMINDER_2H'] },
+        status: OutboxStatus.SENT,
+        sentAt: { gte: monthStartUtc, lt: nextMonthStartUtc },
       },
     }),
     prisma.subscriptionPayment.findFirst({
@@ -193,6 +271,11 @@ export async function getBillingOverview(companyId: string): Promise<BillingOver
       },
       include: {
         plan: { select: { code: true, name: true } },
+        proofs: {
+          where: { scope: PaymentProofScope.SUBSCRIPTION_PAYMENT },
+          select: { id: true, fileName: true, mime: true, size: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { createdAt: 'desc' },
     }),
@@ -213,6 +296,20 @@ export async function getBillingOverview(companyId: string): Promise<BillingOver
       activeStaffCount,
       maxStaff: sub.plan.maxStaff,
       isOverStaffLimit: activeStaffCount > sub.plan.maxStaff,
+      activeServicesCount,
+      maxServices: sub.plan.maxServices,
+      isOverServicesLimit:
+        sub.plan.maxServices !== null && activeServicesCount > sub.plan.maxServices,
+      monthlyAppointmentsCount,
+      maxAppointmentsPerMonth: sub.plan.maxAppointmentsPerMonth,
+      isOverAppointmentsLimit:
+        sub.plan.maxAppointmentsPerMonth !== null &&
+        monthlyAppointmentsCount > sub.plan.maxAppointmentsPerMonth,
+      monthlyRemindersCount,
+      maxRemindersPerMonth: sub.plan.maxRemindersPerMonth,
+      isOverRemindersLimit:
+        sub.plan.maxRemindersPerMonth !== null &&
+        monthlyRemindersCount > sub.plan.maxRemindersPerMonth,
     },
     pendingClaim: pendingClaim ? serializePayment(pendingClaim) : null,
     paymentInstructions: settings.billingPaymentInstructions,
@@ -237,6 +334,11 @@ export async function listCompanyPayments(
       where,
       include: {
         plan: { select: { code: true, name: true } },
+        proofs: {
+          where: { scope: PaymentProofScope.SUBSCRIPTION_PAYMENT },
+          select: { id: true, fileName: true, mime: true, size: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip: (query.page - 1) * query.limit,
@@ -257,11 +359,24 @@ export async function createPaymentClaim(
   body: CreatePaymentClaimBody,
   auditContext?: AuditRequestContext,
 ): Promise<SubscriptionPaymentDto> {
-  const plan = await prisma.plan.findFirst({
-    where: { id: body.planId, isActive: true },
-  });
-  if (!plan) {
+  const [plan, currentSub] = await Promise.all([
+    prisma.plan.findFirst({
+      where: { id: body.planId, isActive: true },
+    }),
+    prisma.subscription.findUnique({
+      where: { companyId },
+      select: { planId: true },
+    }),
+  ]);
+  if (!plan || (!plan.isPublic && currentSub?.planId !== plan.id)) {
     throw new AppError('NOT_FOUND', 404, 'Subscription plan not found');
+  }
+  if (new Prisma.Decimal(plan.priceMonthly).lte(0)) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      422,
+      'Use /api/v1/billing/switch-free to switch to the free plan without payment claim',
+    );
   }
 
   const existingPending = await prisma.subscriptionPayment.findFirst({
@@ -775,7 +890,95 @@ export async function recordOfflinePayment(
   });
 }
 
-export type PlanFeatureKey = 'analytics' | 'autoReminders' | 'prepayment';
+export async function switchToFreePlan(
+  companyId: string,
+  userId: string,
+  auditContext?: AuditRequestContext,
+): Promise<BillingOverviewDto> {
+  const freePlan = await prisma.plan.findFirst({
+    where: { code: 'FREE', isActive: true },
+  });
+  if (!freePlan) {
+    throw new AppError('NOT_FOUND', 404, 'Free plan is not available');
+  }
+
+  const pendingClaim = await prisma.subscriptionPayment.findFirst({
+    where: { companyId, status: PaymentStatus.PENDING },
+    select: { id: true },
+  });
+  if (pendingClaim) {
+    throw new AppError(
+      'PAYMENT_CLAIM_PENDING',
+      409,
+      'Cancel your pending payment claim before switching to the Free plan',
+    );
+  }
+
+  const currentNow = clockNow();
+  const farFuture = DateTime.fromJSDate(currentNow, { zone: 'utc' }).plus({ years: 10 }).toJSDate();
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.subscription.findUnique({ where: { companyId } });
+    if (!existing) {
+      throw new AppError('NOT_FOUND', 404, 'Subscription not found for company');
+    }
+
+    await tx.subscription.update({
+      where: { companyId },
+      data: {
+        planId: freePlan.id,
+        isTrial: false,
+        periodStartsAt: currentNow,
+        periodEndsAt: farFuture,
+        status: SubscriptionStatus.ACTIVE,
+      },
+    });
+
+    await audit(tx, {
+      actorType: AuditActor.USER,
+      actorId: userId,
+      companyId,
+      action: 'billing.switch_to_free',
+      entityType: 'Subscription',
+      entityId: existing.id,
+      metadata: {
+        previousPlanId: existing.planId,
+        nextPlanCode: freePlan.code,
+      },
+      context: auditContext,
+    });
+  });
+
+  return getBillingOverview(companyId);
+}
+
+export type PlanFeatureKey =
+  | 'analytics'
+  | 'autoReminders'
+  | 'prepayment'
+  | 'crmAdvanced'
+  | 'manualPayments'
+  | 'multiCompany'
+  | 'customBranding';
+
+function isPlanFeatureEnabled(plan: Plan, feature: PlanFeatureKey): boolean {
+  switch (feature) {
+    case 'analytics':
+      return plan.featureAnalytics;
+    case 'autoReminders':
+      return plan.featureAutoReminders;
+    case 'prepayment':
+      return plan.featurePrepayment;
+    case 'crmAdvanced':
+      return plan.featureCrmAdvanced;
+    case 'manualPayments':
+      return plan.featureManualPayments;
+    case 'multiCompany':
+      return plan.featureMultiCompany;
+    case 'customBranding':
+      return plan.featureCustomBranding;
+  }
+}
 
 export async function assertWritableSubscription(companyId: string): Promise<void> {
   const { computed } = await loadSubscriptionWithPlanAndSettings(companyId);
@@ -811,14 +1014,36 @@ export async function assertPlanFeature(companyId: string, feature: PlanFeatureK
     );
   }
 
-  const enabled =
-    feature === 'analytics'
-      ? sub.plan.featureAnalytics
-      : feature === 'autoReminders'
-        ? sub.plan.featureAutoReminders
-        : sub.plan.featurePrepayment;
+  if (!isPlanFeatureEnabled(sub.plan, feature)) {
+    throw new AppError(
+      'FEATURE_NOT_IN_PLAN',
+      402,
+      `Your current plan (${sub.plan.name}) does not include this feature`,
+    );
+  }
+}
 
-  if (!enabled) {
+export async function assertOptionalPlanFeature(
+  companyId: string,
+  feature: PlanFeatureKey,
+): Promise<void> {
+  const sub = await prisma.subscription.findUnique({
+    where: { companyId },
+    include: { plan: true },
+  });
+  if (!sub) {
+    return;
+  }
+  const settings = await getPlatformSettings(prisma);
+  const computed = computeBillingState(sub, clockNow(), { graceDays: settings.graceDays });
+  if (computed.state === SubscriptionStatus.LOCKED) {
+    throw new AppError(
+      'SUBSCRIPTION_REQUIRED',
+      402,
+      'Subscription has expired. Renew your plan to make changes.',
+    );
+  }
+  if (!isPlanFeatureEnabled(sub.plan, feature)) {
     throw new AppError(
       'FEATURE_NOT_IN_PLAN',
       402,
@@ -830,13 +1055,16 @@ export async function assertPlanFeature(companyId: string, feature: PlanFeatureK
 export async function assertWithinStaffLimit(
   companyId: string,
   additionalCount = 1,
+  db: DbClient = prisma,
 ): Promise<void> {
+  await db.$queryRaw`SELECT "id" FROM "Company" WHERE "id" = ${companyId}::uuid FOR UPDATE`;
   const [{ sub }, activeStaffCount] = await Promise.all([
-    loadSubscriptionWithPlanAndSettings(companyId),
-    prisma.user.count({
+    loadSubscriptionWithPlanAndSettings(companyId, db),
+    db.user.count({
       where: {
         companyId,
         isActive: true,
+        deletedAt: null,
       },
     }),
   ]);
@@ -846,6 +1074,71 @@ export async function assertWithinStaffLimit(
       'PLAN_LIMIT_REACHED',
       402,
       `Active staff limit (${sub.plan.maxStaff}) reached for plan ${sub.plan.name}`,
+    );
+  }
+}
+
+export async function assertWithinServiceLimit(
+  companyId: string,
+  additionalCount = 1,
+  db: DbClient = prisma,
+): Promise<void> {
+  await db.$queryRaw`SELECT "id" FROM "Company" WHERE "id" = ${companyId}::uuid FOR UPDATE`;
+  const sub = await db.subscription.findUnique({
+    where: { companyId },
+    include: { plan: true },
+  });
+  if (!sub || sub.plan.maxServices === null) {
+    return;
+  }
+  const activeServicesCount = await db.service.count({
+    where: { companyId, isActive: true, deletedAt: null },
+  });
+  if (activeServicesCount + additionalCount > sub.plan.maxServices) {
+    throw new AppError(
+      'PLAN_LIMIT_REACHED',
+      402,
+      `Active services limit (${sub.plan.maxServices}) reached for plan ${sub.plan.name}`,
+    );
+  }
+}
+
+export async function assertWithinMonthlyAppointmentLimit(
+  companyId: string,
+  startAt: Date,
+  additionalCount = 1,
+): Promise<void> {
+  const [sub, company] = await Promise.all([
+    prisma.subscription.findUnique({
+      where: { companyId },
+      include: { plan: true },
+    }),
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { timezone: true },
+    }),
+  ]);
+  if (!sub || sub.plan.maxAppointmentsPerMonth === null) {
+    return;
+  }
+  const timezone = company?.timezone ?? 'Asia/Bishkek';
+  const localDt = DateTime.fromJSDate(startAt, { zone: timezone });
+  const monthStartUtc = localDt.startOf('month').toUTC().toJSDate();
+  const nextMonthStartUtc = localDt.startOf('month').plus({ months: 1 }).toUTC().toJSDate();
+
+  const monthlyCount = await prisma.appointment.count({
+    where: {
+      companyId,
+      status: { not: AppointmentStatus.CANCELLED },
+      startAt: { gte: monthStartUtc, lt: nextMonthStartUtc },
+    },
+  });
+
+  if (monthlyCount + additionalCount > sub.plan.maxAppointmentsPerMonth) {
+    throw new AppError(
+      'PLAN_LIMIT_REACHED',
+      402,
+      `Monthly appointments limit (${sub.plan.maxAppointmentsPerMonth}) reached for plan ${sub.plan.name}`,
     );
   }
 }
