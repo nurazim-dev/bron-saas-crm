@@ -25,6 +25,7 @@ import type {
 } from './admin-auth.schemas.js';
 
 const MAX_FAILED_LOGIN_ATTEMPTS = 10;
+const MAX_FAILED_MFA_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MINUTES = 15;
 const TOTP_PERIOD_SEC = 30;
 const TOTP_EPOCH_TOLERANCE_SEC = 30;
@@ -123,10 +124,6 @@ export async function loginAdminWithPassword(
   }
 
   if (admin.totpEnabledAt !== null) {
-    await prisma.platformAdmin.update({
-      where: { id: admin.id },
-      data: { failedLoginCount: 0, lockedUntil: null },
-    });
     return {
       status: 'mfa_required',
       mfaToken: signAdminMfaToken(admin, 'mfa'),
@@ -189,6 +186,40 @@ export async function verifyAdminMfa(
     throw new AppError('UNAUTHENTICATED', 401, 'Invalid MFA session');
   }
 
+  if (admin.lockedUntil !== null && admin.lockedUntil.getTime() > currentNow.getTime()) {
+    throw new AppError(
+      'ACCOUNT_LOCKED',
+      423,
+      'Account is temporarily locked due to too many failed attempts',
+    );
+  }
+
+  const recordMfaFailure = async (): Promise<void> => {
+    const nextFailedCount = admin.failedLoginCount + 1;
+    const lockedUntil =
+      nextFailedCount >= MAX_FAILED_MFA_ATTEMPTS
+        ? addMinutesUtc(currentNow, LOCKOUT_DURATION_MINUTES)
+        : null;
+
+    await prisma.platformAdmin.update({
+      where: { id: admin.id },
+      data: {
+        failedLoginCount: nextFailedCount,
+        ...(lockedUntil ? { lockedUntil } : {}),
+      },
+    });
+
+    await audit(prisma, {
+      actorType: AuditActor.ADMIN,
+      actorId: admin.id,
+      action: lockedUntil ? 'admin.mfa_locked' : 'admin.mfa_failed',
+      entityType: 'PlatformAdmin',
+      entityId: admin.id,
+      metadata: { failedLoginCount: nextFailedCount },
+      context: auditContext,
+    });
+  };
+
   if (input.code !== undefined) {
     const secret = decryptTotpSecret(admin.totpSecretEnc);
     const epoch = Math.floor(currentNow.getTime() / 1000);
@@ -202,18 +233,32 @@ export async function verifyAdminMfa(
     });
 
     if (!result.valid) {
+      await recordMfaFailure();
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid or replayed 2FA code');
     }
 
     const delta = 'delta' in result && typeof result.delta === 'number' ? result.delta : 0;
     const matchedStep = Math.floor(epoch / TOTP_PERIOD_SEC) + delta;
 
-    const updated = await prisma.platformAdmin.update({
-      where: { id: admin.id },
+    const claimed = await prisma.platformAdmin.updateMany({
+      where: {
+        id: admin.id,
+        OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: matchedStep } }],
+      },
       data: {
         lastTotpStep: matchedStep,
+        failedLoginCount: 0,
+        lockedUntil: null,
         lastLoginAt: currentNow,
       },
+    });
+    if (claimed.count === 0) {
+      await recordMfaFailure();
+      throw new AppError('UNAUTHENTICATED', 401, 'Invalid or replayed 2FA code');
+    }
+
+    const updated = await prisma.platformAdmin.findUniqueOrThrow({
+      where: { id: admin.id },
     });
 
     await audit(prisma, {
@@ -234,6 +279,7 @@ export async function verifyAdminMfa(
   const recoveryHash = hashSha256Hex(rawRecovery);
   const idx = admin.recoveryCodeHashes.indexOf(recoveryHash);
   if (idx === -1) {
+    await recordMfaFailure();
     throw new AppError('UNAUTHENTICATED', 401, 'Invalid recovery code');
   }
 
@@ -242,6 +288,8 @@ export async function verifyAdminMfa(
     where: { id: admin.id },
     data: {
       recoveryCodeHashes: remainingHashes,
+      failedLoginCount: 0,
+      lockedUntil: null,
       lastLoginAt: currentNow,
     },
   });
