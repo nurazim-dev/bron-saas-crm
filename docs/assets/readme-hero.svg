@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-label="Zapis.kg — SaaS CRM и онлайн-запись для барбершопов и салонов красоты">
+  <defs>
+    <linearGradient id="heroBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090F1C"/>
+      <stop offset="55%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#111C30"/>
+    </linearGradient>
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="55%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#60A5FA"/>
+    </linearGradient>
+    <linearGradient id="shimmerLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0"/>
+      <stop offset="35%" stop-color="#34D399" stop-opacity="0.95"/>
+      <stop offset="65%" stop-color="#22D3EE" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#6366F1" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#162238" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#0D1627" stop-opacity="0.95"/>
+    </linearGradient>
+    <radialGradient id="orbEmerald" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0.32"/>
+      <stop offset="70%" stop-color="#10B981" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orbCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#06B6D4" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#6366F1" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#06B6D4" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="subtleGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#94A3B8" stroke-opacity="0.045" stroke-width="1"/>
+    </pattern>
+    <clipPath id="heroClip">
+      <rect x="0" y="0" width="1200" height="340" rx="20"/>
+    </clipPath>
+    <style>
+      .font-sans {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      @keyframes drift1 {
+        0%, 100% { transform: translate(0px, 0px) scale(1); }
+        50% { transform: translate(36px, 22px) scale(1.08); }
+      }
+      @keyframes drift2 {
+        0%, 100% { transform: translate(0px, 0px) scale(1); }
+        50% { transform: translate(-32px, -24px) scale(1.07); }
+      }
+      @keyframes pulseDot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(1.35); }
+      }
+      @keyframes floatCard {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-6px); }
+      }
+      @keyframes shimmerMove {
+        0% { transform: translateX(-480px); }
+        100% { transform: translateX(1200px); }
+      }
+      @keyframes cycle1 {
+        0%, 28% { opacity: 1; transform: translateY(0px); }
+        33%, 95% { opacity: 0; transform: translateY(4px); }
+        100% { opacity: 1; transform: translateY(0px); }
+      }
+      @keyframes cycle2 {
+        0%, 31% { opacity: 0; transform: translateY(4px); }
+        35%, 61% { opacity: 1; transform: translateY(0px); }
+        66%, 100% { opacity: 0; transform: translateY(4px); }
+      }
+      @keyframes cycle3 {
+        0%, 64% { opacity: 0; transform: translateY(4px); }
+        68%, 94% { opacity: 1; transform: translateY(0px); }
+        99%, 100% { opacity: 0; transform: translateY(4px); }
+      }
+      .orb-1 { animation: drift1 11s ease-in-out infinite; transform-origin: 220px 90px; }
+      .orb-2 { animation: drift2 13s ease-in-out infinite; transform-origin: 980px 250px; }
+      .pulse-dot { animation: pulseDot 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .float-card { animation: floatCard 6s ease-in-out infinite; }
+      .shimmer-bar { animation: shimmerMove 5.5s linear infinite; }
+      .slide-1 { animation: cycle1 12s ease-in-out infinite; }
+      .slide-2 { animation: cycle2 12s ease-in-out infinite; }
+      .slide-3 { animation: cycle3 12s ease-in-out infinite; }
+    </style>
+  </defs>
+
+  <g clip-path="url(#heroClip)">
+    <rect x="0" y="0" width="1200" height="340" fill="url(#heroBg)"/>
+    <rect x="0" y="0" width="1200" height="340" fill="url(#subtleGrid)"/>
+
+    <!-- Drifting aura orbs -->
+    <circle class="orb-1" cx="220" cy="95" r="240" fill="url(#orbEmerald)"/>
+    <circle class="orb-2" cx="980" cy="245" r="270" fill="url(#orbCyan)"/>
+
+    <!-- Top accent shimmer bar -->
+    <rect x="0" y="0" width="1200" height="3" fill="#1E293B"/>
+    <rect class="shimmer-bar" x="0" y="0" width="480" height="3" fill="url(#shimmerLine)"/>
+
+    <!-- Left column -->
+    <g transform="translate(56, 48)">
+      <!-- Status pill -->
+      <rect x="0" y="0" width="420" height="30" rx="15" fill="#10B981" fill-opacity="0.12" stroke="#10B981" stroke-opacity="0.35" stroke-width="1"/>
+      <circle class="pulse-dot" cx="19" cy="15" r="4.5" fill="#34D399"/>
+      <text x="33" y="19.5" class="font-sans" fill="#A7F3D0" font-size="11.5" font-weight="700" letter-spacing="1.2">SAAS PLATFORM · KYRGYZSTAN · RU / KY / EN</text>
+
+      <!-- Brand Title -->
+      <text x="0" y="102" class="font-sans" fill="url(#brandGrad)" font-size="56" font-weight="800" letter-spacing="-1.2">Zapis.kg</text>
+
+      <!-- Subtitle -->
+      <text x="0" y="142" class="font-sans" fill="#F1F5F9" font-size="20" font-weight="600">Онлайн-запись, CRM и Умный Telegram-бот</text>
+      <text x="0" y="168" class="font-sans" fill="#94A3B8" font-size="17" font-weight="400">для барбершопов и салонов красоты Кыргызстана</text>
+
+      <!-- Animated cycling feature pill -->
+      <g transform="translate(0, 198)">
+        <rect x="0" y="0" width="560" height="44" rx="12" fill="#0F1D32" fill-opacity="0.92" stroke="#263752" stroke-width="1"/>
+        <circle cx="22" cy="22" r="5" fill="#22D3EE"/>
+        <g class="slide-1">
+          <text x="38" y="27" class="font-sans" fill="#E2E8F0" font-size="14" font-weight="600">Ноль двойного бронирования · PostgreSQL GiST Lock</text>
+        </g>
+        <g class="slide-2">
+          <text x="38" y="27" class="font-sans" fill="#E2E8F0" font-size="14" font-weight="600">Умный Telegram-бот · расписание, статусы и напоминания</text>
+        </g>
+        <g class="slide-3">
+          <text x="38" y="27" class="font-sans" fill="#E2E8F0" font-size="14" font-weight="600">OWASP Top 10:2025 · 224+ автотестов и E2E</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- Right column: Floating live schedule widget -->
+    <g class="float-card" transform="translate(692, 36)">
+      <rect x="0" y="0" width="452" height="268" rx="16" fill="url(#cardBg)" stroke="#293B59" stroke-width="1.2"/>
+
+      <!-- Widget Header -->
+      <rect x="0" y="0" width="452" height="50" rx="16" fill="#182640" fill-opacity="0.65"/>
+      <rect x="0" y="34" width="452" height="16" fill="#182640" fill-opacity="0.65"/>
+      <line x1="0" y1="50" x2="452" y2="50" stroke="#24344D" stroke-width="1"/>
+
+      <circle cx="24" cy="25" r="5" fill="#34D399"/>
+      <text x="38" y="29" class="font-sans" fill="#F8FAFC" font-size="13.5" font-weight="700">Demo Barbershop · Бишкек UTC+6</text>
+      <rect x="366" y="13" width="68" height="24" rx="12" fill="#10B981" fill-opacity="0.16" stroke="#10B981" stroke-opacity="0.4"/>
+      <text x="400" y="29" text-anchor="middle" class="font-sans" fill="#6EE7B7" font-size="10.5" font-weight="700">LIVE</text>
+
+      <!-- Row 1 -->
+      <g transform="translate(18, 66)">
+        <rect x="0" y="0" width="416" height="54" rx="11" fill="#0E182B" stroke="#1F304A" stroke-width="1"/>
+        <text x="16" y="23" class="font-sans" fill="#34D399" font-size="13" font-weight="700">10:00</text>
+        <text x="64" y="23" class="font-sans" fill="#F1F5F9" font-size="13.5" font-weight="600">Мужская стрижка · 500 сом</text>
+        <text x="64" y="42" class="font-sans" fill="#94A3B8" font-size="11.5">Мастер Бекзат · 60 мин</text>
+        <rect x="308" y="14" width="94" height="26" rx="13" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-opacity="0.45"/>
+        <text x="355" y="31" text-anchor="middle" class="font-sans" fill="#6EE7B7" font-size="10.5" font-weight="700">CONFIRMED</text>
+      </g>
+
+      <!-- Row 2 -->
+      <g transform="translate(18, 130)">
+        <rect x="0" y="0" width="416" height="54" rx="11" fill="#0E182B" stroke="#1F304A" stroke-width="1"/>
+        <text x="16" y="23" class="font-sans" fill="#22D3EE" font-size="13" font-weight="700">11:30</text>
+        <text x="64" y="23" class="font-sans" fill="#F1F5F9" font-size="13.5" font-weight="600">Комплекс + Борода · 800 сом</text>
+        <text x="64" y="42" class="font-sans" fill="#94A3B8" font-size="11.5">Напоминание за 24ч и 2ч</text>
+        <rect x="322" y="14" width="80" height="26" rx="13" fill="#06B6D4" fill-opacity="0.18" stroke="#06B6D4" stroke-opacity="0.45"/>
+        <text x="362" y="31" text-anchor="middle" class="font-sans" fill="#67E8F9" font-size="10.5" font-weight="700">TG BOT</text>
+      </g>
+
+      <!-- Row 3 -->
+      <g transform="translate(18, 194)">
+        <rect x="0" y="0" width="416" height="54" rx="11" fill="#0E182B" stroke="#1F304A" stroke-width="1"/>
+        <text x="16" y="23" class="font-sans" fill="#FBBF24" font-size="13" font-weight="700">14:00</text>
+        <text x="64" y="23" class="font-sans" fill="#F1F5F9" font-size="13.5" font-weight="600">Любой мастер · GiST Lock</text>
+        <text x="64" y="42" class="font-sans" fill="#94A3B8" font-size="11.5">Атомарный подбор слота (BR-12)</text>
+        <rect x="304" y="14" width="98" height="26" rx="13" fill="#F59E0B" fill-opacity="0.16" stroke="#F59E0B" stroke-opacity="0.45"/>
+        <circle class="pulse-dot" cx="319" cy="27" r="3.5" fill="#FBBF24"/>
+        <text x="361" y="31" text-anchor="middle" class="font-sans" fill="#FDE68A" font-size="10.5" font-weight="700">FREE SLOT</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Outer border -->
+  <rect x="0.75" y="0.75" width="1198.5" height="338.5" rx="20" fill="none" stroke="#1E293B" stroke-width="1.5"/>
+</svg>
