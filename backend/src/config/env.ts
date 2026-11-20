@@ -118,6 +118,20 @@ const envSchema = z
     ADMIN_REQUIRE_2FA: data.ADMIN_REQUIRE_2FA ?? data.NODE_ENV === 'production',
   }))
   .superRefine((data, ctx) => {
+    if (data.JWT_ACCESS_SECRET === data.JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['JWT_REFRESH_SECRET'],
+        message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET',
+      });
+    }
+    if (data.ADMIN_JWT_ACCESS_SECRET === data.ADMIN_JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ADMIN_JWT_REFRESH_SECRET'],
+        message: 'ADMIN_JWT_REFRESH_SECRET must differ from ADMIN_JWT_ACCESS_SECRET',
+      });
+    }
     if (data.ADMIN_JWT_ACCESS_SECRET === data.JWT_ACCESS_SECRET) {
       ctx.addIssue({
         code: 'custom',
@@ -131,6 +145,32 @@ const envSchema = z
         path: ['ADMIN_JWT_REFRESH_SECRET'],
         message: 'ADMIN_JWT_REFRESH_SECRET must differ from JWT_REFRESH_SECRET',
       });
+    }
+    if (data.NODE_ENV === 'production') {
+      const secretFields = [
+        'JWT_ACCESS_SECRET',
+        'JWT_REFRESH_SECRET',
+        'ADMIN_JWT_ACCESS_SECRET',
+        'ADMIN_JWT_REFRESH_SECRET',
+      ] as const;
+      for (const field of secretFields) {
+        const val = data[field];
+        if (/replace_with|change_me|default_secret|example/i.test(val) || new Set(val).size < 8) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [field],
+            message: `${field} is too weak or uses a placeholder value in production`,
+          });
+        }
+      }
+      const totpKeyBytes = Buffer.from(data.ADMIN_TOTP_ENCRYPTION_KEY, 'base64');
+      if (new Set(totpKeyBytes).size < 4) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ADMIN_TOTP_ENCRYPTION_KEY'],
+          message: 'ADMIN_TOTP_ENCRYPTION_KEY has insufficient entropy in production',
+        });
+      }
     }
   });
 

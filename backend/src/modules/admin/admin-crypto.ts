@@ -207,17 +207,24 @@ export function decryptTotpSecret(payload: string): string {
   if (!ivB64 || !tagB64 || !dataB64) {
     throw new AppError('INTERNAL_ERROR', 500, 'Corrupted encrypted TOTP secret');
   }
-  const decipher = createDecipheriv(
-    'aes-256-gcm',
-    getTotpKeyBuffer(),
-    Buffer.from(ivB64, 'base64'),
-  );
-  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(dataB64, 'base64')),
-    decipher.final(),
-  ]);
-  return decrypted.toString('utf8');
+  const iv = Buffer.from(ivB64, 'base64');
+  const tag = Buffer.from(tagB64, 'base64');
+  if (iv.length !== 12 || tag.length !== 16) {
+    throw new AppError('INTERNAL_ERROR', 500, 'Corrupted encrypted TOTP secret');
+  }
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', getTotpKeyBuffer(), iv, {
+      authTagLength: 16,
+    });
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(dataB64, 'base64')),
+      decipher.final(),
+    ]);
+    return decrypted.toString('utf8');
+  } catch {
+    throw new AppError('INTERNAL_ERROR', 500, 'Corrupted encrypted TOTP secret');
+  }
 }
 
 export function hashSha256Hex(raw: string): string {
