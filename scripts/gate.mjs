@@ -137,8 +137,12 @@ async function catalog() {
 
 async function boot() {
   const localEnv = {
-    RATE_LIMIT_AUTH_MAX: '50',
-    RATE_LIMIT_GLOBAL_MAX: '1000',
+    RATE_LIMIT_AUTH_MAX: '500',
+    RATE_LIMIT_GLOBAL_MAX: '5000',
+    RATE_LIMIT_PUBLIC_BOOKING_MAX: '200',
+    LOG_LEVEL: 'error',
+    NODE_OPTIONS: '--no-deprecation',
+    TELEGRAM_MODE: 'off',
     SMTP_HOST: '127.0.0.1',
     SMTP_PORT: '1025',
     SMTP_SECURE: 'false',

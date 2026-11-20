@@ -1,4 +1,4 @@
-import { AppointmentStatus, type Prisma } from '../../generated/prisma/client.js';
+import { AppointmentStatus } from '../../generated/prisma/client.js';
 import { env } from '../../config/env.js';
 import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { now as clockNow } from '../../lib/clock.js';
@@ -14,6 +14,7 @@ import {
 import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
+  type DbClient,
 } from '../availability/availability.service.js';
 import {
   cancelPendingReminders,
@@ -108,7 +109,7 @@ function computeActions(
   };
 }
 
-async function resolveManageAppointment(token: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+async function resolveManageAppointment(token: string, db: DbClient = prisma) {
   const appt = await db.appointment.findUnique({
     where: { manageToken: token },
     include: {

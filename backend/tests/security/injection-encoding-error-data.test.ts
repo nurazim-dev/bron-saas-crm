@@ -4,6 +4,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
 import {
+  Locale,
   NotificationChannel,
   OutboxStatus,
   PrepaymentMode,
@@ -29,6 +30,26 @@ import {
   createServiceFactory,
   createUserFactory,
 } from '../helpers/factories.js';
+
+function asBody(body: unknown): {
+  data?: {
+    id?: string;
+    name?: string;
+    notes?: string | null;
+    appointment?: { id?: string };
+  };
+  error?: { code?: string; requestId?: string };
+} {
+  return body as {
+    data?: {
+      id?: string;
+      name?: string;
+      notes?: string | null;
+      appointment?: { id?: string };
+    };
+    error?: { code?: string; requestId?: string };
+  };
+}
 
 describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handling, Data Protection & Bounds', () => {
   const app = createApp();
@@ -58,10 +79,10 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
 
     const sqliPayloads = [
       "' OR '1'='1",
-      "'; DROP TABLE \"Client\"; --",
+      '\'; DROP TABLE "Client"; --',
       '" UNION SELECT id, email, "passwordHash" FROM "User" --',
       '1; SELECT pg_sleep(5)--',
-      "%27%20OR%201=1--",
+      '%27%20OR%201=1--',
     ];
 
     for (const payload of sqliPayloads) {
@@ -86,7 +107,9 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
       .post('/api/v1/clients')
       .set('Authorization', `Bearer ${token}`)
       .set('Content-Type', 'application/json')
-      .send('{"name":"Proto","phone":"+996700223344","__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}');
+      .send(
+        '{"name":"Proto","phone":"+996700223344","__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}',
+      );
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
 
     // ReDoS check: pathological slug, phone, and search inputs complete in < 200ms
@@ -106,7 +129,7 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
     expect(htmlEscaped).not.toContain('<img');
     expect(htmlEscaped).toContain('&lt;script&gt;');
 
-    const tpl = renderNotificationTemplate('NEW_ONLINE_BOOKING', NotificationChannel.EMAIL, {
+    const tpl = renderNotificationTemplate('NEW_ONLINE_BOOKING', Locale.RU, {
       companyName: xss,
       clientName: xss,
       clientPhone: '+996700112233',
@@ -118,7 +141,14 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
     expect(tpl.telegramHtml).not.toContain('<script>');
 
     // CSV formula injection escaping (=, +, -, @, \t, \r)
-    for (const formula of ['=CMD()|"/C calc"!A0', '+1+1', '-1+1', '@SUM(1+1)', '\t=1+1', '\r=1+1']) {
+    for (const formula of [
+      '=CMD()|"/C calc"!A0',
+      '+1+1',
+      '-1+1',
+      '@SUM(1+1)',
+      '\t=1+1',
+      '\r=1+1',
+    ]) {
       const cell = escapeCsvCell(formula);
       expect(cell.replace(/^"/, '').startsWith("'")).toBe(true);
     }
@@ -155,8 +185,8 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
         notes: 'Line1\u0000Line2',
       });
     expect(clientRes.status).toBe(201);
-    expect(clientRes.body.data.name).toBe('CleanName');
-    expect(clientRes.body.data.notes).not.toContain('\u0000');
+    expect(asBody(clientRes.body).data?.name).toBe('CleanName');
+    expect(asBody(clientRes.body).data?.notes).not.toContain('\u0000');
   });
 
   it('enforces uniform production error envelopes, security headers, Cache-Control: no-store on manage/token/PII endpoints (SEC-008), and poison outbox resilience', async () => {
@@ -169,13 +199,10 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
       serviceId: service.id,
       startAt: DateTime.fromISO('2026-11-17T06:00:00.000Z').toJSDate(),
       endAt: DateTime.fromISO('2026-11-17T07:00:00.000Z').toJSDate(),
-      manageToken: 'sec_manage_tok_000000000000000000000000001',
     });
 
     // Manage endpoint returns PII and is keyed by bearer token -> must send Cache-Control: no-store, Referrer-Policy: no-referrer, Permissions-Policy, and no X-Powered-By (SEC-008)
-    const manageRes = await request(app).get(
-      `/api/v1/public/manage/${appt.manageToken}`,
-    );
+    const manageRes = await request(app).get(`/api/v1/public/manage/${appt.manageToken}`);
     expect(manageRes.status).toBe(200);
     expect(manageRes.headers['x-powered-by']).toBeUndefined();
     expect(manageRes.headers['x-content-type-options']).toBe('nosniff');
@@ -189,13 +216,13 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
       .set('Content-Type', 'application/json')
       .send('{"broken":');
     expect(badJsonRes.status).toBe(400);
-    expect(badJsonRes.body.error.code).toBeDefined();
-    expect(badJsonRes.body.error.requestId).toBeDefined();
+    expect(asBody(badJsonRes.body).error?.code).toBeDefined();
+    expect(asBody(badJsonRes.body).error?.requestId).toBeDefined();
     expect(JSON.stringify(badJsonRes.body)).not.toMatch(/at Object\.|node_modules|prisma/i);
 
     const notFoundRes = await request(app).get('/api/v1/non-existent-route');
     expect(notFoundRes.status).toBe(404);
-    expect(notFoundRes.body.error.code).toBe('NOT_FOUND');
+    expect(asBody(notFoundRes.body).error?.code).toBe('NOT_FOUND');
 
     // Poison outbox message never blocks subsequent valid messages in the queue
     const poison = await prisma.outboxMessage.create({
@@ -226,17 +253,24 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
     await runOutboxDispatcherOnce({
       registry: {
         email: {
-          send: async (p) => {
-            if (!p.to) throw new Error('Empty recipient');
+          send: (p) => {
+            if (!p.to) return Promise.reject(new Error('Empty recipient'));
+            return Promise.resolve();
           },
         },
-        telegram: { send: async () => {} },
-        clientMessage: { send: async () => {} },
+        telegram: { send: () => Promise.resolve() },
+        clientMessage: {
+          name: 'fake',
+          isConfigured: true,
+          send: () => Promise.resolve(),
+        },
       },
     });
 
     const poisonAfter = await prisma.outboxMessage.findUniqueOrThrow({ where: { id: poison.id } });
-    const healthyAfter = await prisma.outboxMessage.findUniqueOrThrow({ where: { id: healthy.id } });
+    const healthyAfter = await prisma.outboxMessage.findUniqueOrThrow({
+      where: { id: healthy.id },
+    });
     expect(poisonAfter.attempts).toBeGreaterThanOrEqual(1);
     expect(healthyAfter.status).toBe(OutboxStatus.SENT);
   });
@@ -287,8 +321,7 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
 
     // Also create a SENT client reminder OutboxMessage holding raw phone and name
     const bookedApptId =
-      (bookRes.body.data.appointment?.id as string | undefined) ??
-      (bookRes.body.data.id as string | undefined);
+      asBody(bookRes.body).data?.appointment?.id ?? asBody(bookRes.body).data?.id;
     await prisma.outboxMessage.create({
       data: {
         companyId: company.id,

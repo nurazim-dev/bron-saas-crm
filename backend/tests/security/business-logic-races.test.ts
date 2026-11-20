@@ -131,7 +131,6 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
       serviceId: service.id,
       startAt: DateTime.fromISO('2026-11-18T05:00:00.000Z').toJSDate(),
       endAt: DateTime.fromISO('2026-11-18T05:30:00.000Z').toJSDate(),
-      manageToken: 'sec_race_manage_tok_000000000000000000000001',
     });
     // Pre-set rescheduledCount = 1 (MAX_CLIENT_RESCHEDULES = 2 -> only 1 reschedule left)
     await prisma.appointment.update({
@@ -142,9 +141,10 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
     // 20 parallel reschedules to distinct valid slots (06:00, 06:30, ..., 15:30) -> exactly 1 winner (200), 19 (422)
     const rescheduleResults = await Promise.all(
       Array.from({ length: 20 }, (_, i) => {
-        const slot = DateTime.fromISO('2026-11-18T06:00:00.000Z')
-          .plus({ minutes: i * 30 })
-          .toISO()!;
+        const slot =
+          DateTime.fromISO('2026-11-18T06:00:00.000Z')
+            .plus({ minutes: i * 30 })
+            .toISO() ?? '';
         return request(app)
           .post(`/api/v1/public/manage/${appt.manageToken}/reschedule`)
           .set('X-Forwarded-For', `10.20.1.${i + 1}`)
@@ -178,11 +178,21 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
     await createTrialSubscriptionForCompany(prisma, company.id);
     const owner = await createUserFactory(company.id, { role: Role.OWNER, isBookable: true });
 
-    // Set plan limits: maxStaff = 2 (1 active owner already exists -> only 1 more staff allowed), maxServices = 1
-    const sub = await prisma.subscription.findUniqueOrThrow({ where: { companyId: company.id } });
-    await prisma.plan.update({
-      where: { id: sub.planId },
-      data: { maxStaff: 2, maxServices: 1 },
+    // Create an isolated plan with maxStaff = 2 and maxServices = 1 so global trial plan is untouched
+    const customPlan = await prisma.plan.create({
+      data: {
+        code: `SEC_LIMIT_${randomUUID().slice(0, 8)}`,
+        name: 'Sec Limit Plan',
+        priceMonthly: new Prisma.Decimal('0.00'),
+        maxStaff: 2,
+        maxServices: 1,
+        isActive: true,
+        isPublic: false,
+      },
+    });
+    await prisma.subscription.update({
+      where: { companyId: company.id },
+      data: { planId: customPlan.id },
     });
 
     const token = signAccessToken({
@@ -225,9 +235,11 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
     );
     expect(serviceResults.filter((r) => r.status === 201).length).toBe(1);
     expect(serviceResults.filter((r) => r.status === 402).length).toBe(19);
-    expect(
-      await prisma.service.count({ where: { companyId: company.id, isActive: true } }),
-    ).toBe(1);
+    expect(await prisma.service.count({ where: { companyId: company.id, isActive: true } })).toBe(
+      1,
+    );
+    await prisma.subscription.delete({ where: { companyId: company.id } });
+    await prisma.plan.delete({ where: { id: customPlan.id } });
   });
 
   it('handles 20-way races on payment confirm, client anonymize, registration, prepayment RECEIVED vs expiry, outbox dispatch, and Telegram link-code reuse', async () => {
@@ -351,9 +363,16 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
     // 5. Outbox dispatched exactly once under concurrent workers
     let smsSentCount = 0;
     const fakeRegistry = {
-      email: { send: async () => {} },
-      telegram: { send: async () => {} },
-      clientMessage: { send: async () => { smsSentCount += 1; } },
+      email: { send: () => Promise.resolve() },
+      telegram: { send: () => Promise.resolve() },
+      clientMessage: {
+        name: 'fake',
+        isConfigured: true,
+        send: () => {
+          smsSentCount += 1;
+          return Promise.resolve();
+        },
+      },
     };
     const outboxMsg = await prisma.outboxMessage.create({
       data: {
@@ -463,9 +482,7 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
         .send({
           serviceId: service.id,
           masterId: owner.id,
-          startAt: DateTime.fromISO('2026-11-17T06:00:00.000Z')
-            .plus({ hours: i })
-            .toISO(),
+          startAt: DateTime.fromISO('2026-11-17T06:00:00.000Z').plus({ hours: i }).toISO(),
           clientName: 'Variant Client',
           clientPhone: phoneVariants[i],
           consentAccepted: true,

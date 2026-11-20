@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 test.describe('Frontend Security Suite (Domains C, E, G & J)', () => {
   test('never stores access tokens in localStorage/sessionStorage, escapes XSS payloads in DOM, scrubs URL tokens, and enforces noindex & security headers', async ({
     page,
+    playwright,
   }) => {
     let dialogTriggered = false;
     page.on('dialog', () => {
@@ -14,7 +15,8 @@ test.describe('Frontend Security Suite (Domains C, E, G & J)', () => {
     const password = 'SecE2ePassword123!';
     const xssCompanyName = `Салон <img src=x onerror=alert(1)> ${stamp}`;
 
-    const reg = await page.request.post('/api/v1/auth/register', {
+    const api = await playwright.request.newContext({ baseURL: 'http://localhost:3000' });
+    const reg = await api.post('/api/v1/auth/register', {
       data: {
         companyName: xssCompanyName,
         businessType: 'BARBERSHOP',
@@ -28,6 +30,7 @@ test.describe('Frontend Security Suite (Domains C, E, G & J)', () => {
     expect(reg.status()).toBe(201);
     const regData = (await reg.json()).data;
     const slug = regData.company.slug as string;
+    await api.dispose();
 
     // Visit public booking page -> verify XSS payload in company name is escaped as text, never executed
     const pubResp = await page.goto(`/b/${slug}`);
@@ -36,13 +39,15 @@ test.describe('Frontend Security Suite (Domains C, E, G & J)', () => {
     expect(pubResp?.headers()['x-content-type-options']).toBe('nosniff');
     expect(pubResp?.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(dialogTriggered).toBe(false);
-    expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
+    expect(
+      await page.evaluate(() => (window as unknown as { __xss?: number }).__xss),
+    ).toBeUndefined();
 
     // Verify access token is never written to localStorage or sessionStorage after login
     await page.goto('/login');
-    await page.getByLabel(/Email/i).fill(email);
-    await page.getByLabel(/Пароль/i).fill(password);
-    await page.getByRole('button', { name: /Войти/i }).click();
+    await page.locator('#login-email').fill(email);
+    await page.locator('#login-password').fill(password);
+    await page.getByRole('button', { name: 'Войти' }).click();
     await page.waitForURL(/\/dashboard/);
 
     const storageDump = await page.evaluate(() => ({

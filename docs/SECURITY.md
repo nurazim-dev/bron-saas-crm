@@ -53,6 +53,27 @@ This living document tracks all security controls, rate limits, cryptographic pr
 
 - Structured JSON logging (`pino` in `backend/src/lib/logger.ts`) redacts sensitive paths (`req.headers.authorization`, `req.headers.cookie`, `res.headers["set-cookie"]`, `password`, `currentPassword`, `newPassword`, `token`, `resetToken`, `manageToken`, `mfaToken`, `recoveryCode`, `totp`, `secret`, `req.query.token`, `req.headers.referer`), and `scrubSensitiveUrl` strips `?token=` / `resetToken=` query parameters from logged request URLs.
 - Password reset tokens are generated as 32 random bytes (`base64url`), stored at rest exclusively as SHA-256 hex digests (`PasswordResetToken.tokenHash`), expire in 60 minutes, are single-use, and are invalidated when a newer token is issued or password reset completes.
-- `/reset-password` responds with `Referrer-Policy: no-referrer` and scrubs the `token` query parameter immediately via `history.replaceState`.
-- Security tokens (password reset tokens, manage links, impersonation codes, TOTP secrets) are never logged and never echoed in error responses.
-- Production startup (`NODE_ENV=production` in `backend/src/config/env.ts`) refuses weak or default secrets.
+- `/reset-password`, `/manage/[token]`, and `/impersonate` include `noindex, nofollow` robots metadata; `/reset-password` and `/impersonate` scrub one-time tokens from the URL immediately via `history.replaceState`.
+- Security tokens (password reset tokens, manage links, impersonation codes, Telegram link codes, TOTP secrets) have >=128 bits of entropy, are hashed (`SHA-256`) or encrypted (`AES-256-GCM` with explicit 12-byte IV and 16-byte authentication tag enforcement) at rest where stated, are never logged, and are never echoed in error responses.
+- Production startup (`NODE_ENV=production` in `backend/src/config/env.ts`) refuses weak, placeholder, low-entropy, or duplicate secrets and defaults `ADMIN_REQUIRE_2FA` to `true`.
+- Platform Admin MFA verification (`POST /api/v1/admin/auth/mfa`) enforces account lockout (`423 ACCOUNT_LOCKED`) after 5 failed MFA/recovery attempts and updates `lastTotpStep` atomically to prevent concurrent TOTP replay.
+- Client anonymization (`POST /api/v1/clients/:id/anonymize`) locks the `Client` row (`FOR UPDATE`), clears `telegramChatId`, and scrubs client name and phone across `Client`, `Appointment`, `OutboxMessage` (`recipient` and `payload`), and `InAppNotification` (`title` and `body`). Platform Admin outbox listings (`GET /api/v1/admin/outbox`) mask E.164 phone recipients.
+- Plan limits (`maxStaff`, `maxServices`) acquire a `FOR UPDATE` row lock on `Company` inside the database transaction, and public manage reschedule/cancel mutations acquire a `FOR UPDATE` row lock on `Appointment` inside the transaction.
+- Interactive Telegram Bot staff callbacks enforce both company suspension (`suspendedAt === null`) and subscription write-lock (`assertWritableSubscription`) checks.
+
+---
+
+## 6. Security Test Suite Commands
+
+- **Backend Security & Concurrency Attack Suite** (Domains A–I):
+  ```bash
+  npm run test:security
+  ```
+- **Frontend Browser Security E2E Suite** (DOM XSS escaping, in-memory token storage, URL token scrubbing, `noindex`, CSP & frame headers):
+  ```bash
+  npx --workspace=frontend playwright test e2e/security.spec.ts
+  ```
+- **Full Quality & Security Gate**:
+  ```bash
+  npm run gate:full
+  ```

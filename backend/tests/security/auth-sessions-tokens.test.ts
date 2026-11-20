@@ -94,11 +94,9 @@ describe('Security Domains B & F: Authentication, Sessions, Tokens, CSRF & Crypt
     ).toBe(401);
 
     // 4. Missing claims
-    const missingClaimsToken = jwt.sign(
-      { sub: owner.id, typ: 'access' },
-      env.JWT_ACCESS_SECRET,
-      { algorithm: 'HS256' },
-    );
+    const missingClaimsToken = jwt.sign({ sub: owner.id, typ: 'access' }, env.JWT_ACCESS_SECRET, {
+      algorithm: 'HS256',
+    });
     expect(
       (
         await request(app)
@@ -255,7 +253,9 @@ describe('Security Domains B & F: Authentication, Sessions, Tokens, CSRF & Crypt
       .post('/api/v1/admin/auth/mfa')
       .send({ mfaToken, code: validTotp });
     expect(afterLockoutRes.status).toBe(423);
-    expect(afterLockoutRes.body.error.code).toBe('ACCOUNT_LOCKED');
+    expect((afterLockoutRes.body as { error?: { code?: string } }).error?.code).toBe(
+      'ACCOUNT_LOCKED',
+    );
   });
 
   it('verifies >=128-bit entropy, hashing at rest, single-use and FakeClock expiry for security tokens, plus TOTP replay rejection', async () => {
@@ -277,7 +277,9 @@ describe('Security Domains B & F: Authentication, Sessions, Tokens, CSRF & Crypt
     });
 
     // 1. Password reset token: hashed at rest, raw token never in DB
-    await request(app).post('/api/v1/auth/forgot-password').send({ email: owner.email! });
+    await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: owner.email ?? '' });
     const resetRow = await prisma.passwordResetToken.findFirstOrThrow({
       where: { userId: owner.id },
     });
@@ -299,8 +301,10 @@ describe('Security Domains B & F: Authentication, Sessions, Tokens, CSRF & Crypt
       role: Role.OWNER,
       tokenVersion: owner.tokenVersion,
     });
-    const rawTgCode = (tgLink as { code?: string; deepLink?: string }).code ??
-      (tgLink as { deepLink?: string }).deepLink?.split('start=')[1] ?? '';
+    const rawTgCode =
+      (tgLink as { code?: string; deepLink?: string }).code ??
+      (tgLink as { deepLink?: string }).deepLink?.split('start=')[1] ??
+      '';
     expect(Buffer.from(rawTgCode, 'base64url').length).toBeGreaterThanOrEqual(16);
     const userRow = await prisma.user.findUniqueOrThrow({ where: { id: owner.id } });
     expect(userRow.telegramLinkCodeHash).toMatch(/^[a-f0-9]{64}$/);

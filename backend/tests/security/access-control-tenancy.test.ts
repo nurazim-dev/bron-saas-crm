@@ -28,6 +28,16 @@ import {
   createUserFactory,
 } from '../helpers/factories.js';
 
+function asBody(body: unknown): {
+  data?: Record<string, unknown>;
+  error?: { code?: string; message?: string };
+} {
+  return body as {
+    data?: Record<string, unknown>;
+    error?: { code?: string; message?: string };
+  };
+}
+
 describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public Privacy', () => {
   const app = createApp();
 
@@ -105,7 +115,8 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
       companyId: companyB.id,
       masterId: masterB.id,
       serviceId: serviceB.id,
-      clientId: clientB.id,
+      clientName: clientB.name,
+      clientPhone: clientB.phone,
       startAt: DateTime.fromISO('2026-11-17T06:00:00.000Z').toJSDate(),
       endAt: DateTime.fromISO('2026-11-17T07:00:00.000Z').toJSDate(),
     });
@@ -173,7 +184,8 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
       companyId: companyA.id,
       masterId: masterA2.id,
       serviceId: serviceA.id,
-      clientId: clientA2.id,
+      clientName: clientA2.name,
+      clientPhone: clientA2.phone,
       startAt: DateTime.fromISO('2026-11-17T08:00:00.000Z').toJSDate(),
       endAt: DateTime.fromISO('2026-11-17T09:00:00.000Z').toJSDate(),
     });
@@ -288,7 +300,7 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
       .get('/api/v1/company')
       .set('Authorization', `Bearer ${tokenSuspended}`);
     expect(suspRes.status).toBe(403);
-    expect(suspRes.body.error.code).toBe('COMPANY_SUSPENDED');
+    expect(asBody(suspRes.body).error?.code).toBe('COMPANY_SUSPENDED');
 
     // 5. Billing-LOCKED token -> GET allowed (200), non-allowlisted staff writes -> 402 SUBSCRIPTION_REQUIRED
     expect(
@@ -335,7 +347,7 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
         .set('Authorization', `Bearer ${tokenImpersonation}`)
         .send(body ?? {});
       expect(res.status, `Impersonation ${m.toUpperCase()} ${url}`).toBe(403);
-      expect(res.body.error.code).toBe('IMPERSONATION_READ_ONLY');
+      expect(asBody(res.body).error?.code).toBe('IMPERSONATION_READ_ONLY');
     }
 
     // 7. Wrong role (MASTER calling OWNER-only routes) -> 403 FORBIDDEN
@@ -451,7 +463,7 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
         suspendedAt: null,
       });
     if (patchCompanyRes.status === 200) {
-      expect(patchCompanyRes.body.data.id).toBe(company.id);
+      expect(asBody(patchCompanyRes.body).data?.id).toBe(company.id);
     } else {
       expect(patchCompanyRes.status).toBe(400);
     }
@@ -474,9 +486,9 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
         prepaymentStatus: 'RECEIVED',
       });
     if (bookRes.status === 201) {
-      expect(bookRes.body.data.price).toBe('1000.00');
-      expect(bookRes.body.data.status).toBe('SCHEDULED');
-      expect(bookRes.body.data.manageUrl).not.toContain(forgedToken);
+      expect(asBody(bookRes.body).data?.price).toBe('1000.00');
+      expect(asBody(bookRes.body).data?.status).toBe('SCHEDULED');
+      expect(JSON.stringify(asBody(bookRes.body).data)).not.toContain(forgedToken);
     } else {
       expect(bookRes.status).toBe(400);
     }
@@ -509,7 +521,9 @@ describe('Security Domain A: Access Control, Tenancy, Mass Assignment & Public P
         consentAccepted: true,
       });
     expect([403, 422]).toContain(blockedBook.status);
-    expect(['BOOKING_UNAVAILABLE', 'BOOKING_NOT_ALLOWED']).toContain(blockedBook.body.error.code);
+    expect(['BOOKING_UNAVAILABLE', 'BOOKING_NOT_ALLOWED']).toContain(
+      asBody(blockedBook.body).error?.code,
+    );
     expect(JSON.stringify(blockedBook.body)).not.toMatch(/block|заблок/i);
   });
 });

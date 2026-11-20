@@ -30,7 +30,9 @@ function generateTotp(base32Secret: string, stepOffset = 0): string {
 
 async function advanceUntilSlotsAvailable(page: Page): Promise<number> {
   const slotButtons = page.getByRole('button', { name: /^\d{2}:\d{2}$/ });
-  const nextDayBtn = page.getByRole('button', { name: 'Выбрать следующую дату' });
+  const nextDayBtn = page.getByRole('button', {
+    name: /Выбрать следующую дату|Кийинки күндү тандоо/,
+  });
 
   for (let attempt = 0; attempt < 7; attempt++) {
     await expect(slotButtons.first().or(nextDayBtn)).toBeVisible();
@@ -238,9 +240,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     // Context 2 submits second -> Conflict alert/toast, returned to Step 3, and chosenSlotLabel is no longer available
     await page2.getByRole('button', { name: 'Записаться' }).click();
-    await expect(
-      page2.getByText('Это время только что заняли. Пожалуйста, выберите другое время.').first(),
-    ).toBeVisible();
+    await expect(page2.getByText('Это время уже занято. Выберите другое.').first()).toBeVisible();
     await expect(page2.getByText('Выберите дату и время')).toBeVisible();
     await expect(page2.getByRole('button', { name: chosenSlotLabel, exact: true })).toHaveCount(0);
 
@@ -615,7 +615,9 @@ test.describe('Zapis.kg End-to-End Suite', () => {
       .first()
       .click();
     await clientPage.locator('.overflow-x-auto button').nth(1).click();
-    await expect(clientPage.getByRole('button', { name: 'Выбрать следующую дату' })).toBeVisible();
+    await expect(
+      clientPage.getByRole('button', { name: /Выбрать следующую дату|Кийинки күндү тандоо/ }),
+    ).toBeVisible();
     await expect(clientPage.getByRole('button', { name: /^\d{2}:\d{2}$/ })).toHaveCount(0);
 
     await masterCtx.close();
@@ -658,13 +660,18 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     // Reschedule
     await clientPage.getByRole('button', { name: 'Перенести время' }).click();
-    await clientPage.getByRole('dialog').locator('.overflow-x-auto button').nth(2).click();
-    await clientPage
-      .getByRole('dialog')
-      .getByRole('button', { name: /^\d{2}:\d{2}$/ })
-      .first()
-      .click();
-    await clientPage.getByRole('dialog').getByRole('button', { name: 'Перенести' }).click();
+    const rescheduleDialog = clientPage.getByRole('dialog');
+    for (let idx = 2; idx < 6; idx++) {
+      await rescheduleDialog.locator('.overflow-x-auto button').nth(idx).click();
+      const slotBtn = rescheduleDialog.getByRole('button', { name: /^\d{2}:\d{2}$/ }).first();
+      const emptyMsg = rescheduleDialog.getByText('На выбранную дату свободных слотов нет.');
+      await expect(slotBtn.or(emptyMsg)).toBeVisible();
+      if ((await rescheduleDialog.getByRole('button', { name: /^\d{2}:\d{2}$/ }).count()) > 0) {
+        await slotBtn.click();
+        break;
+      }
+    }
+    await rescheduleDialog.getByRole('button', { name: 'Перенести' }).click();
     await expect(clientPage.getByText('Запись успешно перенесена')).toBeVisible();
 
     // Cancel
@@ -852,16 +859,18 @@ test.describe('Zapis.kg End-to-End Suite', () => {
 
     await ownerPage.getByRole('link', { name: 'Аналитика', exact: true }).click();
     await expect(ownerPage.getByRole('heading', { name: 'Аналитика' })).toBeVisible();
-    await expect(ownerPage.getByText('Выручка (завершённые)')).toBeVisible();
+    await expect(ownerPage.getByText('Подтверждённые поступления')).toBeVisible();
+    await expect(ownerPage.getByText('Оценка по завершённым визитам')).toBeVisible();
     await expect(ownerPage.getByText('Топ услуг')).toBeVisible();
     await expect(ownerPage.getByText('Мастера и загрузка')).toBeVisible();
     await expect(ownerPage.getByText('Тепловая карта записи (дни недели × часы)')).toBeVisible();
 
     await ownerPage.getByRole('button', { name: '7 дней' }).click();
-    await expect(ownerPage.getByText('Выручка (завершённые)')).toBeVisible();
+    await expect(ownerPage.getByText('Подтверждённые поступления')).toBeVisible();
+    await expect(ownerPage.getByText('Оценка по завершённым визитам')).toBeVisible();
 
     const downloadPromise = ownerPage.waitForEvent('download');
-    await ownerPage.getByRole('button', { name: 'Экспорт CSV' }).click();
+    await ownerPage.getByRole('button', { name: 'Экспорт записей CSV' }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/^appointments-.*\.csv$/);
 
@@ -949,7 +958,7 @@ test.describe('Zapis.kg End-to-End Suite', () => {
       .first()
       .click();
     await page
-      .getByRole('button', { name: /Любой свободный/i })
+      .getByRole('button', { name: /Каалаган бош чебер/i })
       .first()
       .click();
     await page.locator('.overflow-x-auto button').nth(1).click();

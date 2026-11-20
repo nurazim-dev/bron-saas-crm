@@ -1058,16 +1058,14 @@ export async function assertWithinStaffLimit(
   db: DbClient = prisma,
 ): Promise<void> {
   await db.$queryRaw`SELECT "id" FROM "Company" WHERE "id" = ${companyId}::uuid FOR UPDATE`;
-  const [{ sub }, activeStaffCount] = await Promise.all([
-    loadSubscriptionWithPlanAndSettings(companyId, db),
-    db.user.count({
-      where: {
-        companyId,
-        isActive: true,
-        deletedAt: null,
-      },
-    }),
-  ]);
+  const { sub } = await loadSubscriptionWithPlanAndSettings(companyId, db);
+  const activeStaffCount = await db.user.count({
+    where: {
+      companyId,
+      isActive: true,
+      deletedAt: null,
+    },
+  });
 
   if (activeStaffCount + additionalCount > sub.plan.maxStaff) {
     throw new AppError(

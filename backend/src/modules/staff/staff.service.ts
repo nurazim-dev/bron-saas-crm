@@ -211,7 +211,7 @@ export async function createStaffForCompany(
       ) {
         await prismaUnfiltered.$transaction(async (tx) => {
           if (input.isActive !== false) {
-            await assertWithinStaffLimit(companyId, 1, tx);
+            await assertWithinStaffLimit(companyId, 1);
           }
           await tx.masterService.deleteMany({ where: { userId: existingByEmail.id } });
           await tx.workingHours.deleteMany({ where: { userId: existingByEmail.id } });

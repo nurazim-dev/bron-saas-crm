@@ -43,7 +43,7 @@ function SettingsManagerContent() {
   const storeCompany = useAuthStore((s) => s.company);
   const isImpersonating = useAuthStore((s) => s.isImpersonating);
   const [company, setCompany] = useState<CompanyDto | null>(storeCompany);
-  const [isLoading, setIsLoading] = useState(!storeCompany);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Company settings form state
@@ -81,6 +81,11 @@ function SettingsManagerContent() {
     storeCompany?.paymentInstructions ?? '',
   );
   const [prepaymentHoldMin, setPrepaymentHoldMin] = useState(storeCompany?.prepaymentHoldMin ?? 30);
+  const [description, setDescription] = useState(storeCompany?.description ?? '');
+  const [instagramUrl, setInstagramUrl] = useState(storeCompany?.instagramUrl ?? '');
+  const [brandColor, setBrandColor] = useState(storeCompany?.brandColor ?? '');
+  const [customDomain, setCustomDomain] = useState(storeCompany?.customDomain ?? '');
+  const [planSupportsCustomBranding, setPlanSupportsCustomBranding] = useState(false);
 
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -99,6 +104,10 @@ function SettingsManagerContent() {
     setBusinessType(c.businessType);
     setPhone(c.phone ?? '');
     setAddress(c.address ?? '');
+    setDescription(c.description ?? '');
+    setInstagramUrl(c.instagramUrl ?? '');
+    setBrandColor(c.brandColor ?? '');
+    setCustomDomain(c.customDomain ?? '');
     setTimezone(c.timezone);
     setSlug(c.slug);
     setSlotIntervalMin(c.slotIntervalMin);
@@ -131,7 +140,10 @@ function SettingsManagerContent() {
           setCompany(data);
           populateForm(data);
           if (caps) setCapabilities(caps);
-          if (billing) setPlanSupportsAutoReminders(billing.subscription.plan.featureAutoReminders);
+          if (billing) {
+            setPlanSupportsAutoReminders(billing.subscription.plan.featureAutoReminders);
+            setPlanSupportsCustomBranding(Boolean(billing.subscription.plan.featureCustomBranding));
+          }
           setLoadError(null);
         }
       } catch (err) {
@@ -224,6 +236,15 @@ function SettingsManagerContent() {
         businessType,
         phone: normalizedPhone,
         address: address.trim().length > 0 ? address.trim() : null,
+        description: description.trim().length > 0 ? description.trim() : null,
+        instagramUrl: instagramUrl.trim().length > 0 ? instagramUrl.trim() : null,
+        brandColor: brandColor.trim().length > 0 ? brandColor.trim() : null,
+        ...(planSupportsCustomBranding || customDomain.trim().length === 0
+          ? {
+              customDomain:
+                customDomain.trim().length > 0 ? customDomain.trim().toLowerCase() : null,
+            }
+          : {}),
         timezone,
         slug: normalizedSlug,
         slotIntervalMin: Number(slotIntervalMin),
@@ -463,6 +484,56 @@ function SettingsManagerContent() {
                 className="min-h-11"
               />
             </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="company-description">Описание для страницы онлайн-записи</Label>
+              <Input
+                id="company-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Коротко о салоне, атмосфере и специализации"
+                className="min-h-11"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="company-instagram">Instagram (ссылка или @профиль)</Label>
+              <Input
+                id="company-instagram"
+                value={instagramUrl}
+                onChange={(e) => setInstagramUrl(e.target.value)}
+                placeholder="@mysalon.kg"
+                className="min-h-11"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="company-brand-color">Акцентный цвет бренда (#RRGGBB)</Label>
+              <Input
+                id="company-brand-color"
+                value={brandColor}
+                onChange={(e) => setBrandColor(e.target.value)}
+                placeholder="#245c46"
+                className="min-h-11 font-mono"
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="company-custom-domain">Собственный домен (тариф «Про»)</Label>
+              <Input
+                id="company-custom-domain"
+                value={customDomain}
+                onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
+                placeholder="booking.mysalon.kg"
+                disabled={!planSupportsCustomBranding && customDomain.trim().length === 0}
+                className="min-h-11 font-mono"
+              />
+              {!planSupportsCustomBranding && (
+                <p className="text-xs text-muted-foreground">
+                  Привязка собственного домена доступна на тарифе «Про».
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -623,6 +694,7 @@ function SettingsManagerContent() {
                   >
                     <option value="RU">Русский (RU)</option>
                     <option value="KY">Кыргызча (KY)</option>
+                    <option value="EN">English (EN)</option>
                   </select>
                 </div>
               </div>
