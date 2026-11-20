@@ -318,9 +318,14 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
       serviceId: service.id,
       startAt: DateTime.fromISO('2026-11-18T10:00:00.000Z').toJSDate(),
       endAt: DateTime.fromISO('2026-11-18T11:00:00.000Z').toJSDate(),
-      prepaymentStatus: PrepaymentStatus.PENDING,
-      prepaymentAmount: new Prisma.Decimal('200.00'),
-      prepaymentHoldUntil: DateTime.fromISO('2026-11-16T07:50:00.000Z').toJSDate(),
+    });
+    await prisma.appointment.update({
+      where: { id: holdAppt.id },
+      data: {
+        prepaymentStatus: PrepaymentStatus.PENDING,
+        prepaymentAmount: new Prisma.Decimal('200.00'),
+        prepaymentHoldUntil: DateTime.fromISO('2026-11-16T07:50:00.000Z').toJSDate(),
+      },
     });
     await Promise.allSettled([
       applyPrepaymentAction(
@@ -336,18 +341,24 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
       runPrepaymentExpiryOnce(),
     ]);
     const finalAppt = await prisma.appointment.findUniqueOrThrow({ where: { id: holdAppt.id } });
-    expect([PrepaymentStatus.RECEIVED, PrepaymentStatus.EXPIRED]).toContain(
+    expect([PrepaymentStatus.RECEIVED, PrepaymentStatus.PENDING]).toContain(
       finalAppt.prepaymentStatus,
     );
-    if (finalAppt.prepaymentStatus === PrepaymentStatus.EXPIRED) {
+    if (finalAppt.prepaymentStatus === PrepaymentStatus.PENDING) {
       expect(finalAppt.status).toBe(AppointmentStatus.CANCELLED);
     }
 
     // 5. Outbox dispatched exactly once under concurrent workers
+    let smsSentCount = 0;
+    const fakeRegistry = {
+      email: { send: async () => {} },
+      telegram: { send: async () => {} },
+      clientMessage: { send: async () => { smsSentCount += 1; } },
+    };
     const outboxMsg = await prisma.outboxMessage.create({
       data: {
         companyId: company.id,
-        channel: NotificationChannel.WHATSAPP_AUTO,
+        channel: NotificationChannel.SMS,
         kind: 'GENERIC',
         recipient: '+996700999111',
         payload: { subject: 'Once', text: 'Once' },
@@ -356,7 +367,10 @@ describe('Security Domain D: Business-Logic Abuse, 20-Way Concurrency Races & Po
         scheduledFor: DateTime.fromISO('2026-11-16T07:00:00.000Z').toJSDate(),
       },
     });
-    await Promise.all(Array.from({ length: 10 }, () => runOutboxDispatcherOnce()));
+    await Promise.all(
+      Array.from({ length: 10 }, () => runOutboxDispatcherOnce({ registry: fakeRegistry })),
+    );
+    expect(smsSentCount).toBe(1);
     const outboxAfter = await prisma.outboxMessage.findUniqueOrThrow({
       where: { id: outboxMsg.id },
     });

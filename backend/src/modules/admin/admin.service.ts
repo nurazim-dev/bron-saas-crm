@@ -480,6 +480,11 @@ export async function softDeleteAdminCompany(
       data: { deletedAt: currentNow },
     });
 
+    await tx.authSession.updateMany({
+      where: { companyId, revokedAt: null },
+      data: { revokedAt: currentNow },
+    });
+
     await tx.user.updateMany({
       where: { companyId },
       data: { tokenVersion: { increment: 1 } },
@@ -538,6 +543,11 @@ export async function listAdminPayments(query: AdminPaymentsQuery) {
       include: {
         company: { select: { id: true, name: true, slug: true } },
         plan: { select: { id: true, code: true, name: true } },
+        proofs: {
+          where: { scope: 'SUBSCRIPTION_PAYMENT' },
+          select: { id: true, fileName: true, mime: true, size: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip: (query.page - 1) * query.limit,
@@ -564,6 +574,13 @@ export async function listAdminPayments(query: AdminPaymentsQuery) {
       source: r.source,
       reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
       createdAt: r.createdAt.toISOString(),
+      proofs: r.proofs.map((p) => ({
+        id: p.id,
+        fileName: p.fileName,
+        mime: p.mime,
+        size: p.size,
+        createdAt: p.createdAt.toISOString(),
+      })),
     })),
     total,
   };
@@ -586,13 +603,21 @@ export async function createAdminPlan(
       data: {
         code: body.code,
         name: body.name,
+        description: body.description ?? null,
         priceMonthly: new Prisma.Decimal(body.priceMonthly),
         maxStaff: body.maxStaff,
+        maxServices: body.maxServices ?? null,
+        maxAppointmentsPerMonth: body.maxAppointmentsPerMonth ?? null,
         maxRemindersPerMonth: body.maxRemindersPerMonth ?? null,
         featureAnalytics: body.featureAnalytics,
         featureAutoReminders: body.featureAutoReminders,
         featurePrepayment: body.featurePrepayment,
+        featureCrmAdvanced: body.featureCrmAdvanced,
+        featureManualPayments: body.featureManualPayments,
+        featureMultiCompany: body.featureMultiCompany,
+        featureCustomBranding: body.featureCustomBranding,
         isPublic: body.isPublic,
+        isLegacy: body.isLegacy,
         sortOrder: body.sortOrder,
       },
     });
@@ -629,14 +654,26 @@ export async function updateAdminPlan(
     throw new AppError('NOT_FOUND', 404, 'Plan not found');
   }
 
+  if (body.isActive === false) {
+    const settings = await getPlatformSettings(prisma);
+    if (existing.code === settings.trialPlanCode) {
+      throw new AppError('CONFLICT', 409, 'Нельзя деактивировать текущий тариф пробного периода');
+    }
+  }
+
   const updated = await prismaUnfiltered.plan.update({
     where: { id: planId },
     data: {
       ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.priceMonthly !== undefined
         ? { priceMonthly: new Prisma.Decimal(body.priceMonthly) }
         : {}),
       ...(body.maxStaff !== undefined ? { maxStaff: body.maxStaff } : {}),
+      ...(body.maxServices !== undefined ? { maxServices: body.maxServices } : {}),
+      ...(body.maxAppointmentsPerMonth !== undefined
+        ? { maxAppointmentsPerMonth: body.maxAppointmentsPerMonth }
+        : {}),
       ...(body.maxRemindersPerMonth !== undefined
         ? { maxRemindersPerMonth: body.maxRemindersPerMonth }
         : {}),
@@ -647,8 +684,21 @@ export async function updateAdminPlan(
       ...(body.featurePrepayment !== undefined
         ? { featurePrepayment: body.featurePrepayment }
         : {}),
+      ...(body.featureCrmAdvanced !== undefined
+        ? { featureCrmAdvanced: body.featureCrmAdvanced }
+        : {}),
+      ...(body.featureManualPayments !== undefined
+        ? { featureManualPayments: body.featureManualPayments }
+        : {}),
+      ...(body.featureMultiCompany !== undefined
+        ? { featureMultiCompany: body.featureMultiCompany }
+        : {}),
+      ...(body.featureCustomBranding !== undefined
+        ? { featureCustomBranding: body.featureCustomBranding }
+        : {}),
       ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       ...(body.isPublic !== undefined ? { isPublic: body.isPublic } : {}),
+      ...(body.isLegacy !== undefined ? { isLegacy: body.isLegacy } : {}),
       ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
     },
   });
@@ -734,16 +784,49 @@ export async function updateAdminUser(
   }
 
   try {
-    const updated = await prismaUnfiltered.user.update({
-      where: { id: userId },
-      data: {
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
-        ...(body.email !== undefined ? { email: body.email } : {}),
-      },
-      include: {
-        company: { select: { id: true, name: true, slug: true } },
-      },
+    const currentNow = clockNow();
+    const updated = await prismaUnfiltered.$transaction(async (tx) => {
+      const emailChanged = body.email !== undefined && body.email !== existing.email;
+      let nextIdentityId: string | null | undefined;
+      if (emailChanged && body.email !== undefined) {
+        const collision = await tx.identity.findUnique({ where: { email: body.email } });
+        if (collision && collision.id !== existing.identityId) {
+          throw new AppError('CONFLICT', 409, 'Email is already in use');
+        }
+        if (existing.identityId) {
+          await tx.identity.update({
+            where: { id: existing.identityId },
+            data: { email: body.email },
+          });
+          await tx.$executeRaw`
+            UPDATE "User"
+            SET "email" = ${body.email}, "emailVerifiedAt" = NULL, "emailVerifyHash" = NULL,
+                "emailVerifyExpiresAt" = NULL, "updatedAt" = ${currentNow}
+            WHERE "identityId" = ${existing.identityId}::uuid`;
+        } else {
+          const createdIdentity = await tx.identity.create({
+            data: {
+              email: body.email,
+              passwordHash: existing.passwordHash,
+              lastCompanyId: existing.companyId,
+            },
+          });
+          nextIdentityId = createdIdentity.id;
+        }
+      }
+
+      return tx.user.update({
+        where: { id: userId },
+        data: {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
+          ...(nextIdentityId !== undefined ? { identityId: nextIdentityId } : {}),
+          ...(emailChanged && !existing.identityId ? { email: body.email } : {}),
+        },
+        include: {
+          company: { select: { id: true, name: true, slug: true } },
+        },
+      });
     });
 
     await audit(prisma, {
@@ -787,13 +870,23 @@ export async function setAdminUserActive(
     throw new AppError('NOT_FOUND', 404, 'User not found');
   }
 
-  await prismaUnfiltered.user.update({
-    where: { id: userId },
-    data: {
-      isActive,
-      ...(isActive ? {} : { tokenVersion: { increment: 1 } }),
-    },
-  });
+  await prismaUnfiltered.$transaction([
+    ...(isActive
+      ? []
+      : [
+          prismaUnfiltered.authSession.updateMany({
+            where: { userId, companyId: existing.companyId, revokedAt: null },
+            data: { revokedAt: clockNow() },
+          }),
+        ]),
+    prismaUnfiltered.user.update({
+      where: { id: userId },
+      data: {
+        isActive,
+        ...(isActive ? {} : { tokenVersion: { increment: 1 } }),
+      },
+    }),
+  ]);
 
   await audit(prisma, {
     actorType: AuditActor.ADMIN,
@@ -816,10 +909,16 @@ export async function revokeAdminUserSessions(
     throw new AppError('NOT_FOUND', 404, 'User not found');
   }
 
-  await prismaUnfiltered.user.update({
-    where: { id: userId },
-    data: { tokenVersion: { increment: 1 } },
-  });
+  await prismaUnfiltered.$transaction([
+    prismaUnfiltered.authSession.updateMany({
+      where: { userId, companyId: existing.companyId, revokedAt: null },
+      data: { revokedAt: clockNow() },
+    }),
+    prismaUnfiltered.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    }),
+  ]);
 
   await audit(prisma, {
     actorType: AuditActor.ADMIN,
@@ -915,6 +1014,14 @@ export async function generateAdminUserPasswordResetLink(
   };
 }
 
+function maskOutboxRecipient(recipient: string): string {
+  const trimmed = recipient.trim();
+  if (/^\+?\d{7,15}$/.test(trimmed)) {
+    return `${trimmed.slice(0, 4)}***${trimmed.slice(-2)}`;
+  }
+  return recipient;
+}
+
 export async function listAdminOutbox(query: AdminOutboxQuery) {
   const where: Prisma.OutboxMessageWhereInput = {
     ...(query.status ? { status: query.status } : {}),
@@ -939,7 +1046,7 @@ export async function listAdminOutbox(query: AdminOutboxQuery) {
       companyId: m.companyId,
       channel: m.channel,
       kind: m.kind,
-      recipient: m.recipient,
+      recipient: maskOutboxRecipient(m.recipient),
       status: m.status,
       attempts: m.attempts,
       maxAttempts: m.maxAttempts,

@@ -213,7 +213,7 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
     const healthy = await prisma.outboxMessage.create({
       data: {
         companyId: company.id,
-        channel: NotificationChannel.WHATSAPP_AUTO,
+        channel: NotificationChannel.SMS,
         kind: 'GENERIC',
         recipient: '+996700112233',
         payload: { subject: 'Valid', text: 'Hello' },
@@ -223,7 +223,17 @@ describe('Security Domains C, E, H & I: Injection, Output Encoding, Error Handli
       },
     });
 
-    await runOutboxDispatcherOnce();
+    await runOutboxDispatcherOnce({
+      registry: {
+        email: {
+          send: async (p) => {
+            if (!p.to) throw new Error('Empty recipient');
+          },
+        },
+        telegram: { send: async () => {} },
+        clientMessage: { send: async () => {} },
+      },
+    });
 
     const poisonAfter = await prisma.outboxMessage.findUniqueOrThrow({ where: { id: poison.id } });
     const healthyAfter = await prisma.outboxMessage.findUniqueOrThrow({ where: { id: healthy.id } });
