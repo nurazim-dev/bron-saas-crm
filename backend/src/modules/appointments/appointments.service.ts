@@ -1,14 +1,39 @@
+import { resolveServiceSelection, selectionIds, snapshotServices } from './service-selection.js';
+import {
+  ACTIVE_SLOT_STATUSES,
+  assertValidStatusTransition,
+  EDITABLE_APPOINTMENT_STATUSES,
+} from './status-transitions.js';
+import { randomBytes } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
+  AuditActor,
+  PrepaymentStatus,
   Prisma,
   Role,
   type Appointment,
+  type AppointmentService,
 } from '../../generated/prisma/client.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
+import { now as clockNow } from '../../lib/clock.js';
+import {
+  addDurationMsUtc,
+  addMinutesUtc,
+  localDateTimeToUtc,
+  utcToLocalParts,
+} from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
 import type { AuthenticatedActor } from '../../types/express.js';
+import { assertWithinMonthlyAppointmentLimit } from '../billing/billing.service.js';
+import { upsertClientInTx } from '../clients/clients.service.js';
+import {
+  cancelPendingReminders,
+  scheduleAppointmentReminders,
+} from '../notifications/reminders.service.js';
+import { notifyCompanyStaff } from '../notifications/staff-notify.service.js';
 import type {
   CreateAppointmentBody,
   ListAppointmentsQuery,
@@ -29,11 +54,18 @@ export interface AppointmentMasterSummaryDto {
   name: string;
 }
 
+export type AppointmentScheduleWarning =
+  'OUTSIDE_WORKING_HOURS' | 'DURING_BREAK' | 'DURING_TIME_OFF';
+
 export interface AppointmentDto {
   id: string;
   companyId: string;
   masterId: string;
   serviceId: string;
+  serviceIds: string[];
+  packageId: string | null;
+  packageName: string | null;
+  clientId: string;
   clientName: string;
   clientPhone: string;
   clientNote: string | null;
@@ -45,16 +77,27 @@ export interface AppointmentDto {
   source: AppointmentSource;
   service: AppointmentServiceSummaryDto;
   master: AppointmentMasterSummaryDto;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  rescheduledCount: number;
+  prepaymentStatus: PrepaymentStatus;
+  prepaymentAmount: string | null;
+  prepaymentHoldUntil: string | null;
+  prepaymentReceivedAt: string | null;
+  warnings?: AppointmentScheduleWarning[];
   createdAt: string;
   updatedAt: string;
 }
 
 type AppointmentWithRelations = Appointment & {
+  items?: AppointmentService[];
   service: { id: string; name: string; durationMin: number };
   master: { id: string; name: string };
 };
 
 export const appointmentInclude = {
+  items: { orderBy: { position: 'asc' } },
   service: {
     select: {
       id: true,
@@ -70,12 +113,77 @@ export const appointmentInclude = {
   },
 } as const;
 
-export function serializeAppointment(appt: AppointmentWithRelations): AppointmentDto {
+async function computeScheduleWarnings(
+  tx: TransactionClient,
+  params: { companyId: string; masterId: string; startAt: Date; endAt: Date },
+): Promise<AppointmentScheduleWarning[]> {
+  const company = await tx.company.findUnique({
+    where: { id: params.companyId },
+    select: { timezone: true },
+  });
+  if (!company) return [];
+
+  const localParts = utcToLocalParts(params.startAt, company.timezone);
+  // A transaction owns a single pg connection; execute its queries sequentially.
+  const workingHours = await tx.workingHours.findUnique({
+    where: {
+      userId_dayOfWeek: {
+        userId: params.masterId,
+        dayOfWeek: localParts.dayOfWeek,
+      },
+    },
+  });
+  const overlappingTimeOff = await tx.timeOff.findFirst({
+    where: {
+      companyId: params.companyId,
+      userId: params.masterId,
+      startAt: { lt: params.endAt },
+      endAt: { gt: params.startAt },
+    },
+    select: { id: true },
+  });
+  const warnings: AppointmentScheduleWarning[] = [];
+  if (!workingHours) {
+    warnings.push('OUTSIDE_WORKING_HOURS');
+  } else {
+    const workStart = localDateTimeToUtc(localParts.date, workingHours.startTime, company.timezone);
+    const workEnd = localDateTimeToUtc(localParts.date, workingHours.endTime, company.timezone);
+    if (params.startAt < workStart || params.endAt > workEnd) {
+      warnings.push('OUTSIDE_WORKING_HOURS');
+    }
+    if (workingHours.breakStart && workingHours.breakEnd) {
+      const breakStart = localDateTimeToUtc(
+        localParts.date,
+        workingHours.breakStart,
+        company.timezone,
+      );
+      const breakEnd = localDateTimeToUtc(localParts.date, workingHours.breakEnd, company.timezone);
+      if (breakStart < params.endAt && breakEnd > params.startAt) {
+        warnings.push('DURING_BREAK');
+      }
+    }
+  }
+
+  if (overlappingTimeOff) {
+    warnings.push('DURING_TIME_OFF');
+  }
+
+  return warnings;
+}
+
+export function serializeAppointment(
+  appt: AppointmentWithRelations,
+  warnings?: AppointmentScheduleWarning[],
+): AppointmentDto {
   return {
     id: appt.id,
     companyId: appt.companyId,
     masterId: appt.masterId,
     serviceId: appt.serviceId,
+    serviceIds: appt.items?.length ? appt.items.map((item) => item.serviceId) : [appt.serviceId],
+    packageId: appt.packageId ?? null,
+    packageName: appt.packageName ?? null,
+    clientId: appt.clientId,
     clientName: appt.clientName,
     clientPhone: appt.clientPhone,
     clientNote: appt.clientNote,
@@ -87,22 +195,32 @@ export function serializeAppointment(appt: AppointmentWithRelations): Appointmen
     source: appt.source,
     service: {
       id: appt.service.id,
-      name: appt.service.name,
-      durationMin: appt.service.durationMin,
+      name:
+        appt.packageName ??
+        (appt.items?.length ? appt.items.map((item) => item.name).join(' + ') : appt.service.name),
+      durationMin: (appt.endAt.getTime() - appt.startAt.getTime()) / 60000,
     },
     master: {
       id: appt.master.id,
       name: appt.master.name,
     },
+    cancelledAt: appt.cancelledAt ? appt.cancelledAt.toISOString() : null,
+    cancelledBy: appt.cancelledBy,
+    cancelReason: appt.cancelReason,
+    rescheduledCount: appt.rescheduledCount,
+    prepaymentStatus: appt.prepaymentStatus,
+    prepaymentAmount: appt.prepaymentAmount ? appt.prepaymentAmount.toFixed(2) : null,
+    prepaymentHoldUntil: appt.prepaymentHoldUntil ? appt.prepaymentHoldUntil.toISOString() : null,
+    prepaymentReceivedAt: appt.prepaymentReceivedAt
+      ? appt.prepaymentReceivedAt.toISOString()
+      : null,
+    ...(warnings !== undefined ? { warnings } : {}),
     createdAt: appt.createdAt.toISOString(),
     updatedAt: appt.updatedAt.toISOString(),
   };
 }
 
-const BLOCKING_STATUSES: AppointmentStatus[] = [
-  AppointmentStatus.SCHEDULED,
-  AppointmentStatus.COMPLETED,
-];
+const BLOCKING_STATUSES: AppointmentStatus[] = [...ACTIVE_SLOT_STATUSES];
 
 /**
  * Acquires a row-level `FOR UPDATE` lock on the master(s) inside an open transaction (BR-1).
@@ -158,31 +276,34 @@ function normalizeOptionalNote(note: string | null | undefined): string | null |
   return note;
 }
 
+async function validateBookableMaster(companyId: string, masterId: string) {
+  const master = await prisma.user.findFirst({
+    where: { id: masterId, companyId },
+  });
+  if (!master) {
+    throw new AppError('NOT_FOUND', 404, 'Master not found');
+  }
+  if (!master.isActive || !master.isBookable) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Selected master is not active or not bookable', [
+      { path: 'masterId', message: 'Selected master is not active or not bookable' },
+    ]);
+  }
+  return master;
+}
+
 async function validateBookableMasterAndService(
   companyId: string,
   masterId: string,
   serviceId: string,
 ) {
   const [master, service] = await Promise.all([
-    prisma.user.findFirst({
-      where: { id: masterId, companyId },
-    }),
+    validateBookableMaster(companyId, masterId),
     prisma.service.findFirst({
       where: { id: serviceId, companyId },
     }),
   ]);
-
-  if (!master) {
-    throw new AppError('NOT_FOUND', 404, 'Master not found');
-  }
   if (!service) {
     throw new AppError('NOT_FOUND', 404, 'Service not found');
-  }
-
-  if (!master.isActive || !master.isBookable) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Selected master is not active or not bookable', [
-      { path: 'masterId', message: 'Selected master is not active or not bookable' },
-    ]);
   }
 
   if (!service.isActive) {
@@ -234,6 +355,7 @@ export async function listAppointmentsForActor(
     endAt: { gt: query.from },
     ...(effectiveMasterId !== undefined ? { masterId: effectiveMasterId } : {}),
     ...(query.status !== undefined ? { status: query.status } : {}),
+    ...(query.prepaymentStatus !== undefined ? { prepaymentStatus: query.prepaymentStatus } : {}),
   };
 
   const skip = (query.page - 1) * query.limit;
@@ -242,7 +364,7 @@ export async function listAppointmentsForActor(
     prisma.appointment.findMany({
       where,
       include: appointmentInclude,
-      orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       skip,
       take: query.limit,
     }),
@@ -250,7 +372,7 @@ export async function listAppointmentsForActor(
   ]);
 
   return {
-    data: rows.map(serializeAppointment),
+    data: rows.map((r) => serializeAppointment(r)),
     meta: {
       page: query.page,
       limit: query.limit,
@@ -288,21 +410,26 @@ export async function createStaffAppointmentForActor(
     throw new AppError('FORBIDDEN', 403, 'Masters can only create appointments for themselves');
   }
 
-  const { master, service } = await validateBookableMasterAndService(
-    actor.companyId,
-    input.masterId,
-    input.serviceId,
-  );
+  const master = await validateBookableMaster(actor.companyId, input.masterId);
 
   const startAt = input.startAt;
-  const endAt = new Date(startAt.getTime() + service.durationMin * 60_000);
-  const price = input.price !== undefined ? new Prisma.Decimal(input.price) : service.price;
+  await assertWithinMonthlyAppointmentLimit(actor.companyId, startAt);
   const clientNote = normalizeOptionalNote(input.clientNote) ?? null;
   const internalNote = normalizeOptionalNote(input.internalNote) ?? null;
 
   try {
     const created = await prisma.$transaction(async (tx) => {
       await lockMastersForUpdate(tx, [master.id]);
+      const { service, services, packageRef } = await resolveServiceSelection(
+        tx,
+        actor.companyId,
+        input.serviceId,
+        input.serviceIds,
+        master.id,
+        input.packageId,
+      );
+      const endAt = addMinutesUtc(startAt, service.durationMin);
+      const price = input.price !== undefined ? new Prisma.Decimal(input.price) : service.price;
       await assertNoSlotOverlap(tx, {
         companyId: actor.companyId,
         masterId: master.id,
@@ -310,11 +437,30 @@ export async function createStaffAppointmentForActor(
         endAt,
       });
 
-      return tx.appointment.create({
+      const client = await upsertClientInTx(tx, {
+        companyId: actor.companyId,
+        name: input.clientName,
+        phone: input.clientPhone,
+        overwriteName: true,
+        currentTime: clockNow(),
+      });
+
+      const warnings = await computeScheduleWarnings(tx, {
+        companyId: actor.companyId,
+        masterId: master.id,
+        startAt,
+        endAt,
+      });
+
+      const created = await tx.appointment.create({
         data: {
           companyId: actor.companyId,
           masterId: master.id,
           serviceId: service.id,
+          packageId: packageRef?.id ?? null,
+          packageName: packageRef?.name ?? null,
+          items: { create: snapshotServices(services) },
+          clientId: client.id,
           clientName: input.clientName,
           clientPhone: input.clientPhone,
           clientNote,
@@ -324,12 +470,53 @@ export async function createStaffAppointmentForActor(
           price,
           status: AppointmentStatus.SCHEDULED,
           source: AppointmentSource.STAFF,
+          manageToken: randomBytes(32).toString('base64url'),
         },
         include: appointmentInclude,
       });
+
+      const company = await tx.company.findUnique({
+        where: { id: actor.companyId },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          timezone: true,
+          reminderMode: true,
+          remind24h: true,
+          remind2h: true,
+        },
+      });
+
+      if (company) {
+        if (actor.userId !== master.id) {
+          await notifyCompanyStaff(tx, {
+            kind: 'STAFF_BOOKING_FOR_MASTER',
+            companyId: company.id,
+            companyName: company.name,
+            timezone: company.timezone,
+            appointmentId: created.id,
+            masterId: master.id,
+            masterName: master.name,
+            serviceName: service.name,
+            clientName: created.clientName,
+            startAt: created.startAt,
+            dedupeSuffix: 'create',
+            includeOwner: false,
+            excludeUserId: actor.userId,
+          });
+        }
+        await scheduleAppointmentReminders(tx, {
+          appointment: created,
+          company,
+          serviceName: service.name,
+        });
+      }
+
+      return { created, warnings };
     });
 
-    return serializeAppointment(created);
+    return serializeAppointment(created.created, created.warnings);
   } catch (err) {
     if (isExclusionConstraintError(err)) {
       throw new AppError('SLOT_ALREADY_BOOKED', 409, 'Selected time slot is already booked');
@@ -349,18 +536,19 @@ export async function updateAppointmentForActor(
       companyId: actor.companyId,
       ...(actor.role === Role.MASTER ? { masterId: actor.userId } : {}),
     },
+    include: appointmentInclude,
   });
 
   if (!existing) {
     throw new AppError('NOT_FOUND', 404, 'Appointment not found');
   }
 
-  // BR-6: Editing/rescheduling only while SCHEDULED
-  if (existing.status !== AppointmentStatus.SCHEDULED) {
+  // BR-6: Editing/rescheduling only while SCHEDULED or CONFIRMED
+  if (!EDITABLE_APPOINTMENT_STATUSES.includes(existing.status)) {
     throw new AppError(
       'INVALID_STATUS_TRANSITION',
       409,
-      'Only scheduled appointments can be edited or rescheduled',
+      'Only scheduled or confirmed appointments can be edited or rescheduled',
     );
   }
 
@@ -376,29 +564,39 @@ export async function updateAppointmentForActor(
   const nextServiceId = input.serviceId ?? existing.serviceId;
   const nextStartAt = input.startAt ?? existing.startAt;
   const masterChanged = nextMasterId !== existing.masterId;
-  const serviceChanged = nextServiceId !== existing.serviceId;
+  const existingIds = existing.items.length
+    ? existing.items.map((item) => item.serviceId)
+    : [existing.serviceId];
+  const nextIds = selectionIds(
+    nextServiceId,
+    input.serviceIds ?? (nextServiceId !== existing.serviceId ? [nextServiceId] : existingIds),
+  );
+  const serviceChanged = JSON.stringify(nextIds) !== JSON.stringify(existingIds);
 
   let nextEndAt: Date;
   let nextPrice: Prisma.Decimal;
 
   if (serviceChanged || masterChanged) {
-    const { service } = await validateBookableMasterAndService(
+    await validateBookableMasterAndService(actor.companyId, nextMasterId, nextServiceId);
+    const { service } = await resolveServiceSelection(
+      prisma,
       actor.companyId,
-      nextMasterId,
       nextServiceId,
+      nextIds,
+      nextMasterId,
     );
     if (serviceChanged) {
       // BR-2: If serviceId changes on update, recompute endAt and (unless a price is given) the price snapshot
-      nextEndAt = new Date(nextStartAt.getTime() + service.durationMin * 60_000);
+      nextEndAt = addMinutesUtc(nextStartAt, service.durationMin);
       nextPrice = input.price !== undefined ? new Prisma.Decimal(input.price) : service.price;
     } else {
       const currentDurationMs = existing.endAt.getTime() - existing.startAt.getTime();
-      nextEndAt = new Date(nextStartAt.getTime() + currentDurationMs);
+      nextEndAt = addDurationMsUtc(nextStartAt, currentDurationMs);
       nextPrice = input.price !== undefined ? new Prisma.Decimal(input.price) : existing.price;
     }
   } else {
     const currentDurationMs = existing.endAt.getTime() - existing.startAt.getTime();
-    nextEndAt = new Date(nextStartAt.getTime() + currentDurationMs);
+    nextEndAt = addDurationMsUtc(nextStartAt, currentDurationMs);
     nextPrice = input.price !== undefined ? new Prisma.Decimal(input.price) : existing.price;
   }
 
@@ -408,6 +606,18 @@ export async function updateAppointmentForActor(
   try {
     const updated = await prisma.$transaction(async (tx) => {
       await lockMastersForUpdate(tx, [existing.masterId, nextMasterId]);
+      const selection =
+        serviceChanged || masterChanged
+          ? await resolveServiceSelection(tx, actor.companyId, nextServiceId, nextIds, nextMasterId)
+          : null;
+      if (serviceChanged && selection) {
+        nextEndAt = addMinutesUtc(nextStartAt, selection.service.durationMin);
+        nextPrice =
+          input.price !== undefined ? new Prisma.Decimal(input.price) : selection.service.price;
+        await tx.appointmentService.deleteMany({
+          where: { appointmentId: existing.id, companyId: actor.companyId },
+        });
+      }
       await assertNoSlotOverlap(tx, {
         companyId: actor.companyId,
         masterId: nextMasterId,
@@ -416,14 +626,41 @@ export async function updateAppointmentForActor(
         excludeAppointmentId: existing.id,
       });
 
-      return tx.appointment.update({
-        where: { id: existing.id },
+      let nextClientId: string | undefined;
+      if (input.clientName !== undefined || input.clientPhone !== undefined) {
+        const upserted = await upsertClientInTx(tx, {
+          companyId: actor.companyId,
+          name: input.clientName ?? existing.clientName,
+          phone: input.clientPhone ?? existing.clientPhone,
+          overwriteName: true,
+          currentTime: clockNow(),
+        });
+        nextClientId = upserted.id;
+      }
+
+      const warnings = await computeScheduleWarnings(tx, {
+        companyId: actor.companyId,
+        masterId: nextMasterId,
+        startAt: nextStartAt,
+        endAt: nextEndAt,
+      });
+
+      const appt = await tx.appointment.update({
+        where: { id: existing.id, companyId: actor.companyId },
         data: {
+          ...(serviceChanged && selection
+            ? {
+                packageId: null,
+                packageName: null,
+                items: { create: snapshotServices(selection.services) },
+              }
+            : {}),
           masterId: nextMasterId,
           serviceId: nextServiceId,
           startAt: nextStartAt,
           endAt: nextEndAt,
           price: nextPrice,
+          ...(nextClientId !== undefined ? { clientId: nextClientId } : {}),
           ...(input.clientName !== undefined ? { clientName: input.clientName } : {}),
           ...(input.clientPhone !== undefined ? { clientPhone: input.clientPhone } : {}),
           ...(nextClientNote !== undefined ? { clientNote: nextClientNote } : {}),
@@ -431,9 +668,34 @@ export async function updateAppointmentForActor(
         },
         include: appointmentInclude,
       });
+
+      if (input.startAt !== undefined || input.clientPhone !== undefined) {
+        await cancelPendingReminders(tx, appt.id);
+        const company = await tx.company.findUnique({
+          where: { id: actor.companyId },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            timezone: true,
+            reminderMode: true,
+            remind24h: true,
+            remind2h: true,
+          },
+        });
+        if (company) {
+          await scheduleAppointmentReminders(tx, {
+            appointment: appt,
+            company,
+            serviceName: serializeAppointment(appt).service.name,
+          });
+        }
+      }
+
+      return { appt, warnings };
     });
 
-    return serializeAppointment(updated);
+    return serializeAppointment(updated.appt, updated.warnings);
   } catch (err) {
     if (isExclusionConstraintError(err)) {
       throw new AppError('SLOT_ALREADY_BOOKED', 409, 'Selected time slot is already booked');
@@ -460,52 +722,50 @@ export async function changeAppointmentStatusForActor(
   }
 
   const nextStatus = input.status;
-  const now = new Date();
+  const now = clockNow();
 
-  if (existing.status === AppointmentStatus.SCHEDULED) {
-    if (nextStatus === AppointmentStatus.CANCELLED) {
-      const updated = await prisma.appointment.update({
+  assertValidStatusTransition({
+    from: existing.status,
+    to: nextStatus,
+    actorRole: actor.role,
+    startAt: existing.startAt,
+    now,
+  });
+
+  if (nextStatus === AppointmentStatus.CANCELLED) {
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.appointment.update({
         where: { id: existing.id },
-        data: { status: AppointmentStatus.CANCELLED },
+        data: {
+          status: AppointmentStatus.CANCELLED,
+          cancelledBy: 'STAFF',
+          cancelledAt: now,
+        },
         include: appointmentInclude,
       });
-      return serializeAppointment(updated);
-    }
+      await cancelPendingReminders(tx, row.id);
+      return row;
+    });
+    return serializeAppointment(updated);
+  }
 
-    if (nextStatus === AppointmentStatus.COMPLETED || nextStatus === AppointmentStatus.NO_SHOW) {
-      // BR-6: COMPLETED and NO_SHOW only when startAt <= now
-      if (existing.startAt.getTime() > now.getTime()) {
-        throw new AppError(
-          'INVALID_STATUS_TRANSITION',
-          409,
-          'Cannot mark a future appointment as completed or no-show before its start time',
-        );
-      }
-
-      const updated = await prisma.appointment.update({
+  if (nextStatus === AppointmentStatus.COMPLETED || nextStatus === AppointmentStatus.NO_SHOW) {
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.appointment.update({
         where: { id: existing.id },
         data: { status: nextStatus },
         include: appointmentInclude,
       });
-      return serializeAppointment(updated);
-    }
-
-    throw new AppError(
-      'INVALID_STATUS_TRANSITION',
-      409,
-      `Cannot transition appointment from ${existing.status} to ${nextStatus}`,
-    );
+      await cancelPendingReminders(tx, row.id);
+      return row;
+    });
+    return serializeAppointment(updated);
   }
 
   if (
     existing.status === AppointmentStatus.CANCELLED &&
     nextStatus === AppointmentStatus.SCHEDULED
   ) {
-    // BR-6: CANCELLED -> SCHEDULED only by OWNER (re-runs BR-1)
-    if (actor.role !== Role.OWNER) {
-      throw new AppError('FORBIDDEN', 403, 'Only the owner can restore a cancelled appointment');
-    }
-
     try {
       const restored = await prisma.$transaction(async (tx) => {
         await lockMastersForUpdate(tx, [existing.masterId]);
@@ -519,7 +779,12 @@ export async function changeAppointmentStatusForActor(
 
         return tx.appointment.update({
           where: { id: existing.id },
-          data: { status: AppointmentStatus.SCHEDULED },
+          data: {
+            status: AppointmentStatus.SCHEDULED,
+            cancelledAt: null,
+            cancelledBy: null,
+            cancelReason: null,
+          },
           include: appointmentInclude,
         });
       });
@@ -533,16 +798,18 @@ export async function changeAppointmentStatusForActor(
     }
   }
 
-  throw new AppError(
-    'INVALID_STATUS_TRANSITION',
-    409,
-    `Cannot transition appointment from ${existing.status} to ${nextStatus}`,
-  );
+  const updated = await prisma.appointment.update({
+    where: { id: existing.id },
+    data: { status: nextStatus },
+    include: appointmentInclude,
+  });
+  return serializeAppointment(updated);
 }
 
 export async function deleteAppointmentForCompany(
   companyId: string,
   appointmentId: string,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
 ): Promise<void> {
   const existing = await prisma.appointment.findFirst({
     where: { id: appointmentId, companyId },
@@ -552,7 +819,125 @@ export async function deleteAppointmentForCompany(
     throw new AppError('NOT_FOUND', 404, 'Appointment not found');
   }
 
-  await prisma.appointment.delete({
-    where: { id: existing.id },
+  await prisma.$transaction(async (tx) => {
+    await cancelPendingReminders(tx, existing.id);
+    await tx.appointment.delete({
+      where: { id: existing.id },
+    });
   });
+
+  await audit(prisma, {
+    actorType: AuditActor.USER,
+    actorId: auditMeta?.actorId ?? null,
+    companyId,
+    action: 'appointment.delete',
+    entityType: 'Appointment',
+    entityId: existing.id,
+    metadata: {
+      masterId: existing.masterId,
+      status: existing.status,
+      startAt: existing.startAt.toISOString(),
+    },
+    context: auditMeta?.context,
+  });
+}
+
+export async function applyPrepaymentAction(
+  actor: AuthenticatedActor,
+  appointmentId: string,
+  action: 'RECEIVED' | 'WAIVE' | 'REFUND',
+  context?: AuditRequestContext,
+): Promise<AppointmentDto> {
+  const existing = await prisma.appointment.findFirst({
+    where: {
+      id: appointmentId,
+      companyId: actor.companyId,
+      ...(actor.role === Role.MASTER ? { masterId: actor.userId } : {}),
+    },
+    include: appointmentInclude,
+  });
+
+  if (!existing) {
+    throw new AppError('NOT_FOUND', 404, 'Appointment not found');
+  }
+
+  if (action === 'REFUND' && actor.role !== Role.OWNER) {
+    throw new AppError('FORBIDDEN', 403, 'Only the business owner can refund a prepayment');
+  }
+
+  if (!EDITABLE_APPOINTMENT_STATUSES.includes(existing.status) && action !== 'REFUND') {
+    throw new AppError(
+      'INVALID_STATUS_TRANSITION',
+      409,
+      'Prepayment status can only be updated for scheduled or confirmed appointments',
+    );
+  }
+
+  const currentNow = clockNow();
+  const expectedFrom: PrepaymentStatus =
+    action === 'REFUND' ? PrepaymentStatus.RECEIVED : PrepaymentStatus.PENDING;
+
+  const nextData: Prisma.AppointmentUpdateManyMutationInput =
+    action === 'RECEIVED'
+      ? {
+          prepaymentStatus: PrepaymentStatus.RECEIVED,
+          prepaymentReceivedAt: currentNow,
+          prepaymentHoldUntil: null,
+        }
+      : action === 'WAIVE'
+        ? {
+            prepaymentStatus: PrepaymentStatus.NOT_REQUIRED,
+            prepaymentHoldUntil: null,
+          }
+        : {
+            prepaymentStatus: PrepaymentStatus.REFUNDED,
+          };
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const res = await tx.appointment.updateMany({
+      where: {
+        id: existing.id,
+        companyId: actor.companyId,
+        deletedAt: null,
+        prepaymentStatus: expectedFrom,
+        ...(action !== 'REFUND' ? { status: { in: [...EDITABLE_APPOINTMENT_STATUSES] } } : {}),
+      },
+      data: nextData,
+    });
+
+    if (res.count === 0) {
+      throw new AppError(
+        'INVALID_STATUS_TRANSITION',
+        409,
+        `Cannot apply prepayment action ${action} from status ${existing.prepaymentStatus}`,
+      );
+    }
+
+    const row = await tx.appointment.findUnique({
+      where: { id: existing.id },
+      include: appointmentInclude,
+    });
+    if (!row) {
+      throw new AppError('NOT_FOUND', 404, 'Appointment not found');
+    }
+
+    await audit(tx, {
+      actorType: AuditActor.USER,
+      actorId: actor.userId,
+      companyId: actor.companyId,
+      action: `appointment.prepayment.${action.toLowerCase()}`,
+      entityType: 'Appointment',
+      entityId: existing.id,
+      metadata: {
+        previousStatus: existing.prepaymentStatus,
+        nextStatus: row.prepaymentStatus,
+        amount: row.prepaymentAmount?.toFixed(2) ?? null,
+      },
+      context,
+    });
+
+    return row;
+  });
+
+  return serializeAppointment(updated);
 }

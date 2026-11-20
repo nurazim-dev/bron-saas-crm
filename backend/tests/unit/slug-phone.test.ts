@@ -7,7 +7,7 @@ describe('lib/slug & lib/phone unit tests', () => {
     it('transliterates Cyrillic company names to Latin lowercase slugs', () => {
       expect(slugifyCompanyName('Барбершоп Лорд')).toBe('barbershop-lord');
       expect(slugifyCompanyName('  Салон Красоты Айпери! ')).toBe('salon-krasoty-ayperi');
-      expect(slugifyCompanyName('СТО Авто-Мастер 24/7')).toBe('sto-avto-master-24-7');
+      expect(slugifyCompanyName('Барбершоп Номад 24/7')).toBe('barbershop-nomad-24-7');
     });
 
     it('pads or defaults short names to at least 3 characters and caps at 40 characters', () => {

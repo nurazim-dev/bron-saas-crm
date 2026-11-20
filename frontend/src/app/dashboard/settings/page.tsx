@@ -14,6 +14,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { OwnerGuard } from '@/components/layout/auth-bootstrap';
+import { PwaInstallCard } from '@/components/pwa/pwa-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,20 +22,28 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { changePassword } from '@/lib/api/auth.api';
+import { getBillingOverview } from '@/lib/api/billing.api';
 import { getApiErrorMessage } from '@/lib/api/client';
-import { getCompany, updateCompany } from '@/lib/api/company.api';
+import { getCompany, getCompanyCapabilities, updateCompany } from '@/lib/api/company.api';
 import { ru } from '@/lib/i18n/ru';
 import { normalizePhoneE164OrNull } from '@/lib/phone';
 import { useAuthStore } from '@/stores/auth.store';
-import type { BusinessType, CompanyDto } from '@/types/api';
+import type {
+  BusinessType,
+  CompanyCapabilitiesDto,
+  CompanyDto,
+  LocaleCode,
+  ReminderMode,
+} from '@/types/api';
 
-const BUSINESS_TYPES: BusinessType[] = ['BARBERSHOP', 'BEAUTY_SALON', 'AUTO_SERVICE', 'OTHER'];
+const BUSINESS_TYPES: BusinessType[] = ['BARBERSHOP', 'BEAUTY_SALON'];
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function SettingsManagerContent() {
   const storeCompany = useAuthStore((s) => s.company);
+  const isImpersonating = useAuthStore((s) => s.isImpersonating);
   const [company, setCompany] = useState<CompanyDto | null>(storeCompany);
-  const [isLoading, setIsLoading] = useState(!storeCompany);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Company settings form state
@@ -52,6 +61,31 @@ function SettingsManagerContent() {
   const [publicBookingEnabled, setPublicBookingEnabled] = useState(
     storeCompany?.publicBookingEnabled ?? true,
   );
+  const [clientCancelMinHours, setClientCancelMinHours] = useState(
+    storeCompany?.clientCancelMinHours ?? 2,
+  );
+  const [allowClientReschedule, setAllowClientReschedule] = useState(
+    storeCompany?.allowClientReschedule ?? true,
+  );
+  const [defaultLocale, setDefaultLocale] = useState<LocaleCode>(
+    storeCompany?.defaultLocale ?? 'RU',
+  );
+  const [reminderMode, setReminderMode] = useState<ReminderMode>(
+    storeCompany?.reminderMode ?? 'MANUAL',
+  );
+  const [remind24h, setRemind24h] = useState(storeCompany?.remind24h ?? true);
+  const [remind2h, setRemind2h] = useState(storeCompany?.remind2h ?? true);
+  const [capabilities, setCapabilities] = useState<CompanyCapabilitiesDto | null>(null);
+  const [planSupportsAutoReminders, setPlanSupportsAutoReminders] = useState(true);
+  const [paymentInstructions, setPaymentInstructions] = useState(
+    storeCompany?.paymentInstructions ?? '',
+  );
+  const [prepaymentHoldMin, setPrepaymentHoldMin] = useState(storeCompany?.prepaymentHoldMin ?? 30);
+  const [description, setDescription] = useState(storeCompany?.description ?? '');
+  const [instagramUrl, setInstagramUrl] = useState(storeCompany?.instagramUrl ?? '');
+  const [brandColor, setBrandColor] = useState(storeCompany?.brandColor ?? '');
+  const [customDomain, setCustomDomain] = useState(storeCompany?.customDomain ?? '');
+  const [planSupportsCustomBranding, setPlanSupportsCustomBranding] = useState(false);
 
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -70,12 +104,24 @@ function SettingsManagerContent() {
     setBusinessType(c.businessType);
     setPhone(c.phone ?? '');
     setAddress(c.address ?? '');
+    setDescription(c.description ?? '');
+    setInstagramUrl(c.instagramUrl ?? '');
+    setBrandColor(c.brandColor ?? '');
+    setCustomDomain(c.customDomain ?? '');
     setTimezone(c.timezone);
     setSlug(c.slug);
     setSlotIntervalMin(c.slotIntervalMin);
     setMinLeadTimeMin(c.minLeadTimeMin);
     setMaxAdvanceDays(c.maxAdvanceDays);
     setPublicBookingEnabled(c.publicBookingEnabled);
+    setClientCancelMinHours(c.clientCancelMinHours ?? 2);
+    setAllowClientReschedule(c.allowClientReschedule ?? true);
+    setDefaultLocale(c.defaultLocale ?? 'RU');
+    setReminderMode(c.reminderMode ?? 'MANUAL');
+    setRemind24h(c.remind24h ?? true);
+    setRemind2h(c.remind2h ?? true);
+    setPaymentInstructions(c.paymentInstructions ?? '');
+    setPrepaymentHoldMin(c.prepaymentHoldMin ?? 30);
   }, []);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -85,10 +131,19 @@ function SettingsManagerContent() {
 
     async function load() {
       try {
-        const data = await getCompany();
+        const [data, caps, billing] = await Promise.all([
+          getCompany(),
+          getCompanyCapabilities().catch(() => null),
+          getBillingOverview().catch(() => null),
+        ]);
         if (!cancelled) {
           setCompany(data);
           populateForm(data);
+          if (caps) setCapabilities(caps);
+          if (billing) {
+            setPlanSupportsAutoReminders(billing.subscription.plan.featureAutoReminders);
+            setPlanSupportsCustomBranding(Boolean(billing.subscription.plan.featureCustomBranding));
+          }
           setLoadError(null);
         }
       } catch (err) {
@@ -181,12 +236,30 @@ function SettingsManagerContent() {
         businessType,
         phone: normalizedPhone,
         address: address.trim().length > 0 ? address.trim() : null,
+        description: description.trim().length > 0 ? description.trim() : null,
+        instagramUrl: instagramUrl.trim().length > 0 ? instagramUrl.trim() : null,
+        brandColor: brandColor.trim().length > 0 ? brandColor.trim() : null,
+        ...(planSupportsCustomBranding || customDomain.trim().length === 0
+          ? {
+              customDomain:
+                customDomain.trim().length > 0 ? customDomain.trim().toLowerCase() : null,
+            }
+          : {}),
         timezone,
         slug: normalizedSlug,
         slotIntervalMin: Number(slotIntervalMin),
         minLeadTimeMin: Number(minLeadTimeMin),
         maxAdvanceDays: Number(maxAdvanceDays),
         publicBookingEnabled,
+        clientCancelMinHours: Number(clientCancelMinHours),
+        allowClientReschedule,
+        defaultLocale,
+        reminderMode,
+        remind24h,
+        remind2h,
+        paymentInstructions:
+          paymentInstructions.trim().length > 0 ? paymentInstructions.trim() : null,
+        prepaymentHoldMin: Number(prepaymentHoldMin),
       });
       setCompany(updated);
       populateForm(updated);
@@ -411,6 +484,56 @@ function SettingsManagerContent() {
                 className="min-h-11"
               />
             </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="company-description">Описание для страницы онлайн-записи</Label>
+              <Input
+                id="company-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Коротко о салоне, атмосфере и специализации"
+                className="min-h-11"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="company-instagram">Instagram (ссылка или @профиль)</Label>
+              <Input
+                id="company-instagram"
+                value={instagramUrl}
+                onChange={(e) => setInstagramUrl(e.target.value)}
+                placeholder="@mysalon.kg"
+                className="min-h-11"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="company-brand-color">Акцентный цвет бренда (#RRGGBB)</Label>
+              <Input
+                id="company-brand-color"
+                value={brandColor}
+                onChange={(e) => setBrandColor(e.target.value)}
+                placeholder="#245c46"
+                className="min-h-11 font-mono"
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="company-custom-domain">Собственный домен (тариф «Про»)</Label>
+              <Input
+                id="company-custom-domain"
+                value={customDomain}
+                onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
+                placeholder="booking.mysalon.kg"
+                disabled={!planSupportsCustomBranding && customDomain.trim().length === 0}
+                className="min-h-11 font-mono"
+              />
+              {!planSupportsCustomBranding && (
+                <p className="text-xs text-muted-foreground">
+                  Привязка собственного домена доступна на тарифе «Про».
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -496,8 +619,156 @@ function SettingsManagerContent() {
               </div>
             </div>
 
-            <div className="flex justify-end border-t pt-4">
-              <Button type="submit" disabled={isSavingSettings} className="min-h-11">
+            <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="company-cancel-hours">
+                  Окно отмены и переноса клиентом (часов до визита)
+                </Label>
+                <Input
+                  id="company-cancel-hours"
+                  type="number"
+                  min={0}
+                  max={168}
+                  value={clientCancelMinHours}
+                  onChange={(e) => setClientCancelMinHours(Number(e.target.value))}
+                  className="min-h-11"
+                />
+              </div>
+              <div className="flex items-center pt-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={allowClientReschedule}
+                    onChange={(e) => setAllowClientReschedule(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Разрешить клиентам самостоятельный перенос записи
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-4 border-t pt-4">
+              <div>
+                <h3 className="text-sm font-semibold">Напоминания клиентам</h3>
+                <p className="text-xs text-muted-foreground">
+                  Уведомляйте клиентов о предстоящих визитах вручную через WhatsApp или
+                  автоматически.
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-reminder-mode">Режим напоминаний</Label>
+                  <select
+                    id="company-reminder-mode"
+                    value={reminderMode}
+                    onChange={(e) => setReminderMode(e.target.value as ReminderMode)}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-2xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <option value="OFF">Выключены</option>
+                    <option value="MANUAL">Вручную (очередь WhatsApp)</option>
+                    {(capabilities?.autoRemindersAvailable ?? false) && (
+                      <option value="AUTO" disabled={!planSupportsAutoReminders}>
+                        Автоматически (SMS/WhatsApp)
+                        {!planSupportsAutoReminders ? ' — нужен тариф выше' : ''}
+                      </option>
+                    )}
+                  </select>
+                  {!planSupportsAutoReminders && (
+                    <p className="text-xs text-muted-foreground">
+                      Авто-напоминания доступны на старших тарифах.{' '}
+                      <Link href="/dashboard/billing" className="underline text-primary">
+                        Посмотреть тарифы
+                      </Link>
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="company-default-locale">Язык сообщений по умолчанию</Label>
+                  <select
+                    id="company-default-locale"
+                    value={defaultLocale}
+                    onChange={(e) => setDefaultLocale(e.target.value as LocaleCode)}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-2xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <option value="RU">Русский (RU)</option>
+                    <option value="KY">Кыргызча (KY)</option>
+                    <option value="EN">English (EN)</option>
+                  </select>
+                </div>
+              </div>
+
+              {reminderMode !== 'OFF' && (
+                <div className="flex flex-wrap gap-6">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={remind24h}
+                      onChange={(e) => setRemind24h(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Напоминать за 24 часа
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={remind2h}
+                      onChange={(e) => setRemind2h(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Напоминать за 2 часа
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4 border-t pt-4">
+              <div>
+                <h3 className="text-sm font-semibold">Предоплата</h3>
+                <p className="text-xs text-muted-foreground">
+                  Реквизиты для перевода клиентом и время удержания слота до подтверждения оплаты.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="company-payment-instructions">Реквизиты для предоплаты</Label>
+                <textarea
+                  id="company-payment-instructions"
+                  rows={3}
+                  value={paymentInstructions}
+                  onChange={(e) => setPaymentInstructions(e.target.value)}
+                  placeholder="Например: MBank +996 555 123 456 (Азамат Т.)"
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-2xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                />
+              </div>
+              <div className="space-y-1.5 sm:max-w-xs">
+                <Label htmlFor="company-prepayment-hold">Срок ожидания предоплаты (минут)</Label>
+                <Input
+                  id="company-prepayment-hold"
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={prepaymentHoldMin}
+                  onChange={(e) => setPrepaymentHoldMin(Number(e.target.value))}
+                  className="min-h-11"
+                />
+                <p className="text-xs text-muted-foreground">
+                  0 — не отменять автоматически; от 15 до 1440 минут (обычно 30).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t pt-4">
+              {isImpersonating && (
+                <span className="text-xs text-muted-foreground">
+                  Режим имперсонации: изменения отключены
+                </span>
+              )}
+              <Button
+                type="submit"
+                disabled={isSavingSettings || isImpersonating}
+                className="min-h-11"
+              >
                 {isSavingSettings ? ru.common.saving : ru.settingsPage.saveSettings}
               </Button>
             </div>
@@ -577,6 +848,8 @@ function SettingsManagerContent() {
           </form>
         </CardContent>
       </Card>
+
+      <PwaInstallCard />
     </div>
   );
 }

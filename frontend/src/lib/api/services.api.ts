@@ -1,5 +1,10 @@
 import { apiClient } from '@/lib/api/client';
-import type { ApiSuccessEnvelope, ServiceDto } from '@/types/api';
+import type {
+  ApiSuccessEnvelope,
+  PrepaymentMode,
+  ServiceDto,
+  ServicePackageDto,
+} from '@/types/api';
 
 export interface CreateServicePayload {
   name: string;
@@ -7,6 +12,9 @@ export interface CreateServicePayload {
   durationMin: number;
   price: number | string;
   isActive?: boolean;
+  requiresPrepayment?: boolean;
+  prepaymentMode?: PrepaymentMode | null;
+  prepaymentValue?: number | string | null;
 }
 
 export interface UpdateServicePayload {
@@ -15,6 +23,9 @@ export interface UpdateServicePayload {
   durationMin?: number;
   price?: number | string;
   isActive?: boolean;
+  requiresPrepayment?: boolean;
+  prepaymentMode?: PrepaymentMode | null;
+  prepaymentValue?: number | string | null;
 }
 
 export async function listServices(): Promise<ServiceDto[]> {
@@ -42,4 +53,50 @@ export async function updateService(
 
 export async function deleteService(id: string): Promise<void> {
   await apiClient.delete(`/services/${id}`);
+}
+
+export interface CreateServicePackagePayload {
+  name: string;
+  description?: string | null;
+  price: number | string;
+  serviceIds: string[];
+  isActive?: boolean;
+}
+
+export interface UpdateServicePackagePayload {
+  name?: string;
+  description?: string | null;
+  price?: number | string;
+  serviceIds?: string[];
+  isActive?: boolean;
+}
+
+export async function listServicePackages(): Promise<ServicePackageDto[]> {
+  const res = await apiClient.get<ApiSuccessEnvelope<ServicePackageDto[]>>('/services/packages');
+  return res.data.data;
+}
+
+export async function createServicePackage(
+  payload: CreateServicePackagePayload,
+): Promise<ServicePackageDto> {
+  const res = await apiClient.post<ApiSuccessEnvelope<ServicePackageDto>>(
+    '/services/packages',
+    payload,
+  );
+  return res.data.data;
+}
+
+export async function updateServicePackage(
+  id: string,
+  payload: UpdateServicePackagePayload,
+): Promise<ServicePackageDto> {
+  const res = await apiClient.patch<ApiSuccessEnvelope<ServicePackageDto>>(
+    `/services/packages/${id}`,
+    payload,
+  );
+  return res.data.data;
+}
+
+export async function deleteServicePackage(id: string): Promise<void> {
+  await apiClient.delete(`/services/packages/${id}`);
 }

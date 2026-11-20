@@ -1,7 +1,21 @@
-import { Prisma, type BusinessType, type Company } from '../../generated/prisma/client.js';
+import {
+  AuditActor,
+  type Locale,
+  Prisma,
+  type ReminderMode,
+  type BusinessType,
+  type Company,
+} from '../../generated/prisma/client.js';
+import { env } from '../../config/env.js';
+import { audit, type AuditRequestContext } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { normalizePhoneE164 } from '../../lib/phone.js';
 import { prisma, prismaUnfiltered } from '../../lib/prisma.js';
+import { assertOptionalPlanFeature, assertPlanFeature } from '../billing/billing.service.js';
+import {
+  backfillCompanyAutoReminders,
+  cancelAllPendingCompanyReminders,
+} from '../notifications/reminders.service.js';
 import type { UpdateCompanyBody } from './company.schemas.js';
 
 export interface CompanyDto {
@@ -11,14 +25,38 @@ export interface CompanyDto {
   businessType: BusinessType;
   phone: string | null;
   address: string | null;
+  description: string | null;
+  brandColor: string | null;
+  customDomain: string | null;
+  instagramUrl: string | null;
   timezone: string;
   currency: string;
   slotIntervalMin: number;
   minLeadTimeMin: number;
   maxAdvanceDays: number;
   publicBookingEnabled: boolean;
+  clientCancelMinHours: number;
+  allowClientReschedule: boolean;
+  defaultLocale: Locale;
+  reminderMode: ReminderMode;
+  remind24h: boolean;
+  remind2h: boolean;
+  paymentInstructions: string | null;
+  prepaymentHoldMin: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export function getCompanyCapabilities() {
+  const provider = env.CLIENT_MESSAGE_PROVIDER.toLowerCase();
+  const autoRemindersAvailable =
+    env.NODE_ENV !== 'production' || (provider !== 'off' && provider !== 'log');
+  return {
+    autoRemindersAvailable,
+    clientMessageProvider: provider,
+    telegramConfigured: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_USERNAME),
+    telegramBotUsername: env.TELEGRAM_BOT_USERNAME || null,
+  };
 }
 
 export function serializeCompany(company: Company): CompanyDto {
@@ -29,12 +67,24 @@ export function serializeCompany(company: Company): CompanyDto {
     businessType: company.businessType,
     phone: company.phone,
     address: company.address,
+    description: company.description,
+    brandColor: company.brandColor,
+    customDomain: company.customDomain,
+    instagramUrl: company.instagramUrl,
     timezone: company.timezone,
     currency: company.currency,
     slotIntervalMin: company.slotIntervalMin,
     minLeadTimeMin: company.minLeadTimeMin,
     maxAdvanceDays: company.maxAdvanceDays,
     publicBookingEnabled: company.publicBookingEnabled,
+    clientCancelMinHours: company.clientCancelMinHours,
+    allowClientReschedule: company.allowClientReschedule,
+    defaultLocale: company.defaultLocale,
+    reminderMode: company.reminderMode,
+    remind24h: company.remind24h,
+    remind2h: company.remind2h,
+    paymentInstructions: company.paymentInstructions,
+    prepaymentHoldMin: company.prepaymentHoldMin,
     createdAt: company.createdAt.toISOString(),
     updatedAt: company.updatedAt.toISOString(),
   };
@@ -53,6 +103,7 @@ export async function getCompanyById(companyId: string): Promise<CompanyDto> {
 export async function updateCompanyById(
   companyId: string,
   input: UpdateCompanyBody,
+  auditMeta?: { actorId?: string; context?: AuditRequestContext },
 ): Promise<CompanyDto> {
   const existing = await prisma.company.findUnique({
     where: { id: companyId },
@@ -75,6 +126,48 @@ export async function updateCompanyById(
     normalizedAddress = input.address === null || input.address.length === 0 ? null : input.address;
   }
 
+  let normalizedDescription: string | null | undefined;
+  if (input.description !== undefined) {
+    normalizedDescription =
+      input.description === null || input.description.length === 0 ? null : input.description;
+  }
+
+  let normalizedBrandColor: string | null | undefined;
+  if (input.brandColor !== undefined) {
+    normalizedBrandColor =
+      input.brandColor === null || input.brandColor.length === 0
+        ? null
+        : input.brandColor.toLowerCase();
+  }
+
+  let normalizedCustomDomain: string | null | undefined;
+  if (input.customDomain !== undefined) {
+    normalizedCustomDomain =
+      input.customDomain === null || input.customDomain.length === 0
+        ? null
+        : input.customDomain.toLowerCase();
+  }
+
+  let normalizedInstagramUrl: string | null | undefined;
+  if (input.instagramUrl !== undefined) {
+    normalizedInstagramUrl =
+      input.instagramUrl === null || input.instagramUrl.length === 0 ? null : input.instagramUrl;
+  }
+
+  if (
+    normalizedCustomDomain !== undefined &&
+    normalizedCustomDomain !== null &&
+    normalizedCustomDomain !== existing.customDomain
+  ) {
+    await assertOptionalPlanFeature(companyId, 'customBranding');
+    const domainCollision = await prismaUnfiltered.company.findUnique({
+      where: { customDomain: normalizedCustomDomain },
+    });
+    if (domainCollision && domainCollision.id !== companyId) {
+      throw new AppError('CONFLICT', 409, 'Этот домен уже привязан к другой компании');
+    }
+  }
+
   if (input.slug !== undefined && input.slug !== existing.slug) {
     const slugCollision = await prismaUnfiltered.company.findUnique({
       where: { slug: input.slug },
@@ -84,11 +177,27 @@ export async function updateCompanyById(
     }
   }
 
+  if (input.reminderMode === 'AUTO') {
+    const caps = getCompanyCapabilities();
+    if (!caps.autoRemindersAvailable) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Automatic client reminders are not available without a configured SMS/WhatsApp provider',
+      );
+    }
+    await assertPlanFeature(companyId, 'autoReminders');
+  }
+
   const updateData: Prisma.CompanyUpdateInput = {
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.businessType !== undefined ? { businessType: input.businessType } : {}),
     ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
     ...(normalizedAddress !== undefined ? { address: normalizedAddress } : {}),
+    ...(normalizedDescription !== undefined ? { description: normalizedDescription } : {}),
+    ...(normalizedBrandColor !== undefined ? { brandColor: normalizedBrandColor } : {}),
+    ...(normalizedCustomDomain !== undefined ? { customDomain: normalizedCustomDomain } : {}),
+    ...(normalizedInstagramUrl !== undefined ? { instagramUrl: normalizedInstagramUrl } : {}),
     ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
     ...(input.slug !== undefined ? { slug: input.slug } : {}),
     ...(input.slotIntervalMin !== undefined ? { slotIntervalMin: input.slotIntervalMin } : {}),
@@ -97,12 +206,58 @@ export async function updateCompanyById(
     ...(input.publicBookingEnabled !== undefined
       ? { publicBookingEnabled: input.publicBookingEnabled }
       : {}),
+    ...(input.clientCancelMinHours !== undefined
+      ? { clientCancelMinHours: input.clientCancelMinHours }
+      : {}),
+    ...(input.allowClientReschedule !== undefined
+      ? { allowClientReschedule: input.allowClientReschedule }
+      : {}),
+    ...(input.defaultLocale !== undefined ? { defaultLocale: input.defaultLocale } : {}),
+    ...(input.reminderMode !== undefined ? { reminderMode: input.reminderMode } : {}),
+    ...(input.remind24h !== undefined ? { remind24h: input.remind24h } : {}),
+    ...(input.remind2h !== undefined ? { remind2h: input.remind2h } : {}),
+    ...(input.paymentInstructions !== undefined
+      ? { paymentInstructions: input.paymentInstructions }
+      : {}),
+    ...(input.prepaymentHoldMin !== undefined
+      ? { prepaymentHoldMin: input.prepaymentHoldMin }
+      : {}),
   };
 
   try {
-    const updated = await prisma.company.update({
-      where: { id: companyId },
-      data: updateData,
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.company.update({
+        where: { id: companyId },
+        data: updateData,
+      });
+
+      if (input.reminderMode !== undefined && input.reminderMode !== existing.reminderMode) {
+        await cancelAllPendingCompanyReminders(tx, companyId);
+        if (input.reminderMode === 'AUTO') {
+          await backfillCompanyAutoReminders(tx, companyId);
+        }
+      } else if (
+        row.reminderMode === 'AUTO' &&
+        (input.remind24h !== undefined || input.remind2h !== undefined)
+      ) {
+        await cancelAllPendingCompanyReminders(tx, companyId);
+        await backfillCompanyAutoReminders(tx, companyId);
+      }
+
+      await audit(tx, {
+        actorType: AuditActor.USER,
+        actorId: auditMeta?.actorId ?? null,
+        companyId,
+        action: 'company.update',
+        entityType: 'Company',
+        entityId: companyId,
+        metadata: {
+          updatedFields: Object.keys(updateData),
+        },
+        context: auditMeta?.context,
+      });
+
+      return row;
     });
     return serializeCompany(updated);
   } catch (err) {

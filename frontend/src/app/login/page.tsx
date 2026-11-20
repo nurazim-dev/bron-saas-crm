@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, Scissors } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -9,6 +9,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { AuthBootstrap, GuestGuard } from '@/components/layout/auth-bootstrap';
+import { AuthShell } from '@/components/layout/auth-shell';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -50,31 +51,24 @@ function LoginFormContent() {
   async function onSubmit(values: LoginFormValues) {
     setServerError(null);
     try {
-      await loginWithPassword({
+      const result = await loginWithPassword({
         email: values.email.trim().toLowerCase(),
         password: values.password,
       });
       toast.success(ru.auth.welcomeBack);
-      router.replace('/dashboard');
+      router.replace(result.user.role === 'MANAGER' ? '/dashboard/schedule' : '/dashboard');
     } catch (err) {
       setServerError(getApiErrorMessage(err));
     }
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/30 px-4 py-10">
-      <div className="mb-6 flex items-center gap-2.5">
-        <Link href="/" className="flex items-center gap-2.5 font-semibold">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Scissors className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <span className="text-xl font-bold">{ru.brand.name}</span>
-        </Link>
-      </div>
-
-      <Card className="w-full max-w-md shadow-xs">
+    <AuthShell>
+      <Card className="w-full max-w-md auth-card">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">{ru.auth.loginTitle}</CardTitle>
+          <CardTitle className="text-3xl font-semibold tracking-tight">
+            {ru.auth.loginTitle}
+          </CardTitle>
           <CardDescription>{ru.auth.loginSubtitle}</CardDescription>
         </CardHeader>
 
@@ -110,7 +104,15 @@ function LoginFormContent() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="login-password">{ru.auth.passwordLabel}</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="login-password">{ru.auth.passwordLabel}</Label>
+                <Link
+                  href="/forgot-password"
+                  className="inline-flex min-h-11 items-center text-xs font-medium text-primary hover:underline"
+                >
+                  {ru.auth.forgotPasswordLink}
+                </Link>
+              </div>
               <Input
                 id="login-password"
                 type="password"
@@ -146,7 +148,7 @@ function LoginFormContent() {
           </Link>
         </CardFooter>
       </Card>
-    </main>
+    </AuthShell>
   );
 }
 

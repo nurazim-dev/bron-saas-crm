@@ -1,0 +1,15 @@
+.git
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/src/generated
+**/.env
+**/.env.*
+!**/.env.example
+artifacts
+.tmp
+frontend/test-results
+frontend/playwright-report
+*.dump
+*.log

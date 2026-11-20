@@ -1,6 +1,7 @@
+import { serviceIdsSchema } from './service-selection.js';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
-import { AppointmentStatus } from '../../generated/prisma/client.js';
+import { AppointmentStatus, PrepaymentStatus } from '../../generated/prisma/client.js';
 import { parseNormalizedStartAtUtc } from '../../lib/datetime.js';
 import { normalizePhoneE164, sanitizeText } from '../../lib/phone.js';
 
@@ -30,6 +31,7 @@ export const listAppointmentsQuerySchema = z
     to: isoInstantQuerySchema,
     masterId: z.uuid({ message: 'masterId must be a valid UUID' }).optional(),
     status: z.enum(AppointmentStatus).optional(),
+    prepaymentStatus: z.enum(PrepaymentStatus).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(200).default(50),
   })
@@ -43,6 +45,14 @@ export const listAppointmentsQuerySchema = z
   });
 
 export type ListAppointmentsQuery = z.infer<typeof listAppointmentsQuerySchema>;
+
+export const prepaymentActionBodySchema = z
+  .object({
+    action: z.enum(['RECEIVED', 'WAIVE', 'REFUND']),
+  })
+  .strict();
+
+export type PrepaymentActionBody = z.infer<typeof prepaymentActionBodySchema>;
 
 const startAtSchema = z.string().transform((val, ctx): Date => {
   try {
@@ -111,7 +121,9 @@ const priceSchema = z.union([z.number(), z.string()]).transform((val, ctx): stri
 export const createAppointmentBodySchema = z
   .object({
     masterId: z.uuid({ message: 'masterId must be a valid UUID' }),
-    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsSchema.optional(),
+    packageId: z.uuid({ message: 'packageId must be a valid UUID' }).optional(),
     startAt: startAtSchema,
     clientName: clientNameSchema,
     clientPhone: clientPhoneSchema,
@@ -119,7 +131,23 @@ export const createAppointmentBodySchema = z
     internalNote: noteSchema,
     price: priceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!data.serviceId && !data.packageId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['serviceId'],
+        message: 'Either serviceId or packageId is required',
+      });
+    }
+    if (data.packageId && (data.serviceId !== undefined || data.serviceIds !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['packageId'],
+        message: 'Cannot combine packageId with serviceId or serviceIds',
+      });
+    }
+  });
 
 export type CreateAppointmentBody = z.infer<typeof createAppointmentBodySchema>;
 
@@ -127,6 +155,7 @@ export const updateAppointmentBodySchema = z
   .object({
     masterId: z.uuid({ message: 'masterId must be a valid UUID' }).optional(),
     serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsSchema.optional(),
     startAt: startAtSchema.optional(),
     clientName: clientNameSchema.optional(),
     clientPhone: clientPhoneSchema.optional(),

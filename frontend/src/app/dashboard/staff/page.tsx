@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 
 import {
   AlertCircle,
@@ -6,6 +7,8 @@ import {
   CheckSquare,
   Copy,
   KeyRound,
+  Mail,
+  MessageCircle,
   Pencil,
   Plus,
   Sparkles,
@@ -15,32 +18,41 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { InviteStaff } from '@/components/auth/invite-staff';
 import { OwnerGuard } from '@/components/layout/auth-bootstrap';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { TimeOffManager } from '@/components/time-off/time-off-manager';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getApiErrorMessage } from '@/lib/api/client';
 import { listServices } from '@/lib/api/services.api';
 import {
   createStaff,
+  createStaffPasswordResetLink,
+  createStaffTelegramLinkCode,
   deleteStaff,
   listStaff,
   replaceStaffServices,
   replaceStaffWorkingHours,
+  unlinkStaffTelegram,
   updateStaff,
+  type StaffPasswordResetLinkDto,
+  type StaffServiceOverrideInput,
 } from '@/lib/api/staff.api';
 import { formatDurationMin, formatPriceKgs, ru } from '@/lib/i18n/ru';
 import { formatPhoneDisplay, normalizePhoneE164OrNull } from '@/lib/phone';
-import type { ServiceDto, StaffDto, WorkingHoursDto } from '@/types/api';
+import type { ServiceDto, StaffDto, TelegramLinkCodeDto, WorkingHoursDto } from '@/types/api';
 
 interface EditableDayRow {
   dayOfWeek: number;
   isWorking: boolean;
   startTime: string;
   endTime: string;
+  breakStart: string;
+  breakEnd: string;
 }
 
 const ISO_DAYS = [1, 2, 3, 4, 5, 6, 7] as const;
@@ -71,6 +83,8 @@ function buildEditableSchedule(workingHours: WorkingHoursDto[]): EditableDayRow[
         isWorking: true,
         startTime: existing.startTime,
         endTime: existing.endTime,
+        breakStart: existing.breakStart ?? '',
+        breakEnd: existing.breakEnd ?? '',
       };
     }
     return {
@@ -78,6 +92,8 @@ function buildEditableSchedule(workingHours: WorkingHoursDto[]): EditableDayRow[
       isWorking: false,
       startTime: '10:00',
       endTime: '20:00',
+      breakStart: '',
+      breakEnd: '',
     };
   });
 }
@@ -100,10 +116,18 @@ function StaffManagerContent() {
   const [staffIsActive, setStaffIsActive] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [sendResetEmail, setSendResetEmail] = useState(false);
+  const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
+  const [generatedResetLink, setGeneratedResetLink] = useState<StaffPasswordResetLinkDto | null>(
+    null,
+  );
 
   // Services checklist modal state
   const [servicesStaff, setServicesStaff] = useState<StaffDto | null>(null);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [serviceOverridesMap, setServiceOverridesMap] = useState<
+    Record<string, { customPrice: string; customDurationMin: string }>
+  >({});
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
 
@@ -117,6 +141,12 @@ function StaffManagerContent() {
   const [deletingStaff, setDeletingStaff] = useState<StaffDto | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Telegram link modal / state per staff member
+  const [telegramLinksByStaffId, setTelegramLinksByStaffId] = useState<
+    Record<string, TelegramLinkCodeDto>
+  >({});
+  const [loadingTelegramStaffId, setLoadingTelegramStaffId] = useState<string | null>(null);
 
   const serviceById = useMemo(() => new Map(services.map((s) => [s.id, s])), [services]);
 
@@ -174,13 +204,77 @@ function StaffManagerContent() {
     setEditingStaff(member);
     setStaffName(member.name);
     setStaffPhone(member.phone ?? '');
-    setEnableLogin(member.hasLogin || member.role === 'OWNER');
+    setEnableLogin(member.email !== null || member.role === 'OWNER');
     setStaffEmail(member.email ?? '');
     setStaffPassword('');
     setStaffIsBookable(member.isBookable);
     setStaffIsActive(member.isActive);
     setProfileError(null);
+    setSendResetEmail(false);
+    setGeneratedResetLink(null);
     setIsProfileOpen(true);
+  }
+
+  async function handleGenerateResetLink() {
+    if (!editingStaff) return;
+    setProfileError(null);
+    setIsGeneratingResetLink(true);
+    try {
+      const link = await createStaffPasswordResetLink(editingStaff.id, {
+        sendEmail: sendResetEmail,
+      });
+      setGeneratedResetLink(link);
+      toast.success(
+        sendResetEmail
+          ? 'Одноразовая ссылка создана и поставлена в очередь на email'
+          : 'Одноразовая ссылка для сброса пароля создана',
+      );
+    } catch (err) {
+      setProfileError(getApiErrorMessage(err));
+    } finally {
+      setIsGeneratingResetLink(false);
+    }
+  }
+
+  async function handleCopyResetLink() {
+    if (!generatedResetLink) return;
+    try {
+      await navigator.clipboard.writeText(generatedResetLink.url);
+      toast.success('Ссылка скопирована');
+    } catch {
+      toast.error('Не удалось скопировать ссылку');
+    }
+  }
+
+  async function handleGenerateStaffTelegramLink(member: StaffDto) {
+    setLoadingTelegramStaffId(member.id);
+    try {
+      const link = await createStaffTelegramLinkCode(member.id);
+      setTelegramLinksByStaffId((prev) => ({ ...prev, [member.id]: link }));
+      if (link.deepLink) {
+        await navigator.clipboard.writeText(link.deepLink).catch(() => undefined);
+      }
+      toast.success(`Ссылка привязки Telegram для ${member.name} создана`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setLoadingTelegramStaffId(null);
+    }
+  }
+
+  async function handleUnlinkStaffTelegram(member: StaffDto) {
+    setLoadingTelegramStaffId(member.id);
+    try {
+      await unlinkStaffTelegram(member.id);
+      setStaffList((prev) =>
+        prev.map((m) => (m.id === member.id ? { ...m, telegramConnected: false } : m)),
+      );
+      toast.success(`Telegram отвязан для ${member.name}`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setLoadingTelegramStaffId(null);
+    }
   }
 
   async function handleSaveProfile(e: React.FormEvent) {
@@ -208,7 +302,7 @@ function StaffManagerContent() {
         setProfileError(ru.validation.emailInvalid);
         return;
       }
-      const needsNewPassword = !editingStaff || !editingStaff.hasLogin;
+      const needsNewPassword = !editingStaff || editingStaff.email === null;
       if (needsNewPassword && trimmedPassword.length < 8) {
         setProfileError(ru.validation.passwordMin);
         return;
@@ -240,7 +334,7 @@ function StaffManagerContent() {
         const updated = await updateStaff(editingStaff.id, {
           name: trimmedName,
           phone: normalizedPhone,
-          ...(editingStaff.role === 'OWNER'
+          ...(editingStaff.role !== 'MASTER'
             ? {
                 email: trimmedEmail,
                 ...(trimmedPassword.length >= 8 ? { password: trimmedPassword } : {}),
@@ -254,7 +348,7 @@ function StaffManagerContent() {
                   email: null,
                 }),
           isBookable: staffIsBookable,
-          ...(editingStaff.role === 'MASTER' ? { isActive: staffIsActive } : {}),
+          ...(editingStaff.role !== 'OWNER' ? { isActive: staffIsActive } : {}),
         });
         setStaffList((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
         toast.success(ru.staffPage.updateSuccess);
@@ -270,7 +364,29 @@ function StaffManagerContent() {
   function openServicesDialog(member: StaffDto) {
     setServicesStaff(member);
     setSelectedServiceIds([...member.serviceIds]);
+    const nextOverrides: Record<string, { customPrice: string; customDurationMin: string }> = {};
+    for (const override of member.serviceOverrides ?? []) {
+      nextOverrides[override.serviceId] = {
+        customPrice: override.customPrice ?? '',
+        customDurationMin:
+          override.customDurationMin != null ? String(override.customDurationMin) : '',
+      };
+    }
+    setServiceOverridesMap(nextOverrides);
     setServicesError(null);
+  }
+
+  function updateServiceOverride(
+    serviceId: string,
+    patch: Partial<{ customPrice: string; customDurationMin: string }>,
+  ) {
+    setServiceOverridesMap((prev) => {
+      const current = prev[serviceId] ?? { customPrice: '', customDurationMin: '' };
+      return {
+        ...prev,
+        [serviceId]: { ...current, ...patch },
+      };
+    });
   }
 
   function toggleServiceId(id: string) {
@@ -281,10 +397,45 @@ function StaffManagerContent() {
 
   async function handleSaveServices() {
     if (!servicesStaff) return;
-    setIsSavingServices(true);
     setServicesError(null);
+
+    const overrides: StaffServiceOverrideInput[] = [];
+    for (const serviceId of selectedServiceIds) {
+      const entry = serviceOverridesMap[serviceId];
+      if (!entry) continue;
+      const rawPrice = entry.customPrice.trim();
+      const rawDuration = entry.customDurationMin.trim();
+      if (!rawPrice && !rawDuration) continue;
+
+      if (rawPrice && (!/^\d+(?:\.\d{1,2})?$/.test(rawPrice) || Number(rawPrice) > 1000000)) {
+        setServicesError(ru.validation.priceInvalid);
+        return;
+      }
+
+      let parsedDuration: number | null = null;
+      if (rawDuration) {
+        parsedDuration = Number(rawDuration);
+        if (
+          !Number.isInteger(parsedDuration) ||
+          parsedDuration < 5 ||
+          parsedDuration > 480 ||
+          parsedDuration % 5 !== 0
+        ) {
+          setServicesError(ru.validation.durationRange);
+          return;
+        }
+      }
+
+      overrides.push({
+        serviceId,
+        customPrice: rawPrice || null,
+        customDurationMin: parsedDuration,
+      });
+    }
+
+    setIsSavingServices(true);
     try {
-      const updated = await replaceStaffServices(servicesStaff.id, selectedServiceIds);
+      const updated = await replaceStaffServices(servicesStaff.id, selectedServiceIds, overrides);
       setStaffList((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
       toast.success(ru.staffPage.servicesSaved);
       setServicesStaff(null);
@@ -318,6 +469,8 @@ function StaffManagerContent() {
               isWorking: true,
               startTime: monday.startTime,
               endTime: monday.endTime,
+              breakStart: monday.breakStart,
+              breakEnd: monday.breakEnd,
             }
           : row,
       );
@@ -345,6 +498,8 @@ function StaffManagerContent() {
           dayOfWeek: d.dayOfWeek,
           startTime: d.startTime,
           endTime: d.endTime,
+          breakStart: d.breakStart ? d.breakStart : null,
+          breakEnd: d.breakEnd ? d.breakEnd : null,
         })),
       );
       setStaffList((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
@@ -386,6 +541,7 @@ function StaffManagerContent() {
         </Button>
       </div>
 
+      <InviteStaff onInvited={() => setReloadKey((key) => key + 1)} />
       {/* Loading skeleton */}
       {isLoading && (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -439,12 +595,19 @@ function StaffManagerContent() {
                         {ru.roles[member.role]}
                       </Badge>
                       <Badge variant="outline">
-                        {member.hasLogin ? ru.staffPage.badgeHasLogin : ru.staffPage.badgeNoLogin}
+                        {member.hasLogin
+                          ? ru.staffPage.badgeHasLogin
+                          : member.email
+                            ? 'Приглашён'
+                            : ru.staffPage.badgeNoLogin}
                       </Badge>
                       <Badge variant={member.isBookable ? 'default' : 'secondary'}>
                         {member.isBookable
                           ? ru.staffPage.badgeBookable
                           : ru.staffPage.badgeNotBookable}
+                      </Badge>
+                      <Badge variant={member.telegramConnected ? 'default' : 'outline'}>
+                        {member.telegramConnected ? 'Telegram подключён' : 'Telegram не привязан'}
                       </Badge>
                       {!member.isActive && (
                         <Badge variant="destructive">{ru.staffPage.badgeInactive}</Badge>
@@ -487,9 +650,81 @@ function StaffManagerContent() {
                     </div>
                   </div>
 
+                  {member.role !== 'MANAGER' && (
+                    <Button variant="outline" asChild>
+                      <Link href={`/dashboard/staff/${member.id}/portfolio`}>
+                        Профиль и портфолио
+                      </Link>
+                    </Button>
+                  )}
+
+                  {/* Telegram binding block for staff member */}
+                  <div className="space-y-2 rounded-lg border bg-muted/20 p-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium text-foreground">
+                        Telegram-бот сотрудника (
+                        {member.telegramConnected ? 'подключён' : 'не подключён'})
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={loadingTelegramStaffId === member.id}
+                          onClick={() => void handleGenerateStaffTelegramLink(member)}
+                          className="h-8 text-xs"
+                        >
+                          <MessageCircle
+                            className="mr-1.5 h-3.5 w-3.5 text-primary"
+                            aria-hidden="true"
+                          />
+                          {member.telegramConnected
+                            ? 'Новая ссылка Telegram'
+                            : 'Ссылка привязки Telegram'}
+                        </Button>
+                        {member.telegramConnected && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={loadingTelegramStaffId === member.id}
+                            onClick={() => void handleUnlinkStaffTelegram(member)}
+                            className="h-8 text-xs text-destructive"
+                          >
+                            Отвязать
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {telegramLinksByStaffId[member.id]?.deepLink && (
+                      <div className="flex items-center gap-2 rounded border bg-background p-2">
+                        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-primary">
+                          {telegramLinksByStaffId[member.id]?.deepLink}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 px-2 text-xs"
+                          onClick={async () => {
+                            const url = telegramLinksByStaffId[member.id]?.deepLink;
+                            if (!url) return;
+                            await navigator.clipboard.writeText(url);
+                            toast.success('Ссылка Telegram скопирована');
+                          }}
+                        >
+                          <Copy className="mr-1 h-3 w-3" aria-hidden="true" />
+                          Копировать
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   {/* Action buttons */}
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className="flex flex-wrap items-center gap-2"
+                      hidden={member.role === 'MANAGER'}
+                    >
                       <Button
                         type="button"
                         variant="outline"
@@ -524,7 +759,7 @@ function StaffManagerContent() {
                         <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
                         {ru.common.edit}
                       </Button>
-                      {member.role === 'MASTER' && (
+                      {member.role !== 'OWNER' && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -612,6 +847,7 @@ function StaffManagerContent() {
                     <input
                       type="checkbox"
                       checked={staffIsBookable}
+                      disabled={editingStaff?.role === 'MANAGER'}
                       onChange={(e) => setStaffIsBookable(e.target.checked)}
                       className="h-4 w-4 rounded border-input accent-primary"
                     />
@@ -619,7 +855,7 @@ function StaffManagerContent() {
                     <span>{ru.staffPage.isBookableLabel}</span>
                   </label>
 
-                  {(!editingStaff || editingStaff.role === 'MASTER') && (
+                  {editingStaff?.role !== 'OWNER' && (
                     <label className="flex cursor-pointer items-center gap-2.5 pt-1 text-sm font-medium">
                       <input
                         type="checkbox"
@@ -677,6 +913,81 @@ function StaffManagerContent() {
                       </div>
                     </div>
                   )}
+
+                  {editingStaff &&
+                    editingStaff.role !== 'OWNER' &&
+                    editingStaff.email !== null &&
+                    editingStaff.isActive && (
+                      <div className="space-y-2.5 border-t pt-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={sendResetEmail}
+                              onChange={(e) => setSendResetEmail(e.target.checked)}
+                              className="h-3.5 w-3.5 rounded border-input accent-primary"
+                            />
+                            <Mail className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>Отправить также на email</span>
+                          </label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleGenerateResetLink()}
+                            disabled={isGeneratingResetLink}
+                            className="gap-1.5"
+                          >
+                            <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                            {isGeneratingResetLink ? 'Создаём...' : 'Сбросить пароль'}
+                          </Button>
+                        </div>
+
+                        {generatedResetLink && (
+                          <div className="space-y-2 rounded-md bg-muted/50 p-2.5 text-xs">
+                            <p className="font-medium text-foreground">
+                              Одноразовая ссылка (действует 60 минут):
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                readOnly
+                                value={generatedResetLink.url}
+                                className="h-9 text-xs font-mono"
+                                aria-label="Ссылка для сброса пароля"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleCopyResetLink()}
+                                className="h-9 shrink-0 gap-1"
+                              >
+                                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                                Копировать
+                              </Button>
+                            </div>
+                            <Button
+                              asChild
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-full gap-1.5"
+                            >
+                              <a
+                                href={`https://wa.me/?text=${encodeURIComponent(
+                                  `Ссылка для сброса пароля Zapis.kg (действует 60 минут): ${generatedResetLink.url}`,
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                                Поделиться в WhatsApp
+                              </a>
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t pt-4">
@@ -770,32 +1081,78 @@ function StaffManagerContent() {
                   <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                     {services.map((service) => {
                       const checked = selectedServiceIds.includes(service.id);
+                      const override = serviceOverridesMap[service.id] ?? {
+                        customPrice: '',
+                        customDurationMin: '',
+                      };
                       return (
-                        <label
+                        <div
                           key={service.id}
-                          className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors ${
+                          className={`rounded-lg border p-3 transition-colors ${
                             checked ? 'border-primary/40 bg-primary/5' : 'hover:bg-muted/40'
                           }`}
                         >
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleServiceId(service.id)}
-                              className="h-4 w-4 rounded border-input accent-primary"
-                            />
-                            <div>
-                              <p className="text-sm font-medium">{service.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatDurationMin(service.durationMin)} •{' '}
-                                {formatPriceKgs(service.price)}
-                              </p>
+                          <label className="flex cursor-pointer items-center justify-between gap-2">
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleServiceId(service.id)}
+                                className="h-4 w-4 rounded border-input accent-primary"
+                              />
+                              <div>
+                                <p className="text-sm font-medium">{service.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDurationMin(service.durationMin)} •{' '}
+                                  {formatPriceKgs(service.price)}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          {!service.isActive && (
-                            <Badge variant="secondary">{ru.servicesPage.statusInactive}</Badge>
+                            {!service.isActive && (
+                              <Badge variant="secondary">{ru.servicesPage.statusInactive}</Badge>
+                            )}
+                          </label>
+                          {checked && (
+                            <div className="mt-2.5 grid grid-cols-2 gap-2 border-t pt-2.5">
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-medium text-muted-foreground">
+                                  {ru.staffPage.overridePriceLabel}
+                                </span>
+                                <Input
+                                  aria-label={`Цена для ${service.name}`}
+                                  value={override.customPrice}
+                                  onChange={(e) =>
+                                    updateServiceOverride(service.id, {
+                                      customPrice: e.target.value,
+                                    })
+                                  }
+                                  placeholder={service.price}
+                                  className="h-9 text-xs"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-medium text-muted-foreground">
+                                  {ru.staffPage.overrideDurationLabel}
+                                </span>
+                                <Input
+                                  aria-label={`Длительность для ${service.name}`}
+                                  type="number"
+                                  min={5}
+                                  max={480}
+                                  step={5}
+                                  value={override.customDurationMin}
+                                  onChange={(e) =>
+                                    updateServiceOverride(service.id, {
+                                      customDurationMin: e.target.value,
+                                    })
+                                  }
+                                  placeholder={String(service.durationMin)}
+                                  className="h-9 text-xs"
+                                />
+                              </div>
+                            </div>
                           )}
-                        </label>
+                        </div>
                       );
                     })}
                   </div>
@@ -937,6 +1294,37 @@ function StaffManagerContent() {
                             </option>
                           ))}
                         </select>
+                        <span className="ml-2 text-xs text-muted-foreground">Перерыв:</span>
+                        <select
+                          aria-label={`${ru.staffPage.weekdays[row.dayOfWeek]} начало перерыва`}
+                          value={row.breakStart}
+                          onChange={(e) =>
+                            updateDayRow(row.dayOfWeek, { breakStart: e.target.value })
+                          }
+                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="">—</option>
+                          {TIME_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label={`${ru.staffPage.weekdays[row.dayOfWeek]} конец перерыва`}
+                          value={row.breakEnd}
+                          onChange={(e) =>
+                            updateDayRow(row.dayOfWeek, { breakEnd: e.target.value })
+                          }
+                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="">—</option>
+                          {TIME_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     ) : (
                       <span className="text-xs font-medium text-muted-foreground">
@@ -1021,6 +1409,11 @@ function StaffManagerContent() {
           </Card>
         </div>
       )}
+
+      <TimeOffManager
+        title="Отпуска и отсутствия команды"
+        description="Управление отпусками, больничными и разовыми отсутствиями мастеров."
+      />
     </div>
   );
 }

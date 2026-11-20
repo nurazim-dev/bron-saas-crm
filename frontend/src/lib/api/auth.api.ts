@@ -1,6 +1,12 @@
-import { apiClient, performSingleFlightRefresh } from '@/lib/api/client';
+import { apiClient, performSingleFlightRefresh, resetTenantRequestContext } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/auth.store';
-import type { ApiSuccessEnvelope, AuthSessionDto, BusinessType, MeResponseDto } from '@/types/api';
+import type {
+  ApiSuccessEnvelope,
+  AuthSessionDto,
+  BusinessType,
+  CompanyMembershipDto,
+  MeResponseDto,
+} from '@/types/api';
 
 export interface RegisterOwnerPayload {
   companyName: string;
@@ -9,6 +15,7 @@ export interface RegisterOwnerPayload {
   email: string;
   phone?: string;
   password: string;
+  termsAccepted: true;
 }
 
 export interface LoginPayload {
@@ -47,6 +54,7 @@ export async function getMe(): Promise<MeResponseDto> {
 }
 
 export async function logoutSession(): Promise<void> {
+  resetTenantRequestContext();
   try {
     await apiClient.post('/auth/logout', {});
   } finally {
@@ -54,9 +62,98 @@ export async function logoutSession(): Promise<void> {
   }
 }
 
+export async function listMyCompanies(): Promise<CompanyMembershipDto[]> {
+  const res = await apiClient.get<ApiSuccessEnvelope<CompanyMembershipDto[]>>('/auth/companies');
+  const companies = res.data.data;
+  useAuthStore.getState().setCompanies(companies);
+  return companies;
+}
+
+export async function switchCompany(companyId: string): Promise<AuthSessionDto> {
+  resetTenantRequestContext();
+  const res = await apiClient.post<ApiSuccessEnvelope<AuthSessionDto>>('/auth/switch-company', {
+    companyId,
+  });
+  resetTenantRequestContext();
+  const session = res.data.data;
+  useAuthStore.getState().setSession(session);
+  await listMyCompanies().catch(() => undefined);
+  return session;
+}
+
+export async function createAdditionalCompany(payload: {
+  companyName: string;
+  businessType: BusinessType;
+  phone?: string;
+}): Promise<AuthSessionDto> {
+  resetTenantRequestContext();
+  const res = await apiClient.post<ApiSuccessEnvelope<AuthSessionDto>>('/auth/companies', payload);
+  resetTenantRequestContext();
+  const session = res.data.data;
+  useAuthStore.getState().setSession(session);
+  await listMyCompanies().catch(() => undefined);
+  return session;
+}
+
 export async function changePassword(payload: ChangePasswordPayload): Promise<AuthSessionDto> {
   const res = await apiClient.patch<ApiSuccessEnvelope<AuthSessionDto>>('/auth/password', payload);
   const session = res.data.data;
   useAuthStore.getState().setSession(session);
   return session;
+}
+
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  const res = await apiClient.post<ApiSuccessEnvelope<{ message: string }>>(
+    '/auth/forgot-password',
+    { email },
+  );
+  return res.data.data;
+}
+
+export async function validateResetToken(token: string): Promise<{ valid: boolean }> {
+  const res = await apiClient.get<ApiSuccessEnvelope<{ valid: boolean }>>(
+    '/auth/reset-password/validate',
+    { params: { token } },
+  );
+  return res.data.data;
+}
+
+export async function resetPassword(payload: {
+  token: string;
+  newPassword: string;
+}): Promise<void> {
+  await apiClient.post('/auth/reset-password', payload);
+}
+
+export async function exchangeImpersonationCode(code: string): Promise<{
+  accessToken: string;
+  user: AuthSessionDto['user'];
+  company: AuthSessionDto['company'];
+  impersonating: boolean;
+}> {
+  const res = await apiClient.post<
+    ApiSuccessEnvelope<{
+      accessToken: string;
+      user: AuthSessionDto['user'];
+      company: AuthSessionDto['company'];
+      impersonating: boolean;
+    }>
+  >('/auth/impersonate/exchange', { code });
+  const data = res.data.data;
+  useAuthStore.getState().setSession({
+    accessToken: data.accessToken,
+    user: data.user,
+    company: data.company,
+    isImpersonating: true,
+  });
+  return data;
+}
+
+export async function exitImpersonation(): Promise<void> {
+  resetTenantRequestContext();
+  try {
+    await apiClient.post('/auth/impersonate/exit', {});
+  } finally {
+    useAuthStore.getState().clearSession();
+  }
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
@@ -43,17 +44,40 @@ export async function createUserFactory(
   overrides: Partial<Prisma.UserUncheckedCreateInput> = {},
 ): Promise<User> {
   const n = nextSeq();
+  const email =
+    overrides.email !== undefined
+      ? overrides.email
+      : `staff-${n}-${randomUUID().slice(0, 6)}@test.zapis.kg`;
+  const passwordHash =
+    overrides.passwordHash !== undefined ? overrides.passwordHash : 'hashed-password-placeholder';
+
+  let identityId = overrides.identityId;
+  if (email !== null && identityId === undefined) {
+    const existing = await prisma.identity.findUnique({ where: { email } });
+    if (existing) {
+      identityId = existing.id;
+    } else {
+      const created = await prisma.identity.create({
+        data: { email, passwordHash, lastCompanyId: companyId },
+      });
+      identityId = created.id;
+    }
+  } else if (email === null) {
+    identityId = null;
+  }
+
   return prisma.user.create({
     data: {
       companyId,
       role: Role.MASTER,
       name: `Staff Member ${n}`,
-      email: `staff-${n}-${randomUUID().slice(0, 6)}@test.zapis.kg`,
-      passwordHash: 'hashed-password-placeholder',
       phone: '+996555100200',
       isActive: true,
       isBookable: true,
       ...overrides,
+      email,
+      passwordHash,
+      identityId: identityId ?? null,
     },
   });
 }
@@ -97,13 +121,30 @@ export async function createAppointmentFactory(
 ): Promise<Appointment> {
   const startAt = input.startAt ?? new Date('2026-11-20T04:00:00.000Z');
   const endAt = input.endAt ?? new Date(startAt.getTime() + 60 * 60_000);
+  const clientName = input.clientName ?? 'Test Client';
+  const clientPhone = input.clientPhone ?? '+996555999888';
+  const client = await prisma.client.upsert({
+    where: {
+      companyId_phone: {
+        companyId: input.companyId,
+        phone: clientPhone,
+      },
+    },
+    update: {},
+    create: {
+      companyId: input.companyId,
+      name: clientName,
+      phone: clientPhone,
+    },
+  });
   return prisma.appointment.create({
     data: {
       companyId: input.companyId,
       masterId: input.masterId,
       serviceId: input.serviceId,
-      clientName: input.clientName ?? 'Test Client',
-      clientPhone: input.clientPhone ?? '+996555999888',
+      clientId: client.id,
+      clientName,
+      clientPhone,
       clientNote: input.clientNote ?? null,
       internalNote: input.internalNote ?? null,
       startAt,
@@ -112,6 +153,7 @@ export async function createAppointmentFactory(
         input.price !== undefined ? new Prisma.Decimal(input.price) : new Prisma.Decimal('500.00'),
       status: input.status ?? AppointmentStatus.SCHEDULED,
       source: input.source ?? AppointmentSource.ONLINE,
+      manageToken: randomBytes(32).toString('base64url'),
       deletedAt: input.deletedAt ?? null,
     },
   });

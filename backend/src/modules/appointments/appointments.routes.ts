@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Role } from '../../generated/prisma/client.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireWritableSubscription } from '../../middleware/billing.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -9,12 +10,15 @@ import {
   deleteAppointmentController,
   getAppointmentController,
   listAppointmentsController,
+  markReminderSentController,
+  prepaymentActionController,
   updateAppointmentController,
 } from './appointments.controller.js';
 import {
   appointmentIdParamsSchema,
   createAppointmentBodySchema,
   listAppointmentsQuerySchema,
+  prepaymentActionBodySchema,
   updateAppointmentBodySchema,
   updateAppointmentStatusBodySchema,
 } from './appointments.schemas.js';
@@ -31,6 +35,7 @@ appointmentsRouter.get(
 appointmentsRouter.post(
   '/',
   authenticate,
+  requireWritableSubscription,
   validate({ body: createAppointmentBodySchema }),
   createAppointmentController,
 );
@@ -45,6 +50,7 @@ appointmentsRouter.get(
 appointmentsRouter.patch(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   validate({ params: appointmentIdParamsSchema, body: updateAppointmentBodySchema }),
   updateAppointmentController,
 );
@@ -52,13 +58,31 @@ appointmentsRouter.patch(
 appointmentsRouter.post(
   '/:id/status',
   authenticate,
+  requireWritableSubscription,
   validate({ params: appointmentIdParamsSchema, body: updateAppointmentStatusBodySchema }),
   changeAppointmentStatusController,
+);
+
+appointmentsRouter.post(
+  '/:id/reminder-sent',
+  authenticate,
+  requireWritableSubscription,
+  validate({ params: appointmentIdParamsSchema }),
+  markReminderSentController,
+);
+
+appointmentsRouter.post(
+  '/:id/prepayment',
+  authenticate,
+  requireWritableSubscription,
+  validate({ params: appointmentIdParamsSchema, body: prepaymentActionBodySchema }),
+  prepaymentActionController,
 );
 
 appointmentsRouter.delete(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: appointmentIdParamsSchema }),
   deleteAppointmentController,

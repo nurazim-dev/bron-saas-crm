@@ -27,6 +27,10 @@ export default defineConfig({
       url: 'http://localhost:4000/api/v1/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
+      env: {
+        RATE_LIMIT_AUTH_MAX: '50',
+        RATE_LIMIT_GLOBAL_MAX: '1000',
+      },
     },
     {
       command: 'npm run start -w frontend',

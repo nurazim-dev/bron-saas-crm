@@ -4,13 +4,18 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { disconnectPrisma } from './lib/prisma.js';
+import { startWorker } from './worker/runner.js';
+import { startTelegramPolling } from './modules/notifications/telegram-polling.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const app = createApp();
+const worker = env.WORKER_ENABLED ? startWorker(env.WORKER_INTERVAL_MS) : null;
+let telegramPolling: ReturnType<typeof startTelegramPolling> = null;
 
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, 'Backend listening');
+  telegramPolling = startTelegramPolling();
 });
 
 server.on('error', (err) => {
@@ -36,7 +41,8 @@ function shutdown(signal: NodeJS.Signals): void {
       logger.error({ err }, 'Error while closing HTTP server');
       process.exit(1);
     }
-    disconnectPrisma()
+    Promise.all([worker?.stop(), telegramPolling?.stop()])
+      .then(() => disconnectPrisma())
       .then(() => {
         logger.info('Shutdown complete');
         process.exit(0);

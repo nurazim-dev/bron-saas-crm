@@ -69,6 +69,9 @@ export default async function PublicBookingPage({ params }: PublicPageProps) {
                 {ru.businessTypes[company.businessType]}
               </Badge>
               <h1 className="text-2xl font-bold tracking-tight text-foreground">{company.name}</h1>
+              {company.description && (
+                <p className="mt-1 text-sm text-muted-foreground">{company.description}</p>
+              )}
               {company.address && (
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                   <MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
@@ -76,24 +79,48 @@ export default async function PublicBookingPage({ params }: PublicPageProps) {
                 </p>
               )}
             </div>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+              style={
+                company.brandColor
+                  ? { backgroundColor: `${company.brandColor}22`, color: company.brandColor }
+                  : undefined
+              }
+            >
               <Scissors className="h-5 w-5" aria-hidden="true" />
             </span>
           </div>
 
-          {company.phone && (
+          {(company.phone || company.instagramUrl) && (
             <div className="mt-3.5 flex flex-wrap items-center gap-2">
-              <Button asChild variant="outline" size="sm" className="gap-1.5">
-                <a href={`tel:${company.phone}`}>
-                  <Phone className="h-3.5 w-3.5" aria-hidden="true" />
-                  {formatPhoneDisplay(company.phone)}
-                </a>
-              </Button>
+              {company.phone && (
+                <Button asChild variant="outline" size="sm" className="gap-1.5">
+                  <a href={`tel:${company.phone}`}>
+                    <Phone className="h-3.5 w-3.5" aria-hidden="true" />
+                    {formatPhoneDisplay(company.phone)}
+                  </a>
+                </Button>
+              )}
               {whatsappUrl && (
                 <Button asChild variant="outline" size="sm" className="gap-1.5">
                   <a href={whatsappUrl} target="_blank" rel="noopener noreferrer">
                     <MessageCircle className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
                     WhatsApp
+                  </a>
+                </Button>
+              )}
+              {company.instagramUrl && (
+                <Button asChild variant="outline" size="sm" className="gap-1.5">
+                  <a
+                    href={
+                      company.instagramUrl.startsWith('http')
+                        ? company.instagramUrl
+                        : `https://instagram.com/${company.instagramUrl.replace(/^@/, '')}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Instagram
                   </a>
                 </Button>
               )}

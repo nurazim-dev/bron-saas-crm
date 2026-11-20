@@ -1,11 +1,22 @@
 'use client';
 
-import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
   AppointmentDetailsModal,
   AppointmentFormDialog,
   AppointmentStatusBadge,
+  PrepaymentStatusBadge,
 } from '@/components/appointments/appointment-dialogs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { listAppointments } from '@/lib/api/appointments.api';
 import { getApiErrorMessage } from '@/lib/api/client';
+import { getManualRemindersQueue, markManualReminderSent } from '@/lib/api/notifications.api';
 import { listServices } from '@/lib/api/services.api';
 import { listVisibleStaffForRole } from '@/lib/api/staff.api';
 import {
@@ -27,12 +39,27 @@ import {
 import { formatDurationMin, formatPriceKgs, ru } from '@/lib/i18n/ru';
 import { formatPhoneDisplay } from '@/lib/phone';
 import { useAuthStore } from '@/stores/auth.store';
-import type { AppointmentDto, AppointmentStatus, ServiceDto, StaffDto } from '@/types/api';
+import type {
+  AppointmentDto,
+  AppointmentStatus,
+  ManualReminderItemDto,
+  PrepaymentStatus,
+  ReminderMode,
+  ServiceDto,
+  StaffDto,
+} from '@/types/api';
 
-type PeriodTab = 'upcoming' | 'past' | 'custom';
+type PeriodTab = 'upcoming' | 'past' | 'custom' | 'reminders';
 const PAGE_LIMIT = 20;
 
-const ALL_STATUSES: AppointmentStatus[] = ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+const ALL_STATUSES: AppointmentStatus[] = [
+  'SCHEDULED',
+  'CONFIRMED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+];
 
 export default function AppointmentsPage() {
   const user = useAuthStore((s) => s.user);
@@ -46,11 +73,15 @@ export default function AppointmentsPage() {
   const [toDate, setToDate] = useState(() => addDaysToLocalDateInTz(todayLocal, 30, timezone));
   const [masterFilter, setMasterFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [prepaymentFilter, setPrepaymentFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
 
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
   const [total, setTotal] = useState(0);
+  const [reminderQueue, setReminderQueue] = useState<ManualReminderItemDto[]>([]);
+  const [reminderModeState, setReminderModeState] = useState<ReminderMode>('MANUAL');
+  const [markingSentId, setMarkingSentId] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<StaffDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
 
@@ -99,6 +130,15 @@ export default function AppointmentsPage() {
 
     async function loadList() {
       try {
+        if (tab === 'reminders') {
+          const queueRes = await getManualRemindersQueue();
+          if (!cancelled) {
+            setReminderQueue(queueRes.items);
+            setReminderModeState(queueRes.reminderMode);
+            setLoadError(null);
+          }
+          return;
+        }
         const effectiveTo = fromDate <= toDate ? toDate : fromDate;
         const { fromUtc, toUtc } = getLocalDateRangeUtc(fromDate, effectiveTo, timezone);
 
@@ -107,6 +147,9 @@ export default function AppointmentsPage() {
           to: toUtc,
           ...(masterFilter !== 'ALL' ? { masterId: masterFilter } : {}),
           ...(statusFilter !== 'ALL' ? { status: statusFilter as AppointmentStatus } : {}),
+          ...(prepaymentFilter !== 'ALL'
+            ? { prepaymentStatus: prepaymentFilter as PrepaymentStatus }
+            : {}),
           page,
           limit: PAGE_LIMIT,
         });
@@ -136,7 +179,18 @@ export default function AppointmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [fromDate, masterFilter, page, reloadKey, statusFilter, tab, timezone, toDate, user]);
+  }, [
+    fromDate,
+    masterFilter,
+    page,
+    prepaymentFilter,
+    reloadKey,
+    statusFilter,
+    tab,
+    timezone,
+    toDate,
+    user,
+  ]);
 
   function handleSelectTab(nextTab: PeriodTab) {
     setTab(nextTab);
@@ -222,6 +276,14 @@ export default function AppointmentsPage() {
               >
                 {ru.appointmentsPage.tabAll}
               </Button>
+              <Button
+                type="button"
+                variant={tab === 'reminders' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleSelectTab('reminders')}
+              >
+                Напоминания
+              </Button>
             </div>
 
             <div className="relative w-full sm:w-72">
@@ -279,7 +341,7 @@ export default function AppointmentsPage() {
               />
             </div>
 
-            {user.role === 'OWNER' && (
+            {user.role !== 'MASTER' && (
               <div className="space-y-1">
                 <Label htmlFor="filter-master" className="text-xs">
                   {ru.appointmentsPage.masterFilterLabel}
@@ -326,6 +388,27 @@ export default function AppointmentsPage() {
                 ))}
               </select>
             </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="filter-prepayment" className="text-xs">
+                Предоплата
+              </Label>
+              <select
+                id="filter-prepayment"
+                value={prepaymentFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setIsLoading(true);
+                  setPrepaymentFilter(e.target.value);
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="ALL">Любая</option>
+                <option value="PENDING">Ожидает</option>
+                <option value="RECEIVED">Получена</option>
+                <option value="REFUNDED">Возвращена</option>
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -357,8 +440,87 @@ export default function AppointmentsPage() {
         </Card>
       )}
 
+      {/* Reminders queue tab */}
+      {!isLoading && !loadError && tab === 'reminders' && (
+        <Card className="shadow-2xs">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Очередь ручных напоминаний (ближайшие 48 часов)
+            </CardTitle>
+            <CardDescription>
+              {reminderModeState === 'OFF'
+                ? 'Напоминания сейчас выключены в настройках компании.'
+                : reminderModeState === 'AUTO'
+                  ? 'Включён автоматический режим. Здесь показаны записи, которым ещё не отправлено ручное напоминание.'
+                  : 'Откройте чат WhatsApp с готовым текстом и отметьте напоминание как отправленное.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {reminderQueue.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                Все предстоящие записи на ближайшие 48 часов уже обработаны.
+              </div>
+            ) : (
+              <div className="divide-y">
+                {reminderQueue.map((item) => (
+                  <div
+                    key={item.id}
+                    data-testid="manual-reminder-row"
+                    className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{item.clientName}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatPhoneDisplay(item.clientPhone)}
+                        </span>
+                        <Badge variant="outline">{item.clientLocale}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDateInCompanyTz(item.startAt, timezone)}{' '}
+                        {formatTimeInCompanyTz(item.startAt, timezone)} • {item.serviceName} •{' '}
+                        {item.masterName}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button asChild size="sm" variant="outline" className="gap-1.5">
+                        <a href={item.whatsappUrl} target="_blank" rel="noreferrer">
+                          Написать в WhatsApp
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        </a>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={markingSentId === item.id}
+                        onClick={async () => {
+                          setMarkingSentId(item.id);
+                          try {
+                            await markManualReminderSent(item.id);
+                            setReminderQueue((prev) => prev.filter((q) => q.id !== item.id));
+                            toast.success('Напоминание отмечено как отправленное');
+                          } catch (err) {
+                            toast.error(getApiErrorMessage(err));
+                          } finally {
+                            setMarkingSentId(null);
+                          }
+                        }}
+                        className="gap-1.5"
+                      >
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                        Отправлено
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Empty state */}
-      {!isLoading && !loadError && filteredAppointments.length === 0 && (
+      {!isLoading && !loadError && tab !== 'reminders' && filteredAppointments.length === 0 && (
         <Card className="border-dashed">
           <CardHeader className="items-center text-center">
             <CalendarDays className="mb-2 h-8 w-8 text-muted-foreground" aria-hidden="true" />
@@ -371,7 +533,7 @@ export default function AppointmentsPage() {
       )}
 
       {/* Appointments Table / Cards */}
-      {!isLoading && !loadError && filteredAppointments.length > 0 && (
+      {!isLoading && !loadError && tab !== 'reminders' && filteredAppointments.length > 0 && (
         <Card className="overflow-hidden shadow-2xs">
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
@@ -421,7 +583,10 @@ export default function AppointmentsPage() {
                         {formatPriceKgs(appt.price)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <AppointmentStatusBadge status={appt.status} />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <AppointmentStatusBadge status={appt.status} />
+                          <PrepaymentStatusBadge status={appt.prepaymentStatus} />
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <Badge variant="outline" className="text-[11px]">

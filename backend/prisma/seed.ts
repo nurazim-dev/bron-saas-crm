@@ -1,4 +1,5 @@
 import '../src/config/utc.js';
+import { randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
 import { DateTime } from 'luxon';
 import {
@@ -8,7 +9,8 @@ import {
   Prisma,
   Role,
 } from '../src/generated/prisma/client.js';
-import { disconnectPrisma, prismaUnfiltered } from '../src/lib/prisma.js';
+import { disconnectPrisma, prisma, prismaUnfiltered } from '../src/lib/prisma.js';
+import { createTrialSubscriptionForCompany } from '../src/modules/billing/billing.service.js';
 
 const DEMO_PASSWORD = 'Demo12345!';
 const BISHKEK_TZ = 'Asia/Bishkek';
@@ -33,13 +35,36 @@ async function runSeed(): Promise<void> {
   }
 
   const passwordHash = await argon2.hash(DEMO_PASSWORD, { type: argon2.argon2id });
+  const adminPasswordHash = await argon2.hash('AdminDemo12345!', { type: argon2.argon2id });
+
+  await prismaUnfiltered.platformAdmin.upsert({
+    where: { email: 'admin@demo.zapis.kg' },
+    update: {
+      name: 'Demo Platform Admin',
+      passwordHash: adminPasswordHash,
+      isActive: true,
+      failedLoginCount: 0,
+      lockedUntil: null,
+    },
+    create: {
+      email: 'admin@demo.zapis.kg',
+      name: 'Demo Platform Admin',
+      passwordHash: adminPasswordHash,
+      isActive: true,
+    },
+  });
 
   await prismaUnfiltered.$transaction([
+    prismaUnfiltered.subscriptionPayment.deleteMany(),
+    prismaUnfiltered.subscription.deleteMany(),
     prismaUnfiltered.appointment.deleteMany(),
+    prismaUnfiltered.client.deleteMany(),
     prismaUnfiltered.workingHours.deleteMany(),
     prismaUnfiltered.masterService.deleteMany(),
     prismaUnfiltered.service.deleteMany(),
+    prismaUnfiltered.authSession.deleteMany(),
     prismaUnfiltered.user.deleteMany(),
+    prismaUnfiltered.identity.deleteMany(),
     prismaUnfiltered.company.deleteMany(),
   ]);
 
@@ -59,9 +84,20 @@ async function runSeed(): Promise<void> {
     },
   });
 
+  await createTrialSubscriptionForCompany(prisma, company.id);
+
+  const ownerIdentity = await prismaUnfiltered.identity.create({
+    data: {
+      email: 'owner@demo.zapis.kg',
+      passwordHash,
+      lastCompanyId: company.id,
+    },
+  });
+
   const owner = await prismaUnfiltered.user.create({
     data: {
       companyId: company.id,
+      identityId: ownerIdentity.id,
       role: Role.OWNER,
       name: 'Азамат Токтогулов',
       email: 'owner@demo.zapis.kg',
@@ -72,9 +108,18 @@ async function runSeed(): Promise<void> {
     },
   });
 
+  const masterIdentity = await prismaUnfiltered.identity.create({
+    data: {
+      email: 'master@demo.zapis.kg',
+      passwordHash,
+      lastCompanyId: company.id,
+    },
+  });
+
   const masterWithLogin = await prismaUnfiltered.user.create({
     data: {
       companyId: company.id,
+      identityId: masterIdentity.id,
       role: Role.MASTER,
       name: 'Бекзат Исаков',
       email: 'master@demo.zapis.kg',
@@ -237,11 +282,26 @@ async function runSeed(): Promise<void> {
 
   for (const appt of sampleAppointments) {
     const endAt = new Date(appt.startAt.getTime() + appt.service.durationMin * 60_000);
+    const client = await prismaUnfiltered.client.upsert({
+      where: {
+        companyId_phone: {
+          companyId: company.id,
+          phone: appt.clientPhone,
+        },
+      },
+      update: {},
+      create: {
+        companyId: company.id,
+        name: appt.clientName,
+        phone: appt.clientPhone,
+      },
+    });
     await prismaUnfiltered.appointment.create({
       data: {
         companyId: company.id,
         masterId: appt.masterId,
         serviceId: appt.service.id,
+        clientId: client.id,
         clientName: appt.clientName,
         clientPhone: appt.clientPhone,
         clientNote: appt.clientNote,
@@ -250,6 +310,7 @@ async function runSeed(): Promise<void> {
         price: appt.service.price,
         status: AppointmentStatus.SCHEDULED,
         source: appt.source,
+        manageToken: randomBytes(32).toString('base64url'),
       },
     });
   }

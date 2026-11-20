@@ -1,18 +1,22 @@
 import type { RequestHandler } from 'express';
+import { extractAuditContext } from '../../lib/audit.js';
 import { getAuthActor } from '../../middleware/authenticate.js';
 import {
   getValidatedBody,
   getValidatedParams,
   getValidatedQuery,
 } from '../../middleware/validate.js';
+import { markManualReminderSent } from '../notifications/reminders.service.js';
 import type {
   AppointmentIdParams,
   CreateAppointmentBody,
   ListAppointmentsQuery,
+  PrepaymentActionBody,
   UpdateAppointmentBody,
   UpdateAppointmentStatusBody,
 } from './appointments.schemas.js';
 import {
+  applyPrepaymentAction,
   changeAppointmentStatusForActor,
   createStaffAppointmentForActor,
   deleteAppointmentForCompany,
@@ -61,6 +65,24 @@ export const changeAppointmentStatusController: RequestHandler = async (req, res
 export const deleteAppointmentController: RequestHandler = async (req, res) => {
   const actor = getAuthActor(req);
   const { id } = getValidatedParams<AppointmentIdParams>(req);
-  await deleteAppointmentForCompany(actor.companyId, id);
+  await deleteAppointmentForCompany(actor.companyId, id, {
+    actorId: actor.userId,
+    context: extractAuditContext(req),
+  });
   res.status(204).send();
+};
+
+export const markReminderSentController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<AppointmentIdParams>(req);
+  const data = await markManualReminderSent(actor, id);
+  res.status(200).json({ data });
+};
+
+export const prepaymentActionController: RequestHandler = async (req, res) => {
+  const actor = getAuthActor(req);
+  const { id } = getValidatedParams<AppointmentIdParams>(req);
+  const { action } = getValidatedBody<PrepaymentActionBody>(req);
+  const data = await applyPrepaymentAction(actor, id, action, extractAuditContext(req));
+  res.status(200).json({ data });
 };

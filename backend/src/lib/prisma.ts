@@ -2,8 +2,15 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { env } from '../config/env.js';
 import { Prisma, PrismaClient } from '../generated/prisma/client.js';
+import { now as clockNow } from './clock.js';
 
-export const SOFT_DELETE_MODELS = ['Company', 'User', 'Service', 'Appointment'] as const;
+export const SOFT_DELETE_MODELS = [
+  'Company',
+  'User',
+  'Service',
+  'ServicePackage',
+  'Appointment',
+] as const;
 export type SoftDeleteModelName = (typeof SOFT_DELETE_MODELS)[number];
 
 const SOFT_DELETE_MODEL_SET = new Set<string>(SOFT_DELETE_MODELS);
@@ -173,7 +180,7 @@ function applySoftDeleteExtension(client: PrismaClient) {
           }
           const typedArgs = args as QueryArgs;
           const where = withNotDeletedWhere(typedArgs.where);
-          const now = new Date();
+          const now = clockNow();
           const delegate = (baseClient as unknown as Record<string, Record<string, QueryFn>>)[
             model.charAt(0).toLowerCase() + model.slice(1)
           ];
@@ -195,7 +202,7 @@ function applySoftDeleteExtension(client: PrismaClient) {
           }
           const typedArgs = args as QueryArgs;
           const where = withNotDeletedWhere(typedArgs.where);
-          const now = new Date();
+          const now = clockNow();
           const delegate = (baseClient as unknown as Record<string, Record<string, QueryFn>>)[
             model.charAt(0).toLowerCase() + model.slice(1)
           ];
@@ -225,6 +232,31 @@ export const prismaUnfiltered: PrismaClient = baseClient;
  * Default soft-delete aware Prisma client for all application code.
  */
 export const prisma = applySoftDeleteExtension(baseClient);
+
+export async function withAdvisoryLock<T>(
+  lockKey: number,
+  fn: () => Promise<T>,
+): Promise<{ acquired: boolean; result?: T }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{ acquired: boolean }>(
+      'SELECT pg_try_advisory_lock($1) AS acquired',
+      [lockKey],
+    );
+    const acquired = res.rows[0]?.acquired === true;
+    if (!acquired) {
+      return { acquired: false };
+    }
+    try {
+      const result = await fn();
+      return { acquired: true, result };
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [lockKey]).catch(() => undefined);
+    }
+  } finally {
+    client.release();
+  }
+}
 
 export async function disconnectPrisma(): Promise<void> {
   await baseClient.$disconnect();

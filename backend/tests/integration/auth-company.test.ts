@@ -71,6 +71,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         email: '  OWNER@Lord.kg ',
         phone: '0555 123 456',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       expect(res.status).toBe(201);
@@ -116,6 +117,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Владелец 1',
         email: 'owner1@lord.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       expect(r1.status).toBe(201);
       const body1 = asAuthEnvelope(r1.body);
@@ -130,6 +132,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Владелец 2',
         email: 'owner2@lord.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       expect(r2.status).toBe(201);
       const body2 = asAuthEnvelope(r2.body);
@@ -139,18 +142,20 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
     it('returns 409 CONFLICT on duplicate email and rolls back atomically so no orphan Company is left behind', async () => {
       await request(app).post('/api/v1/auth/register').send({
         companyName: 'Company One',
-        businessType: 'OTHER',
+        businessType: 'BARBERSHOP',
         ownerName: 'Owner One',
         email: 'dup@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       const dupRes = await request(app).post('/api/v1/auth/register').send({
         companyName: 'Company Two Should Not Exist',
-        businessType: 'OTHER',
+        businessType: 'BEAUTY_SALON',
         ownerName: 'Owner Two',
         email: 'DUP@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       expect(dupRes.status).toBe(409);
@@ -164,13 +169,22 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
       const existingCompany = await prisma.company.create({
         data: { name: 'Preexisting', slug: 'preexisting' },
       });
+      const racePasswordHash = await hashPassword('Password123!');
+      const raceIdentity = await prisma.identity.create({
+        data: {
+          email: 'race@zapis.kg',
+          passwordHash: racePasswordHash,
+          lastCompanyId: existingCompany.id,
+        },
+      });
       await prisma.user.create({
         data: {
           companyId: existingCompany.id,
+          identityId: raceIdentity.id,
           role: Role.OWNER,
           name: 'Existing Owner',
           email: 'race@zapis.kg',
-          passwordHash: await hashPassword('Password123!'),
+          passwordHash: racePasswordHash,
         },
       });
 
@@ -180,6 +194,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Race User',
         email: 'race@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       expect(res.status).toBe(409);
@@ -196,6 +211,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         email: 'a@salon.kg',
         phone: '123',
         password: 'Password123!',
+        termsAccepted: true,
       });
       expect(badPhone.status).toBe(400);
       expect(badPhone.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
@@ -205,6 +221,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner A',
         email: 'a@salon.kg',
         password: 'short',
+        termsAccepted: true,
       });
       expect(shortPass.status).toBe(400);
       expect(shortPass.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
@@ -219,6 +236,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Айгуль',
         email: 'aigul@salon.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       const okRes = await request(app).post('/api/v1/auth/login').send({
@@ -254,6 +272,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner',
         email: 'refresh@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const regBody = asAuthEnvelope(regRes.body);
 
@@ -313,6 +332,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner',
         email: 'pass@zapis.kg',
         password: 'OldPassword123!',
+        termsAccepted: true,
       });
       const regBody = asAuthEnvelope(regRes.body);
 
@@ -368,6 +388,7 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Owner',
         email: 'active@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const regBody = asAuthEnvelope(regRes.body);
 
@@ -417,24 +438,34 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
   describe('GET /api/v1/company & PATCH /api/v1/company (RBAC & tenant scoping)', () => {
     it('allows both OWNER and MASTER to GET their own company, but only OWNER can PATCH', async () => {
       const regA = await request(app).post('/api/v1/auth/register').send({
-        companyName: 'Auto Service KG',
-        businessType: 'AUTO_SERVICE',
+        companyName: 'Beauty Studio KG',
+        businessType: 'BEAUTY_SALON',
         ownerName: 'Owner A',
-        email: 'ownera@auto.kg',
+        email: 'ownera@salon.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const bodyA = asAuthEnvelope(regA.body);
       const ownerTokenA = bodyA.data.accessToken;
       const companyIdA = bodyA.data.company.id;
 
       // Create a MASTER in Company A
+      const masterPasswordHash = await hashPassword('Password123!');
+      const masterIdentity = await prisma.identity.create({
+        data: {
+          email: 'mastera@salon.kg',
+          passwordHash: masterPasswordHash,
+          lastCompanyId: companyIdA,
+        },
+      });
       const masterA = await prisma.user.create({
         data: {
           companyId: companyIdA,
+          identityId: masterIdentity.id,
           role: Role.MASTER,
           name: 'Master A',
-          email: 'mastera@auto.kg',
-          passwordHash: await hashPassword('Password123!'),
+          email: 'mastera@salon.kg',
+          passwordHash: masterPasswordHash,
         },
       });
       const masterLogin = await request(app).post('/api/v1/auth/login').send({
@@ -467,12 +498,12 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         .patch('/api/v1/company')
         .set('Authorization', `Bearer ${ownerTokenA}`)
         .send({
-          name: 'СТО Тулпар',
-          businessType: BusinessType.AUTO_SERVICE,
+          name: 'Салон Тулпар',
+          businessType: BusinessType.BEAUTY_SALON,
           phone: '0700 11 22 33',
           address: 'г. Бишкек, ул. Горького 10',
           timezone: 'Asia/Bishkek',
-          slug: 'sto-tulpar',
+          slug: 'salon-tulpar',
           slotIntervalMin: 15,
           minLeadTimeMin: 30,
           maxAdvanceDays: 45,
@@ -482,8 +513,8 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
       expect(ownerPatch.status).toBe(200);
       expect(asCompanyEnvelope(ownerPatch.body).data).toMatchObject({
         id: companyIdA,
-        name: 'СТО Тулпар',
-        slug: 'sto-tulpar',
+        name: 'Салон Тулпар',
+        slug: 'salon-tulpar',
         phone: '+996700112233',
         address: 'г. Бишкек, ул. Горького 10',
         slotIntervalMin: 15,
@@ -499,12 +530,14 @@ describe('Auth & Company RBAC endpoints (/api/v1/auth, /api/v1/company)', () => 
         ownerName: 'Alpha Owner',
         email: 'alpha@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
       const regB = await request(app).post('/api/v1/auth/register').send({
         companyName: 'Salon Beta',
         ownerName: 'Beta Owner',
         email: 'beta@zapis.kg',
         password: 'Password123!',
+        termsAccepted: true,
       });
 
       const bodyA = asAuthEnvelope(regA.body);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import type { Role } from '../generated/prisma/client.js';
+import { now as clockNow } from './clock.js';
 import { AppError } from './errors.js';
 
 export interface AccessTokenClaims {
@@ -10,6 +11,8 @@ export interface AccessTokenClaims {
   role: Role;
   tv: number;
   typ: 'access';
+  sid?: string;
+  imp?: string;
 }
 
 export interface RefreshTokenClaims {
@@ -19,6 +22,7 @@ export interface RefreshTokenClaims {
   tv: number;
   jti: string;
   typ: 'refresh';
+  sid?: string;
 }
 
 export const REFRESH_COOKIE_NAME = 'zapis_rt';
@@ -49,13 +53,17 @@ export function signAccessToken(payload: {
   companyId: string;
   role: Role;
   tv: number;
+  sid?: string;
 }): string {
-  const claims: AccessTokenClaims = {
+  const iat = Math.floor(clockNow().getTime() / 1000);
+  const claims: AccessTokenClaims & { iat: number } = {
+    ...(payload.sid ? { sid: payload.sid } : {}),
     sub: payload.sub,
     companyId: payload.companyId,
     role: payload.role,
     tv: payload.tv,
     typ: 'access',
+    iat,
   };
   const options: SignOptions = {
     algorithm: 'HS256',
@@ -64,19 +72,46 @@ export function signAccessToken(payload: {
   return jwt.sign(claims, env.JWT_ACCESS_SECRET, options);
 }
 
+export function signImpersonationAccessToken(payload: {
+  sub: string;
+  companyId: string;
+  role: Role;
+  tv: number;
+  imp: string;
+}): string {
+  const iat = Math.floor(clockNow().getTime() / 1000);
+  const claims: AccessTokenClaims & { iat: number } = {
+    sub: payload.sub,
+    companyId: payload.companyId,
+    role: payload.role,
+    tv: payload.tv,
+    typ: 'access',
+    imp: payload.imp,
+    iat,
+  };
+  return jwt.sign(claims, env.JWT_ACCESS_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: '30m',
+  });
+}
+
 export function signRefreshToken(payload: {
   sub: string;
   companyId: string;
   role: Role;
   tv: number;
+  sid?: string;
 }): string {
-  const claims: RefreshTokenClaims = {
+  const iat = Math.floor(clockNow().getTime() / 1000);
+  const claims: RefreshTokenClaims & { iat: number } = {
+    ...(payload.sid ? { sid: payload.sid } : {}),
     sub: payload.sub,
     companyId: payload.companyId,
     role: payload.role,
     tv: payload.tv,
     jti: randomUUID(),
     typ: 'refresh',
+    iat,
   };
   const options: SignOptions = {
     algorithm: 'HS256',
@@ -86,12 +121,15 @@ export function signRefreshToken(payload: {
 }
 
 function isValidRole(value: unknown): value is Role {
-  return value === 'OWNER' || value === 'MASTER';
+  return value === 'OWNER' || value === 'MASTER' || value === 'MANAGER';
 }
 
 export function verifyAccessToken(token: string): AccessTokenClaims {
   try {
-    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      algorithms: ['HS256'],
+      clockTimestamp: Math.floor(clockNow().getTime() / 1000),
+    });
     if (typeof decoded !== 'object' || decoded === null) {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid access token');
     }
@@ -106,11 +144,13 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid access token claims');
     }
     return {
+      ...(typeof record.sid === 'string' ? { sid: record.sid } : {}),
       sub: record.sub,
       companyId: record.companyId,
       role: record.role,
       tv: record.tv,
       typ: 'access',
+      ...(typeof record.imp === 'string' ? { imp: record.imp } : {}),
     };
   } catch (err) {
     if (err instanceof AppError) throw err;
@@ -120,7 +160,10 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
 
 export function verifyRefreshToken(token: string): RefreshTokenClaims {
   try {
-    const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET, {
+      algorithms: ['HS256'],
+      clockTimestamp: Math.floor(clockNow().getTime() / 1000),
+    });
     if (typeof decoded !== 'object' || decoded === null) {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid refresh token');
     }
@@ -136,6 +179,7 @@ export function verifyRefreshToken(token: string): RefreshTokenClaims {
       throw new AppError('UNAUTHENTICATED', 401, 'Invalid refresh token claims');
     }
     return {
+      ...(typeof record.sid === 'string' ? { sid: record.sid } : {}),
       sub: record.sub,
       companyId: record.companyId,
       role: record.role,

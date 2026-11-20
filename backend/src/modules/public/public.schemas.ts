@@ -1,7 +1,8 @@
+import { serviceIdsSchema, serviceIdsQuerySchema } from '../appointments/service-selection.js';
 import { z } from 'zod';
 import { parseNormalizedStartAtUtc } from '../../lib/datetime.js';
 import { normalizePhoneE164, sanitizeText } from '../../lib/phone.js';
-import { getAvailabilityQuerySchema } from '../availability/availability.schemas.js';
+import { localDateQuerySchema } from '../availability/availability.schemas.js';
 
 export const companySlugParamsSchema = z.object({
   slug: z
@@ -13,7 +14,34 @@ export const companySlugParamsSchema = z.object({
 
 export type CompanySlugParams = z.infer<typeof companySlugParamsSchema>;
 
-export const getPublicAvailabilityQuerySchema = getAvailabilityQuerySchema;
+export const companyDomainParamsSchema = z.object({
+  domain: z.string().trim().toLowerCase().min(3).max(253),
+});
+
+export type CompanyDomainParams = z.infer<typeof companyDomainParamsSchema>;
+
+const publicMasterIdQuerySchema = z
+  .union([z.literal('ANY'), z.uuid({ message: 'masterId must be a valid UUID or ANY' })])
+  .optional();
+
+export const getPublicAvailabilityQuerySchema = z
+  .object({
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsQuerySchema.optional(),
+    packageId: z.uuid({ message: 'packageId must be a valid UUID' }).optional(),
+    masterId: publicMasterIdQuerySchema,
+    date: localDateQuerySchema,
+  })
+  .superRefine((data, ctx) => {
+    if (!data.serviceId && !data.packageId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['serviceId'],
+        message: 'Either serviceId or packageId is required',
+      });
+    }
+  });
+
 export type GetPublicAvailabilityQuery = z.infer<typeof getPublicAvailabilityQuerySchema>;
 
 const startAtSchema = z.string().transform((val, ctx): Date => {
@@ -60,16 +88,74 @@ const clientNoteSchema = z
   ])
   .optional();
 
+const publicMasterIdBodySchema = z
+  .union([z.literal('ANY'), z.uuid({ message: 'masterId must be a valid UUID or ANY' }), z.null()])
+  .optional();
+
 export const createPublicAppointmentBodySchema = z
   .object({
-    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }),
-    masterId: z.uuid({ message: 'masterId must be a valid UUID' }),
+    serviceId: z.uuid({ message: 'serviceId must be a valid UUID' }).optional(),
+    serviceIds: serviceIdsSchema.optional(),
+    packageId: z.uuid({ message: 'packageId must be a valid UUID' }).optional(),
+    masterId: publicMasterIdBodySchema,
     startAt: startAtSchema,
     clientName: clientNameSchema,
     clientPhone: clientPhoneSchema,
     clientNote: clientNoteSchema,
+    consentAccepted: z.literal(true, {
+      message: 'Consent to personal data processing is required',
+    }),
+    locale: z.enum(['RU', 'KY', 'EN']).optional(),
     website: z.string().optional().default(''),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!data.serviceId && !data.packageId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['serviceId'],
+        message: 'Either serviceId or packageId is required',
+      });
+    }
+    if (data.packageId && (data.serviceId !== undefined || data.serviceIds !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['packageId'],
+        message: 'Cannot combine packageId with serviceId or serviceIds',
+      });
+    }
+  });
+
+export type CreatePublicAppointmentBody = z.infer<typeof createPublicAppointmentBodySchema>;
+
+export const manageTokenParamsSchema = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
+export const publicManageAvailabilityQuerySchema = z.object({
+  date: localDateQuerySchema,
+});
+
+export const publicManageCancelBodySchema = z
+  .object({
+    reason: z
+      .string()
+      .transform((val) => sanitizeText(val))
+      .pipe(z.string().max(500))
+      .nullable()
+      .optional(),
+  })
+  .strict()
+  .optional()
+  .default({});
+
+export const publicManageRescheduleBodySchema = z
+  .object({
+    startAt: startAtSchema,
   })
   .strict();
 
-export type CreatePublicAppointmentBody = z.infer<typeof createPublicAppointmentBodySchema>;
+export type ManageTokenParams = z.infer<typeof manageTokenParamsSchema>;
+export type PublicManageAvailabilityQuery = z.infer<typeof publicManageAvailabilityQuerySchema>;
+export type PublicManageCancelBody = z.infer<typeof publicManageCancelBodySchema>;
+export type PublicManageRescheduleBody = z.infer<typeof publicManageRescheduleBodySchema>;

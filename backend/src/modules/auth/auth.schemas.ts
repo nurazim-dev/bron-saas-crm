@@ -25,7 +25,7 @@ const trimmedNameSchema = (fieldLabel: string) =>
 
 export const registerBodySchema = z.object({
   companyName: trimmedNameSchema('Company name'),
-  businessType: z.enum(BusinessType).optional().default(BusinessType.OTHER),
+  businessType: z.enum(BusinessType).optional().default(BusinessType.BARBERSHOP),
   ownerName: trimmedNameSchema('Owner name'),
   email: emailSchema,
   phone: z
@@ -33,6 +33,9 @@ export const registerBodySchema = z.object({
     .transform((val) => sanitizeText(val))
     .optional(),
   password: passwordSchema,
+  termsAccepted: z.literal(true, {
+    message: 'Terms of service acceptance is required',
+  }),
 });
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
@@ -50,3 +53,51 @@ export const changePasswordBodySchema = z.object({
 });
 
 export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;
+
+export const forgotPasswordBodySchema = z.object({
+  email: emailSchema,
+});
+
+export type ForgotPasswordBody = z.infer<typeof forgotPasswordBodySchema>;
+
+export const validateResetTokenQuerySchema = z.object({
+  token: z.string().max(256).optional(),
+});
+
+export type ValidateResetTokenQuery = z.infer<typeof validateResetTokenQuerySchema>;
+
+export const resetPasswordBodySchema = z.object({
+  token: z.string().min(1, 'Reset token is required').max(256),
+  newPassword: passwordSchema,
+});
+
+export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;
+
+export const impersonateExchangeBodySchema = z
+  .object({
+    code: z.string().min(1, 'Impersonation code is required').max(256),
+  })
+  .strict();
+
+export type ImpersonateExchangeBody = z.infer<typeof impersonateExchangeBodySchema>;
+
+export const switchCompanyBodySchema = z
+  .object({
+    companyId: z.uuid('Invalid companyId'),
+  })
+  .strict();
+
+export type SwitchCompanyBody = z.infer<typeof switchCompanyBodySchema>;
+
+export const createAdditionalCompanyBodySchema = z
+  .object({
+    companyName: trimmedNameSchema('Company name'),
+    businessType: z.enum(BusinessType).optional().default(BusinessType.BARBERSHOP),
+    phone: z
+      .string()
+      .transform((val) => sanitizeText(val))
+      .optional(),
+  })
+  .strict();
+
+export type CreateAdditionalCompanyBody = z.infer<typeof createAdditionalCompanyBodySchema>;

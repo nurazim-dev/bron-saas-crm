@@ -2,21 +2,25 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, Clock, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { OwnerGuard } from '@/components/layout/auth-bootstrap';
+import { PackagesSection } from '@/components/services/packages-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getBillingOverview } from '@/lib/api/billing.api';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/api/client';
 import { createService, deleteService, listServices, updateService } from '@/lib/api/services.api';
 import { formatDurationMin, formatPriceKgs, ru } from '@/lib/i18n/ru';
-import type { ServiceDto } from '@/types/api';
+import { useAuthStore } from '@/stores/auth.store';
+import type { PrepaymentMode, ServiceDto } from '@/types/api';
 
 type FilterMode = 'all' | 'active' | 'inactive';
 
@@ -40,12 +44,17 @@ const serviceFormSchema = z.object({
       },
     ),
   isActive: z.boolean(),
+  requiresPrepayment: z.boolean(),
+  prepaymentMode: z.enum(['FIXED', 'PERCENT']),
+  prepaymentValue: z.string().trim().optional(),
 });
 
 type ServiceFormValues = z.infer<typeof serviceFormSchema>;
 
 function ServicesManagerContent() {
+  const company = useAuthStore((s) => s.company);
   const [services, setServices] = useState<ServiceDto[]>([]);
+  const [planSupportsPrepayment, setPlanSupportsPrepayment] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterMode>('all');
@@ -63,6 +72,7 @@ function ServicesManagerContent() {
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<ServiceFormValues>({
     resolver: zodResolver(serviceFormSchema),
@@ -72,8 +82,27 @@ function ServicesManagerContent() {
       durationMin: 45,
       price: '800',
       isActive: true,
+      requiresPrepayment: false,
+      prepaymentMode: 'PERCENT',
+      prepaymentValue: '30',
     },
   });
+
+  const watchedPrice = useWatch({ control, name: 'price' });
+  const watchedRequiresPrepayment = useWatch({ control, name: 'requiresPrepayment' });
+  const watchedPrepayMode = useWatch({ control, name: 'prepaymentMode' });
+  const watchedPrepayValue = useWatch({ control, name: 'prepaymentValue' });
+
+  const prepaymentPreview = useMemo(() => {
+    if (!watchedRequiresPrepayment) return null;
+    const p = Number(watchedPrice);
+    const v = Number(watchedPrepayValue);
+    if (!Number.isFinite(p) || p <= 0 || !Number.isFinite(v) || v <= 0) return null;
+    if (watchedPrepayMode === 'FIXED') {
+      return Math.min(p, Math.round(v * 100) / 100);
+    }
+    return Math.min(p, Math.round((p * v) / 100));
+  }, [watchedPrepayMode, watchedPrepayValue, watchedPrice, watchedRequiresPrepayment]);
 
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -82,9 +111,13 @@ function ServicesManagerContent() {
 
     async function load() {
       try {
-        const data = await listServices();
+        const [data, billing] = await Promise.all([
+          listServices(),
+          getBillingOverview().catch(() => null),
+        ]);
         if (!cancelled) {
           setServices(data);
+          if (billing) setPlanSupportsPrepayment(billing.subscription.plan.featurePrepayment);
           setLoadError(null);
         }
       } catch (err) {
@@ -129,6 +162,9 @@ function ServicesManagerContent() {
       durationMin: 45,
       price: '800',
       isActive: true,
+      requiresPrepayment: false,
+      prepaymentMode: 'PERCENT',
+      prepaymentValue: '30',
     });
     setIsFormOpen(true);
   }
@@ -147,6 +183,9 @@ function ServicesManagerContent() {
       durationMin: service.durationMin,
       price: priceDisplay,
       isActive: service.isActive,
+      requiresPrepayment: service.requiresPrepayment ?? false,
+      prepaymentMode: (service.prepaymentMode ?? 'PERCENT') as PrepaymentMode,
+      prepaymentValue: service.prepaymentValue ? String(Number(service.prepaymentValue)) : '30',
     });
     setIsFormOpen(true);
   }
@@ -163,6 +202,11 @@ function ServicesManagerContent() {
         durationMin: values.durationMin,
         price: values.price.trim(),
         isActive: values.isActive,
+        requiresPrepayment: values.requiresPrepayment,
+        prepaymentMode: values.requiresPrepayment ? values.prepaymentMode : null,
+        prepaymentValue: values.requiresPrepayment
+          ? (values.prepaymentValue?.trim() ?? null)
+          : null,
       };
 
       if (editingService) {
@@ -372,6 +416,8 @@ function ServicesManagerContent() {
         </div>
       )}
 
+      {!isLoading && !loadError && <PackagesSection services={services} />}
+
       {/* Create / Edit Modal */}
       {isFormOpen && (
         <div
@@ -487,6 +533,79 @@ function ServicesManagerContent() {
                     </Label>
                     <p className="text-xs text-muted-foreground">{ru.servicesPage.isActiveHint}</p>
                   </div>
+                </div>
+
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      id="service-requires-prepayment"
+                      type="checkbox"
+                      disabled={!planSupportsPrepayment}
+                      className="mt-1 h-4 w-4 rounded border-input accent-primary"
+                      {...register('requiresPrepayment')}
+                    />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor="service-requires-prepayment"
+                        className="cursor-pointer font-medium"
+                      >
+                        Требовать предоплату при онлайн-записи
+                      </Label>
+                      {!planSupportsPrepayment && (
+                        <p className="text-xs text-muted-foreground">
+                          Предоплата доступна на старшем тарифе.{' '}
+                          <Link href="/dashboard/billing" className="underline text-primary">
+                            Перейти к тарифам
+                          </Link>
+                        </p>
+                      )}
+                      {planSupportsPrepayment && !company?.paymentInstructions?.trim() && (
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                          Сначала укажите реквизиты для предоплаты в{' '}
+                          <Link href="/dashboard/settings" className="underline">
+                            Настройках компании
+                          </Link>
+                          .
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {watchedRequiresPrepayment && planSupportsPrepayment && (
+                    <div className="grid gap-3 border-t pt-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="service-prepay-mode" className="text-xs">
+                          Тип расчёта
+                        </Label>
+                        <select
+                          id="service-prepay-mode"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          {...register('prepaymentMode')}
+                        >
+                          <option value="PERCENT">Процент (%)</option>
+                          <option value="FIXED">Фиксированная сумма (сом)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="service-prepay-value" className="text-xs">
+                          Значение
+                        </Label>
+                        <Input
+                          id="service-prepay-value"
+                          type="number"
+                          min={1}
+                          step="1"
+                          className="h-10"
+                          {...register('prepaymentValue')}
+                        />
+                      </div>
+                      {prepaymentPreview !== null && (
+                        <p className="text-xs font-medium text-primary sm:col-span-2">
+                          Сумма предоплаты при записи: {formatPriceKgs(prepaymentPreview)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t pt-4">

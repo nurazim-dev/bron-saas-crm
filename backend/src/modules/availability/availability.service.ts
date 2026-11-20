@@ -1,12 +1,17 @@
+import { resolveServiceSelection } from '../appointments/service-selection.js';
+import { ACTIVE_SLOT_STATUSES } from '../appointments/status-transitions.js';
 import {
-  AppointmentStatus,
   Role,
+  type AppointmentStatus,
   type Company,
   type Service,
   type User,
 } from '../../generated/prisma/client.js';
+import { now as clockNow } from '../../lib/clock.js';
 import {
   addDaysToLocalDate,
+  addDurationMsUtc,
+  epochMsToUtcDate,
   getIsoWeekdayOfLocalDate,
   getTodayLocalDate,
   localDateTimeToUtc,
@@ -31,10 +36,7 @@ export interface AvailabilityResultDto {
   slots: AvailableSlotDto[];
 }
 
-const BLOCKING_STATUSES: AppointmentStatus[] = [
-  AppointmentStatus.SCHEDULED,
-  AppointmentStatus.COMPLETED,
-];
+const BLOCKING_STATUSES: AppointmentStatus[] = [...ACTIVE_SLOT_STATUSES];
 
 /**
  * Shared BR-4 availability engine used by both staff (`/api/v1/availability`)
@@ -54,7 +56,7 @@ export async function computeAvailableSlotsForDate(
   },
 ): Promise<AvailabilityResultDto> {
   const { company, service, master, date } = params;
-  const now = params.now ?? new Date();
+  const now = params.now ?? clockNow();
 
   // 1. Date before company-local today or after today + maxAdvanceDays -> no slots
   const todayLocal = getTodayLocalDate(company.timezone, now);
@@ -104,7 +106,8 @@ export async function computeAvailableSlotsForDate(
     };
   }
 
-  // 4. Load the master's blocking appointments overlapping that window
+  // 4. Load the master's blocking appointments and TimeOff rows overlapping that window
+  // A transaction owns a single pg connection; execute its queries sequentially.
   const blockingAppointments = await db.appointment.findMany({
     where: {
       companyId: company.id,
@@ -120,8 +123,26 @@ export async function computeAvailableSlotsForDate(
     },
     orderBy: { startAt: 'asc' },
   });
+  const timeOffs = await db.timeOff.findMany({
+    where: {
+      companyId: company.id,
+      userId: master.id,
+      startAt: { lt: workEndUtc },
+      endAt: { gt: workStartUtc },
+    },
+    select: {
+      startAt: true,
+      endAt: true,
+    },
+  });
+  const breakStartMs = workingHours.breakStart
+    ? localDateTimeToUtc(date, workingHours.breakStart, company.timezone).getTime()
+    : null;
+  const breakEndMs = workingHours.breakEnd
+    ? localDateTimeToUtc(date, workingHours.breakEnd, company.timezone).getTime()
+    : null;
 
-  // 5 & 6. Generate candidate starts and drop those overlapping a blocking appointment or < now + minLeadTimeMin
+  // 5 & 6. Generate candidate starts and drop those overlapping a blocking appointment, break, time off, or < now + minLeadTimeMin
   const slots: AvailableSlotDto[] = [];
 
   for (
@@ -137,12 +158,27 @@ export async function computeAvailableSlotsForDate(
     const overlapsExisting = blockingAppointments.some(
       (appt) => appt.startAt.getTime() < candidateEndMs && appt.endAt.getTime() > candidateStartMs,
     );
-
     if (overlapsExisting) {
       continue;
     }
 
-    const candidateDate = new Date(candidateStartMs);
+    const overlapsBreak =
+      breakStartMs !== null &&
+      breakEndMs !== null &&
+      breakStartMs < candidateEndMs &&
+      breakEndMs > candidateStartMs;
+    if (overlapsBreak) {
+      continue;
+    }
+
+    const overlapsTimeOff = timeOffs.some(
+      (to) => to.startAt.getTime() < candidateEndMs && to.endAt.getTime() > candidateStartMs,
+    );
+    if (overlapsTimeOff) {
+      continue;
+    }
+
+    const candidateDate = epochMsToUtcDate(candidateStartMs);
     const localParts = utcToLocalParts(candidateDate, company.timezone);
     slots.push({
       startAt: candidateDate.toISOString(),
@@ -176,7 +212,7 @@ export async function assertPublicSlotValidForSchedule(
   },
 ): Promise<{ localDate: string; endAt: Date }> {
   const { company, service, master, startAt } = params;
-  const now = params.now ?? new Date();
+  const now = params.now ?? clockNow();
 
   const localParts = utcToLocalParts(startAt, company.timezone);
   const localDate = localParts.date;
@@ -219,7 +255,7 @@ export async function assertPublicSlotValidForSchedule(
   const workEndUtc = localDateTimeToUtc(localDate, workingHours.endTime, company.timezone);
   const durationMs = service.durationMin * 60_000;
   const stepMs = company.slotIntervalMin * 60_000;
-  const endAt = new Date(startAt.getTime() + durationMs);
+  const endAt = addDurationMsUtc(startAt, durationMs);
 
   if (startAt.getTime() < workStartUtc.getTime() || endAt.getTime() > workEndUtc.getTime()) {
     throw new AppError(
@@ -231,6 +267,31 @@ export async function assertPublicSlotValidForSchedule(
 
   if ((startAt.getTime() - workStartUtc.getTime()) % stepMs !== 0) {
     throw new AppError('SLOT_NOT_AVAILABLE', 422, 'Selected time does not lie on the slot grid');
+  }
+
+  if (workingHours.breakStart && workingHours.breakEnd) {
+    const breakStartUtc = localDateTimeToUtc(localDate, workingHours.breakStart, company.timezone);
+    const breakEndUtc = localDateTimeToUtc(localDate, workingHours.breakEnd, company.timezone);
+    if (breakStartUtc.getTime() < endAt.getTime() && breakEndUtc.getTime() > startAt.getTime()) {
+      throw new AppError(
+        'SLOT_NOT_AVAILABLE',
+        422,
+        'Selected time overlaps the master break window',
+      );
+    }
+  }
+
+  const overlappingTimeOff = await db.timeOff.findFirst({
+    where: {
+      companyId: company.id,
+      userId: master.id,
+      startAt: { lt: endAt },
+      endAt: { gt: startAt },
+    },
+    select: { id: true },
+  });
+  if (overlappingTimeOff) {
+    throw new AppError('SLOT_NOT_AVAILABLE', 422, 'Master is unavailable due to time off');
   }
 
   return { localDate, endAt };
@@ -245,15 +306,12 @@ export async function getStaffAvailabilityForActor(
     throw new AppError('NOT_FOUND', 404, 'Master not found');
   }
 
-  const [company, master, service] = await Promise.all([
+  const [company, master] = await Promise.all([
     prisma.company.findUnique({
       where: { id: actor.companyId },
     }),
     prisma.user.findFirst({
       where: { id: query.masterId, companyId: actor.companyId },
-    }),
-    prisma.service.findFirst({
-      where: { id: query.serviceId, companyId: actor.companyId },
     }),
   ]);
 
@@ -263,9 +321,6 @@ export async function getStaffAvailabilityForActor(
   if (!master) {
     throw new AppError('NOT_FOUND', 404, 'Master not found');
   }
-  if (!service) {
-    throw new AppError('NOT_FOUND', 404, 'Service not found');
-  }
 
   if (!master.isActive || !master.isBookable) {
     throw new AppError('VALIDATION_ERROR', 400, 'Selected master is not active or not bookable', [
@@ -273,33 +328,17 @@ export async function getStaffAvailabilityForActor(
     ]);
   }
 
-  if (!service.isActive) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Selected service is not active', [
-      { path: 'serviceId', message: 'Selected service is not active' },
-    ]);
-  }
-
-  const link = await prisma.masterService.findUnique({
-    where: {
-      userId_serviceId: {
-        userId: master.id,
-        serviceId: service.id,
-      },
-    },
-  });
-
-  if (!link) {
-    throw new AppError(
-      'VALIDATION_ERROR',
-      400,
-      'Selected master does not provide the selected service',
-      [{ path: 'serviceId', message: 'Selected master does not provide the selected service' }],
-    );
-  }
-
+  const selection = await resolveServiceSelection(
+    prisma,
+    actor.companyId,
+    query.serviceId,
+    query.serviceIds,
+    master.id,
+    query.packageId,
+  );
   return computeAvailableSlotsForDate(prisma, {
     company,
-    service,
+    service: selection.service,
     master,
     date: query.date,
   });

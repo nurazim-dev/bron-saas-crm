@@ -124,3 +124,47 @@ export function getCurrentMinutesInTz(timezone = 'Asia/Bishkek'): number {
   const dt = DateTime.now().setZone(timezone);
   return dt.hour * 60 + dt.minute;
 }
+
+export type CalendarView = 'day' | 'week' | 'month';
+
+export function getCalendarPeriod(localDate: string, view: CalendarView, timezone: string) {
+  const selected = DateTime.fromISO(localDate, { zone: timezone }).startOf('day');
+  const start =
+    view === 'month'
+      ? selected.startOf('month').startOf('week')
+      : view === 'week'
+        ? selected.startOf('week')
+        : selected;
+  const end =
+    view === 'month'
+      ? selected.endOf('month').endOf('week').startOf('day').plus({ days: 1 })
+      : start.plus({ days: view === 'week' ? 7 : 1 });
+  const dates: string[] = [];
+  for (let day = start; day < end; day = day.plus({ days: 1 }))
+    dates.push(day.toFormat('yyyy-MM-dd'));
+  return {
+    dates,
+    fromUtc: start.toUTC().toISO() ?? '',
+    toUtc: end.toUTC().toISO() ?? '',
+    label:
+      view === 'month'
+        ? selected.setLocale('ru').toFormat('LLLL yyyy')
+        : view === 'week'
+          ? `${start.setLocale('ru').toFormat('d MMM')} – ${end.minus({ days: 1 }).setLocale('ru').toFormat('d MMM yyyy')}`
+          : formatLocalDateRussian(localDate, timezone),
+  };
+}
+
+export function shiftCalendarDate(
+  localDate: string,
+  view: CalendarView,
+  direction: number,
+  timezone: string,
+): string {
+  const date = DateTime.fromISO(localDate, { zone: timezone });
+  return date
+    .plus(
+      view === 'month' ? { months: direction } : { days: direction * (view === 'week' ? 7 : 1) },
+    )
+    .toFormat('yyyy-MM-dd');
+}

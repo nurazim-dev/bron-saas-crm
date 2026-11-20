@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, Scissors } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -9,6 +9,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { AuthBootstrap, GuestGuard } from '@/components/layout/auth-bootstrap';
+import { AuthShell } from '@/components/layout/auth-shell';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -26,12 +27,7 @@ import { ru } from '@/lib/i18n/ru';
 import { isValidPhoneInput, normalizePhoneE164OrNull } from '@/lib/phone';
 import type { BusinessType } from '@/types/api';
 
-const BUSINESS_TYPE_VALUES: [BusinessType, ...BusinessType[]] = [
-  'BARBERSHOP',
-  'BEAUTY_SALON',
-  'AUTO_SERVICE',
-  'OTHER',
-];
+const BUSINESS_TYPE_VALUES: [BusinessType, ...BusinessType[]] = ['BARBERSHOP', 'BEAUTY_SALON'];
 
 const registerSchema = z.object({
   companyName: z.string().trim().min(2, ru.validation.nameMin).max(100, ru.validation.nameMax),
@@ -45,6 +41,9 @@ const registerSchema = z.object({
       message: ru.validation.phoneInvalid,
     }),
   password: z.string().min(8, ru.validation.passwordMin).max(128, ru.validation.passwordMax),
+  termsAccepted: z.literal(true, {
+    message: 'Необходимо принять пользовательское соглашение',
+  }),
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -82,28 +81,22 @@ function RegisterFormContent() {
         email: values.email.trim().toLowerCase(),
         ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         password: values.password,
+        termsAccepted: true,
       });
       toast.success(ru.auth.registrationSuccess);
-      router.replace('/dashboard');
+      router.replace('/dashboard/onboarding');
     } catch (err) {
       setServerError(getApiErrorMessage(err));
     }
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/30 px-4 py-10">
-      <div className="mb-6 flex items-center gap-2.5">
-        <Link href="/" className="flex items-center gap-2.5 font-semibold">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Scissors className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <span className="text-xl font-bold">{ru.brand.name}</span>
-        </Link>
-      </div>
-
-      <Card className="w-full max-w-lg shadow-xs">
+    <AuthShell registration>
+      <Card className="w-full max-w-lg auth-card">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">{ru.auth.registerTitle}</CardTitle>
+          <CardTitle className="text-3xl font-semibold tracking-tight">
+            {ru.auth.registerTitle}
+          </CardTitle>
           <CardDescription>{ru.auth.registerSubtitle}</CardDescription>
         </CardHeader>
 
@@ -236,6 +229,32 @@ function RegisterFormContent() {
               )}
             </div>
 
+            <div className="space-y-1">
+              <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                <input
+                  id="reg-terms"
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-primary"
+                  {...register('termsAccepted')}
+                />
+                <span>
+                  Я принимаю{' '}
+                  <Link href="/terms" target="_blank" className="text-primary underline">
+                    Пользовательское соглашение
+                  </Link>{' '}
+                  и{' '}
+                  <Link href="/privacy" target="_blank" className="text-primary underline">
+                    Политику конфиденциальности
+                  </Link>
+                </span>
+              </label>
+              {errors.termsAccepted && (
+                <p className="text-xs font-medium text-destructive">
+                  {errors.termsAccepted.message}
+                </p>
+              )}
+            </div>
+
             <Button type="submit" disabled={isSubmitting} className="min-h-11 w-full text-base">
               {isSubmitting ? ru.auth.registerSubmitting : ru.auth.registerSubmit}
             </Button>
@@ -254,7 +273,7 @@ function RegisterFormContent() {
           </Link>
         </CardFooter>
       </Card>
-    </main>
+    </AuthShell>
   );
 }
 

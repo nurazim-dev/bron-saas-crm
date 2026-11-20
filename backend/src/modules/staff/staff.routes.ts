@@ -1,19 +1,26 @@
 import { Router } from 'express';
 import { Role } from '../../generated/prisma/client.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireWritableSubscription } from '../../middleware/billing.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { validate } from '../../middleware/validate.js';
 import {
+  inviteStaffController,
   createStaffController,
+  createStaffPasswordResetLinkController,
+  createStaffTelegramLinkCodeController,
   deleteStaffController,
   getStaffController,
   listStaffController,
   replaceStaffServicesController,
   replaceStaffWorkingHoursController,
+  unlinkStaffTelegramController,
   updateStaffController,
 } from './staff.controller.js';
 import {
   createStaffBodySchema,
+  createStaffPasswordResetLinkBodySchema,
+  inviteStaffBodySchema,
   replaceStaffServicesBodySchema,
   replaceWorkingHoursBodySchema,
   staffIdParamsSchema,
@@ -21,18 +28,26 @@ import {
 } from './staff.schemas.js';
 
 export const staffRouter = Router();
+staffRouter.post(
+  '/invite',
+  authenticate,
+  requireRole(Role.OWNER),
+  requireWritableSubscription,
+  validate({ body: inviteStaffBodySchema }),
+  inviteStaffController,
+);
 
-staffRouter.get('/', authenticate, requireRole(Role.OWNER), listStaffController);
+staffRouter.get('/', authenticate, requireRole(Role.OWNER, Role.MANAGER), listStaffController);
 
 staffRouter.post(
   '/',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ body: createStaffBodySchema }),
   createStaffController,
 );
 
-// Both OWNER and MASTER may call GET /staff/:id (service enforces MASTER own-record check -> 404).
 staffRouter.get(
   '/:id',
   authenticate,
@@ -43,6 +58,7 @@ staffRouter.get(
 staffRouter.patch(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: updateStaffBodySchema }),
   updateStaffController,
@@ -51,6 +67,7 @@ staffRouter.patch(
 staffRouter.delete(
   '/:id',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema }),
   deleteStaffController,
@@ -59,6 +76,7 @@ staffRouter.delete(
 staffRouter.put(
   '/:id/services',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: replaceStaffServicesBodySchema }),
   replaceStaffServicesController,
@@ -67,7 +85,35 @@ staffRouter.put(
 staffRouter.put(
   '/:id/working-hours',
   authenticate,
+  requireWritableSubscription,
   requireRole(Role.OWNER),
   validate({ params: staffIdParamsSchema, body: replaceWorkingHoursBodySchema }),
   replaceStaffWorkingHoursController,
+);
+
+staffRouter.post(
+  '/:id/password-reset-link',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: staffIdParamsSchema, body: createStaffPasswordResetLinkBodySchema }),
+  createStaffPasswordResetLinkController,
+);
+
+staffRouter.post(
+  '/:id/telegram-link-code',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: staffIdParamsSchema }),
+  createStaffTelegramLinkCodeController,
+);
+
+staffRouter.delete(
+  '/:id/telegram',
+  authenticate,
+  requireWritableSubscription,
+  requireRole(Role.OWNER),
+  validate({ params: staffIdParamsSchema }),
+  unlinkStaffTelegramController,
 );

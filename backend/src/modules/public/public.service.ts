@@ -1,26 +1,57 @@
-import { randomUUID } from 'node:crypto';
+import {
+  resolveServiceSelection,
+  snapshotServices,
+  type ServiceSelectionResult,
+} from '../appointments/service-selection.js';
+import {
+  ACTIVE_SLOT_STATUSES,
+  UPCOMING_ACTIVE_STATUSES,
+} from '../appointments/status-transitions.js';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   AppointmentSource,
   AppointmentStatus,
+  PrepaymentStatus,
+  Role,
   type BusinessType,
   type Company,
   type Service,
   type User,
 } from '../../generated/prisma/client.js';
+import { env } from '../../config/env.js';
+import { now as clockNow } from '../../lib/clock.js';
+import {
+  addDurationMsUtc,
+  addMinutesUtc,
+  getLocalDayBoundsUtc,
+  utcToLocalParts,
+} from '../../lib/datetime.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { isExclusionConstraintError } from '../../middleware/error-handler.js';
+import { assertWithinMonthlyAppointmentLimit } from '../billing/billing.service.js';
 import {
   assertNoSlotOverlap,
   lockMastersForUpdate,
   type TransactionClient,
 } from '../appointments/appointments.service.js';
 import {
+  buildPublicPrepaymentBlock,
+  computePrepaymentAmount,
+  type PublicPrepaymentBlock,
+} from '../appointments/prepayment.js';
+import { upsertClientInTx } from '../clients/clients.service.js';
+import { enqueue } from '../notifications/outbox.service.js';
+import { scheduleAppointmentReminders } from '../notifications/reminders.service.js';
+import { notifyCompanyStaff } from '../notifications/staff-notify.service.js';
+import {
   assertPublicSlotValidForSchedule,
   computeAvailableSlotsForDate,
   type AvailabilityResultDto,
+  type AvailableSlotDto,
   type DbClient,
 } from '../availability/availability.service.js';
+import { isCompanyBookingLocked } from '../billing/billing.service.js';
 import type { CreatePublicAppointmentBody, GetPublicAvailabilityQuery } from './public.schemas.js';
 
 const MAX_UPCOMING_APPOINTMENTS_PER_PHONE = 3;
@@ -31,6 +62,11 @@ export interface PublicCompanySummaryDto {
   businessType: BusinessType;
   phone: string | null;
   address: string | null;
+  description: string | null;
+  brandColor: string | null;
+  customDomain: string | null;
+  instagramUrl: string | null;
+  defaultLocale: string;
   timezone: string;
   currency: string;
   bookingEnabled: boolean;
@@ -43,17 +79,63 @@ export interface PublicServiceDto {
   description: string | null;
   durationMin: number;
   price: string;
+  requiresPrepayment: boolean;
+  prepaymentAmount: string | null;
+}
+
+export interface PublicServicePackageDto {
+  id: string;
+  name: string;
+  description: string | null;
+  price: string;
+  catalogTotalPrice: string;
+  totalDurationMin: number;
+  serviceIds: string[];
+  items: Array<{
+    serviceId: string;
+    name: string;
+    durationMin: number;
+    price: string;
+  }>;
+  requiresPrepayment: boolean;
+  prepaymentAmount: string | null;
+}
+
+export interface PublicMasterServiceOverrideDto {
+  serviceId: string;
+  price: string;
+  durationMin: number;
 }
 
 export interface PublicMasterDto {
+  workingHours: {
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    breakStart: string | null;
+    breakEnd: string | null;
+  }[];
   id: string;
   name: string;
   serviceIds: string[];
+  serviceOverrides: PublicMasterServiceOverrideDto[];
+  biography: string;
+  specialties: string;
+  experienceYears: number | null;
+  portfolio: {
+    id: string;
+    kind: string;
+    caption: string;
+    isCover: boolean;
+    url: string;
+    posterUrl: string;
+  }[];
 }
 
 export interface PublicCompanyProfileDto {
   company: PublicCompanySummaryDto;
   services: PublicServiceDto[];
+  packages: PublicServicePackageDto[];
   masters: PublicMasterDto[];
 }
 
@@ -68,6 +150,7 @@ export interface PublicBookedAppointmentDto {
     price: string;
   };
   master: {
+    id: string;
     name: string;
   };
   company: {
@@ -80,6 +163,20 @@ export interface PublicBookedAppointmentDto {
 
 export interface PublicCreateAppointmentResultDto {
   appointment: PublicBookedAppointmentDto;
+  manageUrl: string;
+  telegramBotUrl: string;
+  prepayment: PublicPrepaymentBlock | null;
+}
+
+function buildClientTelegramBotUrl(manageToken: string): string {
+  const botUsername = env.TELEGRAM_BOT_USERNAME.trim() || 'zapis_kg_bot';
+  return `https://t.me/${botUsername}?start=client_${manageToken}`;
+}
+
+function isAnyMasterChoice(
+  masterId: string | null | undefined,
+): masterId is undefined | null | 'ANY' {
+  return masterId === undefined || masterId === null || masterId === 'ANY';
 }
 
 async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<Company> {
@@ -91,7 +188,11 @@ async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<
     throw new AppError('NOT_FOUND', 404, 'Company not found');
   }
 
-  if (!company.publicBookingEnabled) {
+  if (
+    !company.publicBookingEnabled ||
+    company.suspendedAt !== null ||
+    (await isCompanyBookingLocked(company.id, db))
+  ) {
     throw new AppError(
       'BOOKING_DISABLED',
       403,
@@ -102,26 +203,58 @@ async function resolveEnabledCompanyBySlug(db: DbClient, slug: string): Promise<
   return company;
 }
 
+async function resolveActiveSelection(
+  db: DbClient,
+  companyId: string,
+  serviceId: string | undefined,
+  serviceIds?: string[],
+  packageId?: string,
+): Promise<ServiceSelectionResult> {
+  return resolveServiceSelection(db, companyId, serviceId, serviceIds, undefined, packageId);
+}
+
+async function resolveCandidateMastersForServices(
+  db: DbClient,
+  companyId: string,
+  requiredServiceIds: string[],
+): Promise<User[]> {
+  return db.user.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      isBookable: true,
+      AND: requiredServiceIds.map((id) => ({
+        services: { some: { serviceId: id } },
+      })),
+      workingHours: {
+        some: {},
+      },
+    },
+    orderBy: {
+      id: 'asc',
+    },
+  });
+}
+
 async function resolveBookableMasterAndService(
   db: DbClient,
   companyId: string,
   masterId: string,
-  serviceId: string,
-): Promise<{ master: User; service: Service }> {
-  const [master, service] = await Promise.all([
-    db.user.findFirst({
-      where: { id: masterId, companyId },
-    }),
-    db.service.findFirst({
-      where: { id: serviceId, companyId },
-    }),
-  ]);
-
+  serviceId: string | undefined,
+  serviceIds?: string[],
+  packageId?: string,
+): Promise<{
+  master: User;
+  service: Service;
+  services: Service[];
+  packageRef: { id: string; name: string } | null;
+}> {
+  // A transaction owns a single pg connection; execute its queries sequentially.
+  const master = await db.user.findFirst({
+    where: { id: masterId, companyId },
+  });
   if (!master) {
     throw new AppError('NOT_FOUND', 404, 'Master not found');
-  }
-  if (!service) {
-    throw new AppError('NOT_FOUND', 404, 'Service not found');
   }
 
   if (!master.isActive || !master.isBookable) {
@@ -130,31 +263,10 @@ async function resolveBookableMasterAndService(
     ]);
   }
 
-  if (!service.isActive) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Selected service is not active', [
-      { path: 'serviceId', message: 'Selected service is not active' },
-    ]);
-  }
-
-  const link = await db.masterService.findUnique({
-    where: {
-      userId_serviceId: {
-        userId: master.id,
-        serviceId: service.id,
-      },
-    },
-  });
-
-  if (!link) {
-    throw new AppError(
-      'VALIDATION_ERROR',
-      400,
-      'Selected master does not provide the selected service',
-      [{ path: 'serviceId', message: 'Selected master does not provide the selected service' }],
-    );
-  }
-
-  return { master, service };
+  return {
+    master,
+    ...(await resolveServiceSelection(db, companyId, serviceId, serviceIds, masterId, packageId)),
+  };
 }
 
 export async function getPublicCompanyProfileBySlug(
@@ -162,11 +274,38 @@ export async function getPublicCompanyProfileBySlug(
 ): Promise<PublicCompanyProfileDto> {
   const company = await resolveEnabledCompanyBySlug(prisma, slug);
 
-  const [activeServices, candidateUsers] = await Promise.all([
+  const [activeServices, activePackages, candidateUsers, sub] = await Promise.all([
     prisma.service.findMany({
       where: {
         companyId: company.id,
         isActive: true,
+      },
+      orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.servicePackage.findMany({
+      where: {
+        companyId: company.id,
+        isActive: true,
+      },
+      include: {
+        items: {
+          orderBy: { position: 'asc' },
+          include: {
+            service: {
+              select: {
+                id: true,
+                name: true,
+                durationMin: true,
+                price: true,
+                requiresPrepayment: true,
+                prepaymentMode: true,
+                prepaymentValue: true,
+                isActive: true,
+                deletedAt: true,
+              },
+            },
+          },
+        },
       },
       orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
     }),
@@ -177,11 +316,18 @@ export async function getPublicCompanyProfileBySlug(
         isBookable: true,
       },
       include: {
+        portfolio: {
+          where: { companyId: company.id, status: 'READY' },
+          select: { id: true, kind: true, caption: true, isCover: true },
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        },
         services: {
           include: {
             service: {
               select: {
                 id: true,
+                price: true,
+                durationMin: true,
                 isActive: true,
                 deletedAt: true,
               },
@@ -189,12 +335,23 @@ export async function getPublicCompanyProfileBySlug(
           },
         },
         workingHours: {
-          select: { id: true },
+          select: {
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            breakStart: true,
+            breakEnd: true,
+          },
         },
       },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
     }),
+    prisma.subscription.findUnique({
+      where: { companyId: company.id },
+      include: { plan: { select: { featurePrepayment: true } } },
+    }),
   ]);
+  const planHasPrepayment = sub?.plan.featurePrepayment ?? false;
 
   const activeServiceIdSet = new Set(activeServices.map((s) => s.id));
 
@@ -204,23 +361,106 @@ export async function getPublicCompanyProfileBySlug(
     if (user.workingHours.length === 0) {
       continue;
     }
-    const assignedActiveServiceIds = user.services
-      .filter(
-        (ms) =>
-          ms.service.deletedAt === null &&
-          ms.service.isActive &&
-          activeServiceIdSet.has(ms.serviceId),
-      )
-      .map((ms) => ms.serviceId);
+    const assignedActiveLinks = user.services.filter(
+      (ms) =>
+        ms.service.deletedAt === null &&
+        ms.service.isActive &&
+        activeServiceIdSet.has(ms.serviceId),
+    );
+    const assignedActiveServiceIds = assignedActiveLinks.map((ms) => ms.serviceId);
 
     if (assignedActiveServiceIds.length === 0) {
       continue;
     }
 
+    const serviceOverrides: PublicMasterServiceOverrideDto[] = assignedActiveLinks
+      .filter((ms) => ms.customPrice !== null || ms.customDurationMin !== null)
+      .map((ms) => ({
+        serviceId: ms.serviceId,
+        price: (ms.customPrice ?? ms.service.price).toFixed(2),
+        durationMin: ms.customDurationMin ?? ms.service.durationMin,
+      }));
+
     bookableMasters.push({
       id: user.id,
       name: user.name,
       serviceIds: assignedActiveServiceIds,
+      serviceOverrides,
+      workingHours: user.workingHours,
+      biography: user.biography,
+      specialties: user.specialties,
+      experienceYears: user.experienceYears,
+      portfolio: user.portfolio.map((item) => {
+        const url = `/api/v1/public/companies/${company.slug}/masters/${user.id}/media/${item.id}`;
+        return { ...item, url, posterUrl: `${url}?poster=1` };
+      }),
+    });
+  }
+
+  const masterServiceSets = bookableMasters.map((m) => new Set(m.serviceIds));
+  const publicPackages: PublicServicePackageDto[] = [];
+
+  for (const pkg of activePackages) {
+    const validItems = pkg.items.filter(
+      (item) =>
+        item.service.deletedAt === null &&
+        item.service.isActive &&
+        activeServiceIdSet.has(item.serviceId),
+    );
+    if (validItems.length < 2 || validItems.length !== pkg.items.length) {
+      continue;
+    }
+    const pkgServiceIds = validItems.map((item) => item.serviceId);
+    const hasProvidingMaster = masterServiceSets.some((set) =>
+      pkgServiceIds.every((id) => set.has(id)),
+    );
+    if (!hasProvidingMaster) {
+      continue;
+    }
+
+    const catalogTotal = validItems.reduce((sum, item) => sum + Number(item.service.price), 0);
+    const totalDurationMin = validItems.reduce((sum, item) => sum + item.service.durationMin, 0);
+    if (totalDurationMin > 720) {
+      continue;
+    }
+
+    let rawPrepayment = 0;
+    if (planHasPrepayment) {
+      for (const item of validItems) {
+        if (
+          item.service.requiresPrepayment &&
+          item.service.prepaymentMode &&
+          item.service.prepaymentValue
+        ) {
+          rawPrepayment += Number(
+            computePrepaymentAmount(
+              item.service.price,
+              item.service.prepaymentMode,
+              item.service.prepaymentValue,
+            ),
+          );
+        }
+      }
+    }
+    const pkgPriceNum = Number(pkg.price);
+    const cappedPrepay = Math.min(rawPrepayment, pkgPriceNum);
+
+    publicPackages.push({
+      id: pkg.id,
+      name: pkg.name,
+      description: pkg.description,
+      price: pkg.price.toFixed(2),
+      catalogTotalPrice: catalogTotal.toFixed(2),
+      totalDurationMin,
+      serviceIds: pkgServiceIds,
+      items: validItems.map((item) => ({
+        serviceId: item.serviceId,
+        name: item.service.name,
+        durationMin: item.service.durationMin,
+        price: item.service.price.toFixed(2),
+      })),
+      requiresPrepayment: cappedPrepay > 0,
+      prepaymentAmount: cappedPrepay > 0 ? cappedPrepay.toFixed(2) : null,
     });
   }
 
@@ -231,20 +471,53 @@ export async function getPublicCompanyProfileBySlug(
       businessType: company.businessType,
       phone: company.phone,
       address: company.address,
+      description: company.description,
+      brandColor: company.brandColor,
+      customDomain: company.customDomain,
+      instagramUrl: company.instagramUrl,
+      defaultLocale: company.defaultLocale,
       timezone: company.timezone,
       currency: company.currency,
       bookingEnabled: company.publicBookingEnabled,
       maxAdvanceDays: company.maxAdvanceDays,
     },
-    services: activeServices.map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      durationMin: s.durationMin,
-      price: s.price.toFixed(2),
-    })),
+    services: activeServices.map((s) => {
+      const hasPrep =
+        planHasPrepayment &&
+        s.requiresPrepayment &&
+        s.prepaymentMode !== null &&
+        s.prepaymentValue !== null;
+      const prepAmount =
+        hasPrep && s.prepaymentMode && s.prepaymentValue
+          ? computePrepaymentAmount(s.price, s.prepaymentMode, s.prepaymentValue).toFixed(2)
+          : null;
+      return {
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        durationMin: s.durationMin,
+        price: s.price.toFixed(2),
+        requiresPrepayment: hasPrep,
+        prepaymentAmount: prepAmount,
+      };
+    }),
+    packages: publicPackages,
     masters: bookableMasters,
   };
+}
+
+export async function getPublicCompanyProfileByDomain(
+  domain: string,
+): Promise<PublicCompanyProfileDto> {
+  const normalized = domain.trim().toLowerCase();
+  const company = await prisma.company.findFirst({
+    where: { customDomain: normalized },
+    select: { slug: true },
+  });
+  if (!company) {
+    throw new AppError('NOT_FOUND', 404, 'Company not found for custom domain');
+  }
+  return getPublicCompanyProfileBySlug(company.slug);
 }
 
 export async function getPublicAvailabilityBySlug(
@@ -252,11 +525,77 @@ export async function getPublicAvailabilityBySlug(
   query: GetPublicAvailabilityQuery,
 ): Promise<AvailabilityResultDto> {
   const company = await resolveEnabledCompanyBySlug(prisma, slug);
+
+  if (isAnyMasterChoice(query.masterId)) {
+    const selection = await resolveActiveSelection(
+      prisma,
+      company.id,
+      query.serviceId,
+      query.serviceIds,
+      query.packageId,
+    );
+    const candidates = await resolveCandidateMastersForServices(
+      prisma,
+      company.id,
+      selection.services.map((s) => s.id),
+    );
+
+    if (candidates.length === 0) {
+      return {
+        date: query.date,
+        timezone: company.timezone,
+        slots: [],
+      };
+    }
+
+    const currentNow = clockNow();
+    const perMasterResults = await Promise.all(
+      candidates.map(async (master) => {
+        const masterSelection = await resolveServiceSelection(
+          prisma,
+          company.id,
+          query.serviceId,
+          query.serviceIds,
+          master.id,
+          query.packageId,
+        );
+        return computeAvailableSlotsForDate(prisma, {
+          company,
+          service: masterSelection.service,
+          master,
+          date: query.date,
+          now: currentNow,
+        });
+      }),
+    );
+
+    const slotByStartAt = new Map<string, AvailableSlotDto>();
+    for (const res of perMasterResults) {
+      for (const slot of res.slots) {
+        if (!slotByStartAt.has(slot.startAt)) {
+          slotByStartAt.set(slot.startAt, slot);
+        }
+      }
+    }
+
+    const mergedSlots = Array.from(slotByStartAt.values()).sort((a, b) =>
+      a.startAt.localeCompare(b.startAt),
+    );
+
+    return {
+      date: query.date,
+      timezone: company.timezone,
+      slots: mergedSlots,
+    };
+  }
+
   const { master, service } = await resolveBookableMasterAndService(
     prisma,
     company.id,
     query.masterId,
     query.serviceId,
+    query.serviceIds,
+    query.packageId,
   );
 
   return computeAvailableSlotsForDate(prisma, {
@@ -267,65 +606,28 @@ export async function getPublicAvailabilityBySlug(
   });
 }
 
-export async function createPublicAppointmentBySlug(
+async function bookSingleMasterInTransaction(
   slug: string,
+  masterId: string,
   input: CreatePublicAppointmentBody,
+  clientNote: string | null,
 ): Promise<PublicCreateAppointmentResultDto> {
-  const preflightCompany = await resolveEnabledCompanyBySlug(prisma, slug);
-  const preflightEntities = await resolveBookableMasterAndService(
-    prisma,
-    preflightCompany.id,
-    input.masterId,
-    input.serviceId,
-  );
-
-  // Honeypot `website`: if filled, return a fake 201 and write nothing to the DB
-  if (input.website.trim().length > 0) {
-    const fakeEndAt = new Date(
-      input.startAt.getTime() + preflightEntities.service.durationMin * 60_000,
-    );
-    return {
-      appointment: {
-        id: randomUUID(),
-        startAt: input.startAt.toISOString(),
-        endAt: fakeEndAt.toISOString(),
-        status: AppointmentStatus.SCHEDULED,
-        service: {
-          name: preflightEntities.service.name,
-          durationMin: preflightEntities.service.durationMin,
-          price: preflightEntities.service.price.toFixed(2),
-        },
-        master: {
-          name: preflightEntities.master.name,
-        },
-        company: {
-          name: preflightCompany.name,
-          address: preflightCompany.address,
-          phone: preflightCompany.phone,
-          timezone: preflightCompany.timezone,
-        },
-      },
-    };
-  }
-
-  const clientNote =
-    input.clientNote === undefined || input.clientNote === null || input.clientNote.length === 0
-      ? null
-      : input.clientNote;
-
   try {
     return await prisma.$transaction(async (tx: TransactionClient) => {
-      await lockMastersForUpdate(tx, [input.masterId]);
+      // BR-12: Lock strictly ONE master at a time inside the transaction
+      await lockMastersForUpdate(tx, [masterId]);
 
       const company = await resolveEnabledCompanyBySlug(tx, slug);
-      const { master, service } = await resolveBookableMasterAndService(
+      const { master, service, services, packageRef } = await resolveBookableMasterAndService(
         tx,
         company.id,
-        input.masterId,
+        masterId,
         input.serviceId,
+        input.serviceIds,
+        input.packageId,
       );
 
-      const now = new Date();
+      const currentNow = clockNow();
 
       // 1. Validate schedule, grid, lead time, and max advance (422 SLOT_NOT_AVAILABLE on violation)
       const { localDate, endAt } = await assertPublicSlotValidForSchedule(tx, {
@@ -333,7 +635,7 @@ export async function createPublicAppointmentBySlug(
         service,
         master,
         startAt: input.startAt,
-        now,
+        now: currentNow,
       });
 
       // 2. Check BR-1 overlap (409 SLOT_ALREADY_BOOKED on conflict)
@@ -350,7 +652,7 @@ export async function createPublicAppointmentBySlug(
         service,
         master,
         date: localDate,
-        now,
+        now: currentNow,
       });
       const targetIso = input.startAt.toISOString();
       if (!availability.slots.some((slot) => slot.startAt === targetIso)) {
@@ -361,13 +663,13 @@ export async function createPublicAppointmentBySlug(
         );
       }
 
-      // 4. BR-3 per-phone limit: at most 3 upcoming SCHEDULED appointments per phone per company
+      // 4. BR-3 per-phone limit: at most 3 upcoming active appointments per phone per company
       const upcomingForPhone = await tx.appointment.count({
         where: {
           companyId: company.id,
           clientPhone: input.clientPhone,
-          status: AppointmentStatus.SCHEDULED,
-          startAt: { gte: now },
+          status: { in: [...UPCOMING_ACTIVE_STATUSES] },
+          startAt: { gte: currentNow },
         },
       });
 
@@ -379,11 +681,61 @@ export async function createPublicAppointmentBySlug(
         );
       }
 
+      const client = await upsertClientInTx(tx, {
+        companyId: company.id,
+        name: input.clientName,
+        phone: input.clientPhone,
+        overwriteName: false,
+        currentTime: currentNow,
+      });
+
+      if (client.isBlocked) {
+        throw new AppError(
+          'BOOKING_NOT_ALLOWED',
+          403,
+          'Online booking is not available for this phone number. Please contact the business.',
+        );
+      }
+
+      // Language belongs to the public booking flow. Staff CRM upserts must
+      // preserve the existing preference. This write rolls back with booking.
+      await tx.client.update({
+        where: { id: client.id, companyId: company.id },
+        data: { locale: input.locale ?? company.defaultLocale },
+      });
+
+      const sub = await tx.subscription.findUnique({
+        where: { companyId: company.id },
+        include: { plan: { select: { featurePrepayment: true } } },
+      });
+      const prepayEnabled =
+        (sub?.plan.featurePrepayment ?? false) &&
+        service.requiresPrepayment &&
+        service.prepaymentMode !== null &&
+        service.prepaymentValue !== null;
+
+      const prepaymentAmount =
+        prepayEnabled && service.prepaymentMode && service.prepaymentValue
+          ? computePrepaymentAmount(service.price, service.prepaymentMode, service.prepaymentValue)
+          : null;
+      const prepaymentStatus = prepayEnabled
+        ? PrepaymentStatus.PENDING
+        : PrepaymentStatus.NOT_REQUIRED;
+      const prepaymentHoldUntil =
+        prepayEnabled && company.prepaymentHoldMin > 0
+          ? addDurationMsUtc(currentNow, company.prepaymentHoldMin * 60_000)
+          : null;
+
+      const manageToken = randomBytes(32).toString('base64url');
       const created = await tx.appointment.create({
         data: {
           companyId: company.id,
           masterId: master.id,
           serviceId: service.id,
+          packageId: packageRef?.id ?? null,
+          packageName: packageRef?.name ?? null,
+          items: { create: snapshotServices(services) },
+          clientId: client.id,
           clientName: input.clientName,
           clientPhone: input.clientPhone,
           clientNote,
@@ -393,10 +745,83 @@ export async function createPublicAppointmentBySlug(
           price: service.price,
           status: AppointmentStatus.SCHEDULED,
           source: AppointmentSource.ONLINE,
+          manageToken,
+          clientLocale: input.locale ?? company.defaultLocale,
+          consentAcceptedAt: currentNow,
+          prepaymentStatus,
+          prepaymentAmount,
+          prepaymentHoldUntil,
         },
       });
 
+      if (prepaymentStatus === PrepaymentStatus.PENDING && prepaymentAmount) {
+        const owner = await tx.user.findFirst({
+          where: {
+            companyId: company.id,
+            role: Role.OWNER,
+            isActive: true,
+            deletedAt: null,
+          },
+          select: { id: true, email: true, notifyEmail: true },
+        });
+        if (owner) {
+          const local = utcToLocalParts(created.startAt, company.timezone);
+          const amountStr = prepaymentAmount.toFixed(2);
+          await tx.inAppNotification.create({
+            data: {
+              companyId: company.id,
+              userId: owner.id,
+              kind: 'PREPAYMENT_PENDING_OWNER',
+              title: `Ожидается предоплата: ${created.clientName}`,
+              body: `${service.name} • ${amountStr} ${company.currency} • ${local.date} ${local.time}`,
+              data: { appointmentId: created.id },
+            },
+          });
+          if (owner.notifyEmail && owner.email) {
+            await enqueue(tx, {
+              companyId: company.id,
+              channel: 'EMAIL',
+              kind: 'PREPAYMENT_PENDING_OWNER',
+              recipient: owner.email,
+              toUserId: owner.id,
+              appointmentId: created.id,
+              payload: {
+                clientName: created.clientName,
+                serviceName: service.name,
+                amount: amountStr,
+                localDateTime: `${local.date} ${local.time}`,
+              },
+              dedupeKey: `prepay-pending:${created.id}:${owner.id}`,
+            });
+          }
+        }
+      }
+
+      await notifyCompanyStaff(tx, {
+        kind: 'NEW_ONLINE_BOOKING',
+        companyId: company.id,
+        companyName: company.name,
+        timezone: company.timezone,
+        appointmentId: created.id,
+        masterId: master.id,
+        masterName: master.name,
+        serviceName: service.name,
+        clientName: created.clientName,
+        startAt: created.startAt,
+        dedupeSuffix: 'online',
+      });
+
+      await scheduleAppointmentReminders(tx, {
+        appointment: created,
+        company,
+        serviceName: service.name,
+        currentNow,
+      });
+
       return {
+        manageUrl: `${env.APP_URL}/manage/${created.manageToken}`,
+        telegramBotUrl: buildClientTelegramBotUrl(created.manageToken),
+        prepayment: buildPublicPrepaymentBlock(created, company, service.name),
         appointment: {
           id: created.id,
           startAt: created.startAt.toISOString(),
@@ -408,6 +833,7 @@ export async function createPublicAppointmentBySlug(
             price: created.price.toFixed(2),
           },
           master: {
+            id: master.id,
             name: master.name,
           },
           company: {
@@ -425,4 +851,185 @@ export async function createPublicAppointmentBySlug(
     }
     throw err;
   }
+}
+
+export async function createPublicAppointmentBySlug(
+  slug: string,
+  input: CreatePublicAppointmentBody,
+): Promise<PublicCreateAppointmentResultDto> {
+  const preflightCompany = await resolveEnabledCompanyBySlug(prisma, slug);
+
+  const clientNote =
+    input.clientNote === undefined || input.clientNote === null || input.clientNote.length === 0
+      ? null
+      : input.clientNote;
+
+  if (input.website.trim().length === 0) {
+    await assertWithinMonthlyAppointmentLimit(preflightCompany.id, input.startAt);
+  }
+
+  if (!isAnyMasterChoice(input.masterId)) {
+    const preflightEntities = await resolveBookableMasterAndService(
+      prisma,
+      preflightCompany.id,
+      input.masterId,
+      input.serviceId,
+      input.serviceIds,
+      input.packageId,
+    );
+
+    // Honeypot `website`: if filled, return a fake 201 and write nothing to the DB
+    if (input.website.trim().length > 0) {
+      const fakeEndAt = addMinutesUtc(input.startAt, preflightEntities.service.durationMin);
+      const fakeToken = randomBytes(32).toString('base64url');
+      return {
+        manageUrl: `${env.APP_URL}/manage/${fakeToken}`,
+        telegramBotUrl: buildClientTelegramBotUrl(fakeToken),
+        prepayment: null,
+        appointment: {
+          id: randomUUID(),
+          startAt: input.startAt.toISOString(),
+          endAt: fakeEndAt.toISOString(),
+          status: AppointmentStatus.SCHEDULED,
+          service: {
+            name: preflightEntities.service.name,
+            durationMin: preflightEntities.service.durationMin,
+            price: preflightEntities.service.price.toFixed(2),
+          },
+          master: {
+            id: preflightEntities.master.id,
+            name: preflightEntities.master.name,
+          },
+          company: {
+            name: preflightCompany.name,
+            address: preflightCompany.address,
+            phone: preflightCompany.phone,
+            timezone: preflightCompany.timezone,
+          },
+        },
+      };
+    }
+
+    return bookSingleMasterInTransaction(slug, input.masterId, input, clientNote);
+  }
+
+  // BR-12: Any-available-master booking
+  const preflightSelection = await resolveActiveSelection(
+    prisma,
+    preflightCompany.id,
+    input.serviceId,
+    input.serviceIds,
+    input.packageId,
+  );
+  const preflightService = preflightSelection.service;
+  const candidates = await resolveCandidateMastersForServices(
+    prisma,
+    preflightCompany.id,
+    preflightSelection.services.map((s) => s.id),
+  );
+
+  if (candidates.length === 0) {
+    throw new AppError(
+      'SLOT_NOT_AVAILABLE',
+      422,
+      'Selected time slot is not available for booking',
+    );
+  }
+
+  const firstCandidate = candidates[0];
+  if (input.website.trim().length > 0 && firstCandidate) {
+    const fakeEndAt = addMinutesUtc(input.startAt, preflightService.durationMin);
+    const fakeToken = randomBytes(32).toString('base64url');
+    return {
+      manageUrl: `${env.APP_URL}/manage/${fakeToken}`,
+      telegramBotUrl: buildClientTelegramBotUrl(fakeToken),
+      prepayment: null,
+      appointment: {
+        id: randomUUID(),
+        startAt: input.startAt.toISOString(),
+        endAt: fakeEndAt.toISOString(),
+        status: AppointmentStatus.SCHEDULED,
+        service: {
+          name: preflightService.name,
+          durationMin: preflightService.durationMin,
+          price: preflightService.price.toFixed(2),
+        },
+        master: {
+          id: firstCandidate.id,
+          name: firstCandidate.name,
+        },
+        company: {
+          name: preflightCompany.name,
+          address: preflightCompany.address,
+          phone: preflightCompany.phone,
+          timezone: preflightCompany.timezone,
+        },
+      },
+    };
+  }
+
+  // Deterministic candidate ordering: fewest appointments on that local day ASC, then id ASC
+  const localDate = utcToLocalParts(input.startAt, preflightCompany.timezone).date;
+  const { startUtc: dayStartUtc, endUtc: dayEndUtc } = getLocalDayBoundsUtc(
+    localDate,
+    preflightCompany.timezone,
+  );
+  const candidateIds = candidates.map((c) => c.id);
+
+  const dayCounts = await prisma.appointment.groupBy({
+    by: ['masterId'],
+    where: {
+      companyId: preflightCompany.id,
+      masterId: { in: candidateIds },
+      status: { in: [...ACTIVE_SLOT_STATUSES] },
+      startAt: { lt: dayEndUtc },
+      endAt: { gt: dayStartUtc },
+    },
+    _count: {
+      _all: true,
+    },
+  });
+
+  const countByMasterId = new Map<string, number>();
+  for (const row of dayCounts) {
+    countByMasterId.set(row.masterId, row._count._all);
+  }
+
+  const orderedCandidates = [...candidates].sort((a, b) => {
+    const countA = countByMasterId.get(a.id) ?? 0;
+    const countB = countByMasterId.get(b.id) ?? 0;
+    if (countA !== countB) {
+      return countA - countB;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  let sawSlotAlreadyBooked = false;
+
+  for (const candidate of orderedCandidates) {
+    try {
+      return await bookSingleMasterInTransaction(slug, candidate.id, input, clientNote);
+    } catch (err) {
+      if (err instanceof AppError) {
+        if (err.code === 'SLOT_ALREADY_BOOKED') {
+          sawSlotAlreadyBooked = true;
+          continue;
+        }
+        if (
+          err.code === 'SLOT_NOT_AVAILABLE' ||
+          err.code === 'NOT_FOUND' ||
+          err.code === 'VALIDATION_ERROR'
+        ) {
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+
+  if (sawSlotAlreadyBooked) {
+    throw new AppError('SLOT_ALREADY_BOOKED', 409, 'Selected time slot is already booked');
+  }
+
+  throw new AppError('SLOT_NOT_AVAILABLE', 422, 'Selected time slot is not available for booking');
 }

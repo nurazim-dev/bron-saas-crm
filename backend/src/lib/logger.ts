@@ -12,7 +12,27 @@ const REDACTED_PATHS = [
   '*.token',
   '*.accessToken',
   '*.refreshToken',
+  '*.manageToken',
+  '*.mfaToken',
+  '*.recoveryCode',
+  '*.recoveryCodes',
+  '*.totp',
+  '*.totpSecret',
+  '*.secret',
+  '*.resetToken',
+  '*.telegramLinkCode',
+  '*.impersonationCode',
+  'req.query.token',
+  'req.headers.referer',
+  'req.headers.referrer',
 ];
+
+export function scrubSensitiveUrl(url: string | undefined): string | undefined {
+  if (!url) {
+    return url;
+  }
+  return url.replace(/([?&](?:token|resetToken|manageToken)=)[^&\s]+/gi, '$1[REDACTED]');
+}
 
 export const logger = pino({
   level: env.LOG_LEVEL,
